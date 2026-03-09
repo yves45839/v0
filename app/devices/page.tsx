@@ -28,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Search,
@@ -257,6 +258,16 @@ export default function DevicesPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [addDeviceOpen, setAddDeviceOpen] = useState(false)
+  const [baseUrl, setBaseUrl] = useState("http://localhost:8000")
+  const [tenantCode, setTenantCode] = useState("HQ-CASA")
+  const [serialNumber, setSerialNumber] = useState("SN-POSTMAN-0001")
+  const [ehomeKey, setEhomeKey] = useState("0123456789ABCDEF0123456789ABCDEF")
+  const [deviceName, setDeviceName] = useState("Pointeuse Entrée Principale")
+  const [deviceType, setDeviceType] = useState("AccessControl")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Calculate stats
   const onlineDevices = devices.filter((d) => d.status === "online").length
@@ -279,6 +290,71 @@ export default function DevicesPage() {
   const handleDeviceClick = (device: Device) => {
     setSelectedDevice(device)
     setDetailsOpen(true)
+  }
+
+  const handleOnboardDevice = async () => {
+    setIsSubmitting(true)
+    setSubmitError(null)
+    setSubmitMessage(null)
+
+    try {
+      const normalizedBaseUrl = baseUrl.replace(/\/$/, "")
+
+      const tokenResponse = await fetch(`${normalizedBaseUrl}/api/auth/token/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: "admin",
+          password: "Lsg@2020",
+        }),
+      })
+
+      if (!tokenResponse.ok) {
+        throw new Error(`Echec authentification (${tokenResponse.status})`)
+      }
+
+      const tokenData = await tokenResponse.json()
+      if (!tokenData?.access) {
+        throw new Error("Token d'accès manquant dans la réponse JWT")
+      }
+
+      const onboardResponse = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenData.access}`,
+        },
+        body: JSON.stringify({
+          tenant_code: tenantCode,
+          sn: serialNumber,
+          ehome_key: ehomeKey,
+          dev_name: deviceName,
+          dev_type: deviceType,
+        }),
+      })
+
+      const responseData = await onboardResponse.json().catch(() => ({}))
+
+      if (![200, 201, 409].includes(onboardResponse.status)) {
+        throw new Error(
+          responseData?.detail || responseData?.message || `Echec onboarding (${onboardResponse.status})`,
+        )
+      }
+
+      if (onboardResponse.status === 409) {
+        setSubmitMessage("Conflit: ce numéro de série est déjà affecté à un autre tenant.")
+      } else if (onboardResponse.status === 201) {
+        setSubmitMessage("Appareil ajouté avec succès via /api/devices/onboard/ (201).")
+      } else {
+        setSubmitMessage("Appareil déjà onboardé sur ce tenant (200).")
+      }
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Erreur inattendue")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -305,12 +381,107 @@ export default function DevicesPage() {
                 <RefreshCcw className="mr-2 h-4 w-4" />
                 Synchroniser
               </Button>
-              <Button size="sm">
+              <Button size="sm" onClick={() => setAddDeviceOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Ajouter un appareil
               </Button>
             </div>
           </div>
+
+          <Dialog open={addDeviceOpen} onOpenChange={setAddDeviceOpen}>
+            <DialogContent className="max-w-xl">
+              <DialogHeader>
+                <DialogTitle>Ajouter un appareil (API Hikvision)</DialogTitle>
+                <DialogDescription>
+                  Authentification automatique via <code>/api/auth/token/</code> avec admin,
+                  puis onboarding avec <code>/api/devices/onboard/</code>.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="base-url">Base URL API</Label>
+                  <Input
+                    id="base-url"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="http://localhost:8000"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-code">Tenant code</Label>
+                  <Input
+                    id="tenant-code"
+                    value={tenantCode}
+                    onChange={(e) => setTenantCode(e.target.value)}
+                    placeholder="HQ-CASA"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="serial-number">SN</Label>
+                  <Input
+                    id="serial-number"
+                    value={serialNumber}
+                    onChange={(e) => setSerialNumber(e.target.value)}
+                    placeholder="SN-POSTMAN-0001"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ehome-key">ehome_key</Label>
+                  <Input
+                    id="ehome-key"
+                    value={ehomeKey}
+                    onChange={(e) => setEhomeKey(e.target.value)}
+                    placeholder="0123456789ABCDEF0123456789ABCDEF"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="device-name">dev_name</Label>
+                  <Input
+                    id="device-name"
+                    value={deviceName}
+                    onChange={(e) => setDeviceName(e.target.value)}
+                    placeholder="Pointeuse Entrée Principale"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="device-type">dev_type</Label>
+                  <Input
+                    id="device-type"
+                    value={deviceType}
+                    onChange={(e) => setDeviceType(e.target.value)}
+                    placeholder="AccessControl"
+                  />
+                </div>
+
+                <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Login utilisé : <span className="font-mono">admin</span> — Password :
+                  <span className="font-mono"> Lsg@2020</span>
+                </div>
+
+                {submitMessage && (
+                  <p className="rounded-md border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-300">
+                    {submitMessage}
+                  </p>
+                )}
+
+                {submitError && (
+                  <p className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
+                    {submitError}
+                  </p>
+                )}
+
+                <Button className="w-full" onClick={handleOnboardDevice} disabled={isSubmitting}>
+                  {isSubmitting ? "Ajout en cours..." : "Ajouter via API"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Stats Cards */}
           <div className="mb-6 grid gap-4 sm:grid-cols-3">
