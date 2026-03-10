@@ -36,6 +36,7 @@ import {
   Loader2,
 } from "lucide-react"
 import type { Employee } from "@/app/employees/page"
+import { createEmployee, fetchEmployeeApiToken, isEmployeeApiEnabled } from "@/lib/api/employees"
 
 type AddEmployeeModalProps = {
   open: boolean
@@ -95,6 +96,7 @@ export function AddEmployeeModal({
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [apiError, setApiError] = useState("")
 
   const getInitials = (name: string) => {
     if (!name) return "?"
@@ -169,9 +171,33 @@ export function AddEmployeeModal({
     }
 
     setIsSubmitting(true)
+    setApiError("")
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    if (isEmployeeApiEnabled() && !isEditing) {
+      try {
+        const tokens = await fetchEmployeeApiToken()
+        await createEmployee(
+          {
+            tenant: 1,
+            employee_no: `PERS-${Date.now()}`,
+            name: formData.name,
+            email: formData.email,
+            phone: formData.phone,
+            position: formData.position,
+            cards: formData.cardNumber
+              ? [{ card_no: formData.cardNumber, card_type: "normalCard" }]
+              : undefined,
+            access_group: formData.selectedAccessGroups[0],
+          },
+          tokens.access
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Erreur API employee"
+        setApiError(message)
+        setIsSubmitting(false)
+        return
+      }
+    }
 
     const payload: Employee = {
       id: employeeToEdit?.id ?? `new-${Date.now()}`,
@@ -213,6 +239,7 @@ export function AddEmployeeModal({
       photoPreview: "",
     })
     setErrors({})
+    setApiError("")
     setActiveTab("info")
   }
 
@@ -606,6 +633,12 @@ export function AddEmployeeModal({
             </TabsContent>
           </div>
         </Tabs>
+
+        {apiError && (
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {apiError}
+          </p>
+        )}
 
         <DialogFooter className="gap-2 border-t border-border pt-4">
           <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>

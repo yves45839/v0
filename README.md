@@ -33,3 +33,37 @@ To learn more, take a look at the following resources:
 - [v0 Documentation](https://v0.app/docs) - learn about v0 and how to use it.
 
 <a href="https://v0.app/chat/api/kiro/clone/Adn225/v0-secure-point-dashboard-design" alt="Open in Kiro"><img src="https://pdgvvgmkdvyeydso.public.blob.vercel-storage.com/open%20in%20kiro.svg?sanitize=true" /></a>
+
+## Integrer la collection Employees API au projet
+
+### 1) Fichiers Postman inclus
+
+- Collection: `postman/employees-create-person.postman_collection.json`
+- Environment local: `postman/employees-local.postman_environment.json`
+
+Importe ces deux fichiers dans Postman puis lance la requete `Auth - Get JWT Token` avant les requetes de creation.
+
+### 2) Activer l'appel API depuis l'interface Employees
+
+Le modal "Ajouter un Employe" peut appeler l'API reelle au lieu du mode mock.
+
+Cree un fichier `.env.local`:
+
+```bash
+NEXT_PUBLIC_EMPLOYEE_API_ENABLED=true
+NEXT_PUBLIC_EMPLOYEE_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_EMPLOYEE_API_USERNAME=emp-admin
+NEXT_PUBLIC_EMPLOYEE_API_PASSWORD=pass
+```
+
+Puis relance l'app (`pnpm dev`).
+
+### 3) Fonctionnement actuel dans l'UI
+
+Quand `NEXT_PUBLIC_EMPLOYEE_API_ENABLED=true`:
+
+1. le front recupere un token JWT (`POST /api/auth/token/`)
+2. il cree la personne (`POST /api/employees/`)
+3. il met a jour la liste locale de l'interface
+
+Si l'API retourne une erreur, un message d'erreur est affiche dans le modal.

@@ -1,0 +1,88 @@
+{
+  "info": {
+    "_postman_id": "9e8dc260-06a4-4a38-9a84-9dc4f676f63a",
+    "name": "Employees - Create Person Only",
+    "description": "Collection Postman dédiée à l'ajout des personnes (POST /api/employees/).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('baseUrl')) { pm.collectionVariables.set('baseUrl', 'http://localhost:8000'); }"
+        ]
+      }
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "username", "value": "emp-admin" },
+    { "key": "password", "value": "pass" },
+    { "key": "tenantId", "value": "1" },
+    { "key": "departmentId", "value": "1" },
+    { "key": "deviceId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "Auth - Get JWT Token",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/token/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "token", ""]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "pm.collectionVariables.set('accessToken', json.access || '');",
+              "pm.collectionVariables.set('refreshToken', json.refresh || '');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Person - Minimal Required",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tenant\": {{tenantId}},\n  \"employee_no\": \"PERS-0001\",\n  \"name\": \"Jean Kouassi\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/employees/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "employees", ""]
+        }
+      }
+    }
+  ]
+}
