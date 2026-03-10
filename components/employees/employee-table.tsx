@@ -34,6 +34,7 @@ import type { Employee } from "@/app/employees/page"
 type EmployeeTableProps = {
   employees: Employee[]
   onEmployeeClick: (employee: Employee) => void
+  onEditEmployee: (employee: Employee) => void
 }
 
 const departmentColors: Record<string, string> = {
@@ -59,7 +60,7 @@ function SyncStatusIcon({ status }: { status: Employee["syncStatus"] }) {
   }
 }
 
-export function EmployeeTable({ employees, onEmployeeClick }: EmployeeTableProps) {
+export function EmployeeTable({ employees, onEmployeeClick, onEditEmployee }: EmployeeTableProps) {
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -151,7 +152,12 @@ export function EmployeeTable({ employees, onEmployeeClick }: EmployeeTableProps
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onEditEmployee(employee)
+                      }}
+                    >
                       <Pencil className="mr-2 h-4 w-4" />
                       Modifier
                     </DropdownMenuItem>

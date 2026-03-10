@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -41,6 +41,7 @@ type AddEmployeeModalProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onAddEmployee: (employee: Employee) => void
+  employeeToEdit?: Employee | null
 }
 
 const departments = [
@@ -74,7 +75,9 @@ export function AddEmployeeModal({
   open,
   onOpenChange,
   onAddEmployee,
+  employeeToEdit,
 }: AddEmployeeModalProps) {
+  const isEditing = !!employeeToEdit
   const [activeTab, setActiveTab] = useState("info")
   const [isSubmitting, setIsSubmitting] = useState(false)
   
@@ -170,9 +173,9 @@ export function AddEmployeeModal({
     // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    const newEmployee: Employee = {
-      id: `new-${Date.now()}`,
-      employeeId: `EMP-${String(Math.floor(Math.random() * 900) + 100)}`,
+    const payload: Employee = {
+      id: employeeToEdit?.id ?? `new-${Date.now()}`,
+      employeeId: employeeToEdit?.employeeId ?? `EMP-${String(Math.floor(Math.random() * 900) + 100)}`,
       name: formData.name,
       email: formData.email,
       phone: formData.phone,
@@ -181,17 +184,17 @@ export function AddEmployeeModal({
       photoUrl: formData.photoPreview,
       cardNumber: formData.cardNumber || "Non attribue",
       accessGroups: formData.selectedAccessGroups,
-      syncStatus: "pending",
+      syncStatus: employeeToEdit?.syncStatus ?? "pending",
       biometricStatus: {
-        hasFacePhoto: !!formData.photoFile,
-        hasFingerprint: false,
+        hasFacePhoto: !!formData.photoPreview,
+        hasFingerprint: employeeToEdit?.biometricStatus.hasFingerprint ?? false,
       },
-      hireDate: new Date().toISOString().split("T")[0],
-      lastAccess: "-",
-      accessLogs: [],
+      hireDate: employeeToEdit?.hireDate ?? new Date().toISOString().split("T")[0],
+      lastAccess: employeeToEdit?.lastAccess ?? "-",
+      accessLogs: employeeToEdit?.accessLogs ?? [],
     }
 
-    onAddEmployee(newEmployee)
+    onAddEmployee(payload)
     setIsSubmitting(false)
     resetForm()
     onOpenChange(false)
@@ -218,13 +221,38 @@ export function AddEmployeeModal({
     onOpenChange(false)
   }
 
+  useEffect(() => {
+    if (!open) return
+
+    if (employeeToEdit) {
+      setFormData({
+        name: employeeToEdit.name,
+        email: employeeToEdit.email,
+        phone: employeeToEdit.phone,
+        department: employeeToEdit.department,
+        position: employeeToEdit.position,
+        cardNumber: employeeToEdit.cardNumber,
+        selectedAccessGroups: employeeToEdit.accessGroups,
+        photoFile: null,
+        photoPreview: employeeToEdit.photoUrl,
+      })
+      setErrors({})
+      setActiveTab("info")
+      return
+    }
+
+    resetForm()
+  }, [employeeToEdit, open])
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-xl">Ajouter un Employe</DialogTitle>
+          <DialogTitle className="text-xl">{isEditing ? "Modifier l'Employe" : "Ajouter un Employe"}</DialogTitle>
           <DialogDescription>
-            Remplissez les informations pour creer un nouveau profil employe.
+            {isEditing
+              ? "Mettez a jour les informations de l'employe selectionne."
+              : "Remplissez les informations pour creer un nouveau profil employe."}
           </DialogDescription>
         </DialogHeader>
 
@@ -590,7 +618,7 @@ export function AddEmployeeModal({
                 Creation en cours...
               </>
             ) : (
-              "Creer l'Employe"
+              isEditing ? "Enregistrer les modifications" : "Creer l'Employe"
             )}
           </Button>
         </DialogFooter>

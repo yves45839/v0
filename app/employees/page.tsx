@@ -215,6 +215,7 @@ export default function EmployeesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
   const [employeeList, setEmployeeList] = useState<Employee[]>(employees)
 
   // Calculate stats
@@ -249,8 +250,26 @@ export default function EmployeesPage() {
     setDrawerOpen(true)
   }
 
-  const handleAddEmployee = (newEmployee: Employee) => {
-    setEmployeeList((prev) => [newEmployee, ...prev])
+  const handleSaveEmployee = (payload: Employee) => {
+    setEmployeeList((prev) => {
+      const exists = prev.some((employee) => employee.id === payload.id)
+      if (exists) {
+        return prev.map((employee) => (employee.id === payload.id ? payload : employee))
+      }
+      return [payload, ...prev]
+    })
+  }
+
+  const handleEditEmployee = (employee: Employee) => {
+    setEditingEmployee(employee)
+    setAddModalOpen(true)
+  }
+
+  const handleAddModalChange = (open: boolean) => {
+    setAddModalOpen(open)
+    if (!open) {
+      setEditingEmployee(null)
+    }
   }
 
   return (
@@ -281,7 +300,13 @@ export default function EmployeesPage() {
                 <Upload className="mr-2 h-4 w-4" />
                 Importer
               </Button>
-              <Button size="sm" onClick={() => setAddModalOpen(true)}>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingEmployee(null)
+                  setAddModalOpen(true)
+                }}
+              >
                 <Plus className="mr-2 h-4 w-4" />
                 Ajouter un employe
               </Button>
@@ -324,6 +349,7 @@ export default function EmployeesPage() {
           <EmployeeTable
             employees={filteredEmployees}
             onEmployeeClick={handleEmployeeClick}
+            onEditEmployee={handleEditEmployee}
           />
 
           {/* Employee Drawer */}
@@ -336,8 +362,9 @@ export default function EmployeesPage() {
           {/* Add Employee Modal */}
           <AddEmployeeModal
             open={addModalOpen}
-            onOpenChange={setAddModalOpen}
-            onAddEmployee={handleAddEmployee}
+            onOpenChange={handleAddModalChange}
+            onAddEmployee={handleSaveEmployee}
+            employeeToEdit={editingEmployee}
           />
         </main>
       </div>
