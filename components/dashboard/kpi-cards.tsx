@@ -3,16 +3,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, UserX, Clock, Cpu } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-interface KPIData {
-  presentToday: { count: number; total: number }
-  totalAbsences: number
-  lateArrivals: number
-  activeDevices: { count: number; total: number }
-}
+import type { DashboardKPIData } from "@/components/dashboard/types"
 
 interface KPICardsProps {
-  data: KPIData
+  data: DashboardKPIData
 }
 
 function ProgressRing({
@@ -28,7 +22,7 @@ function ProgressRing({
   strokeWidth?: number
   className?: string
 }) {
-  const percentage = (value / total) * 100
+  const percentage = total > 0 ? (value / total) * 100 : 0
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
   const offset = circumference - (percentage / 100) * circumference
@@ -68,43 +62,43 @@ function ProgressRing({
 export function KPICards({ data }: KPICardsProps) {
   const cards = [
     {
-      title: "Present Today",
+      title: "Presents aujourd'hui",
       value: data.presentToday.count,
-      subtitle: `of ${data.presentToday.total} employees`,
+      subtitle: `${data.presentToday.total} employes attendus`,
       icon: Users,
       showProgress: true,
       progressValue: data.presentToday.count,
       progressTotal: data.presentToday.total,
-      trend: "+2.5%",
+      trend: "Tendance stable",
       trendUp: true,
     },
     {
-      title: "Total Absences",
+      title: "Absences",
       value: data.totalAbsences,
-      subtitle: "This week",
+      subtitle: "Sur la periode en cours",
       icon: UserX,
       iconColor: "text-destructive",
-      trend: "-12%",
-      trendUp: true,
-    },
-    {
-      title: "Late Arrivals",
-      value: data.lateArrivals,
-      subtitle: "Today",
-      icon: Clock,
-      iconColor: "text-warning",
-      trend: "+3",
+      trend: "Controle requis",
       trendUp: false,
     },
     {
-      title: "Active Devices",
+      title: "Retards",
+      value: data.lateArrivals,
+      subtitle: "Detectes aujourd'hui",
+      icon: Clock,
+      iconColor: "text-warning",
+      trend: "A corriger",
+      trendUp: false,
+    },
+    {
+      title: "Appareils actifs",
       value: data.activeDevices.count,
-      subtitle: `of ${data.activeDevices.total} devices`,
+      subtitle: `${data.activeDevices.total} appareils au total`,
       icon: Cpu,
       showProgress: true,
       progressValue: data.activeDevices.count,
       progressTotal: data.activeDevices.total,
-      trend: "All online",
+      trend: "Surveillance continue",
       trendUp: true,
     },
   ]

@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
+import { PageContextBar } from "@/components/dashboard/page-context-bar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,10 +51,13 @@ import {
   MapPin,
   Activity,
   Zap,
+  ExternalLink,
 } from "lucide-react"
 
 type Device = {
   id: string
+  devIndex: string
+  coreDeviceId?: number
   name: string
   type: "door_controller" | "reader" | "turnstile" | "fingerprint"
   model: string
@@ -68,159 +72,68 @@ type Device = {
   todayEvents: number
 }
 
-// Mock data
-const devices: Device[] = [
-  {
-    id: "dev-001",
-    name: "Main Entrance A",
-    type: "door_controller",
-    model: "DS-K1T671M",
-    serialNumber: "HK2024001234",
-    location: "Building A, Ground Floor",
-    ipAddress: "192.168.1.101",
-    macAddress: "00:1A:2B:3C:4D:01",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v2.3.5",
-    connectedUsers: 256,
-    todayEvents: 342,
-  },
-  {
-    id: "dev-002",
-    name: "Main Entrance B",
-    type: "door_controller",
-    model: "DS-K1T671M",
-    serialNumber: "HK2024001235",
-    location: "Building A, Ground Floor",
-    ipAddress: "192.168.1.102",
-    macAddress: "00:1A:2B:3C:4D:02",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v2.3.5",
-    connectedUsers: 256,
-    todayEvents: 298,
-  },
-  {
-    id: "dev-003",
-    name: "Floor 2 Access",
-    type: "door_controller",
-    model: "DS-K1T341AM",
-    serialNumber: "HK2024001236",
-    location: "Building A, Floor 2",
-    ipAddress: "192.168.1.103",
-    macAddress: "00:1A:2B:3C:4D:03",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v2.3.4",
-    connectedUsers: 45,
-    todayEvents: 87,
-  },
-  {
-    id: "dev-004",
-    name: "Floor 3 Access",
-    type: "door_controller",
-    model: "DS-K1T341AM",
-    serialNumber: "HK2024001237",
-    location: "Building A, Floor 3",
-    ipAddress: "192.168.1.104",
-    macAddress: "00:1A:2B:3C:4D:04",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v2.3.4",
-    connectedUsers: 52,
-    todayEvents: 95,
-  },
-  {
-    id: "dev-005",
-    name: "Server Room",
-    type: "reader",
-    model: "DS-K1F820-F",
-    serialNumber: "HK2024001238",
-    location: "Building B, Basement",
-    ipAddress: "192.168.1.105",
-    macAddress: "00:1A:2B:3C:4D:05",
-    status: "warning",
-    lastSeen: "2 min ago",
-    firmware: "v1.8.2",
-    connectedUsers: 12,
-    todayEvents: 23,
-  },
-  {
-    id: "dev-006",
-    name: "HR Office",
-    type: "door_controller",
-    model: "DS-K1T341AM",
-    serialNumber: "HK2024001239",
-    location: "Building A, Floor 4",
-    ipAddress: "192.168.1.106",
-    macAddress: "00:1A:2B:3C:4D:06",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v2.3.4",
-    connectedUsers: 8,
-    todayEvents: 34,
-  },
-  {
-    id: "dev-007",
-    name: "Creative Lab",
-    type: "door_controller",
-    model: "DS-K1T671M",
-    serialNumber: "HK2024001240",
-    location: "Building C, Floor 1",
-    ipAddress: "192.168.2.101",
-    macAddress: "00:1A:2B:3C:4D:07",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v2.3.5",
-    connectedUsers: 25,
-    todayEvents: 56,
-  },
-  {
-    id: "dev-008",
-    name: "Parking Gate",
-    type: "turnstile",
-    model: "DS-K3B501-R",
-    serialNumber: "HK2024001241",
-    location: "Parking Lot",
-    ipAddress: "192.168.3.101",
-    macAddress: "00:1A:2B:3C:4D:08",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v3.1.0",
-    connectedUsers: 200,
-    todayEvents: 412,
-  },
-  {
-    id: "dev-009",
-    name: "Data Center",
-    type: "fingerprint",
-    model: "DS-K1T804MF",
-    serialNumber: "HK2024001242",
-    location: "Building B, Basement",
-    ipAddress: "192.168.1.107",
-    macAddress: "00:1A:2B:3C:4D:09",
-    status: "online",
-    lastSeen: "Just now",
-    firmware: "v2.0.1",
-    connectedUsers: 8,
-    todayEvents: 15,
-  },
-  {
-    id: "dev-010",
-    name: "Emergency Exit B2",
-    type: "door_controller",
-    model: "DS-K1T341AM",
-    serialNumber: "HK2024001243",
-    location: "Building A, Basement",
-    ipAddress: "192.168.1.108",
-    macAddress: "00:1A:2B:3C:4D:10",
-    status: "offline",
-    lastSeen: "5 hours ago",
-    firmware: "v2.3.4",
+type GatewayDevice = Record<string, unknown>
+type TenantOption = { id: number; code: string; name: string }
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
+const API_USERNAME = process.env.NEXT_PUBLIC_EMPLOYEE_API_USERNAME ?? "admin"
+const API_PASSWORD = process.env.NEXT_PUBLIC_EMPLOYEE_API_PASSWORD ?? "admin12345"
+const RAW_DEVICE_CONFIG_PATH = process.env.NEXT_PUBLIC_DEVICE_CONFIG_PATH ?? "/doc/index.html#/dashboard"
+const DEVICE_CONFIG_PATH = RAW_DEVICE_CONFIG_PATH.startsWith("/")
+  ? RAW_DEVICE_CONFIG_PATH
+  : `/${RAW_DEVICE_CONFIG_PATH}`
+const DEVICE_CONFIG_SCHEME =
+  (process.env.NEXT_PUBLIC_DEVICE_CONFIG_SCHEME ?? "https").toLowerCase() === "https" ? "https" : "http"
+
+const getConfigHostCandidate = (rawIpAddress: string): string | null => {
+  const value = String(rawIpAddress ?? "").trim()
+  if (!value || value === "-" || value.toLowerCase() === "n/a") {
+    return null
+  }
+  if (value.includes(":") || value.includes("/")) {
+    return null
+  }
+  return value
+}
+
+const normalizeStatus = (value: unknown): Device["status"] => {
+  const status = String(value ?? "").toLowerCase()
+  if (status.includes("online") || status === "active") return "online"
+  if (status.includes("offline") || status === "inactive") return "offline"
+  return "warning"
+}
+
+const inferDeviceType = (rawModel: string): Device["type"] => {
+  const model = rawModel.toLowerCase()
+  if (model.includes("finger")) return "fingerprint"
+  if (model.includes("turnstile")) return "turnstile"
+  if (model.includes("reader")) return "reader"
+  return "door_controller"
+}
+
+const mapGatewayDevice = (item: GatewayDevice, index: number): Device => {
+  const model = String(item.model ?? item.devType ?? item.device_type ?? "")
+  const tenantCode = String(item.tenant_code ?? "").trim()
+  const status = normalizeStatus(item.status)
+  const devIndex = String(item.devIndex ?? item.dev_index ?? item.id ?? `dev-${index}`)
+
+  return {
+    id: devIndex,
+    devIndex,
+    name: String(item.name ?? item.device_name ?? item.devName ?? "Appareil Hikvision"),
+    type: inferDeviceType(model),
+    model: model || "N/A",
+    serialNumber: String(item.serial_number ?? item.sn ?? item.dev_serial ?? "N/A"),
+    location: tenantCode ? `Tenant ${tenantCode}` : "Non assigne",
+    ipAddress: String(item.ip_address ?? item.ipAddress ?? item.devAddress ?? "-"),
+    macAddress: String(item.mac_address ?? item.macAddress ?? "-"),
+    status,
+    lastSeen: status === "online" ? "Actif" : "A verifier",
+    firmware: String(item.version ?? item.firmware ?? "N/A"),
     connectedUsers: 0,
     todayEvents: 0,
-  },
-]
+  }
+}
 
 const getDeviceIcon = (type: Device["type"]) => {
   switch (type) {
@@ -259,15 +172,190 @@ export default function DevicesPage() {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [addDeviceOpen, setAddDeviceOpen] = useState(false)
-  const [baseUrl, setBaseUrl] = useState("http://localhost:8000")
-  const [tenantCode, setTenantCode] = useState("HQ-CASA")
+  const [devices, setDevices] = useState<Device[]>([])
+  const [isLoadingDevices, setIsLoadingDevices] = useState(false)
+  const [devicesError, setDevicesError] = useState<string | null>(null)
+  const [tenantCode, setTenantCode] = useState("")
+  const [tenants, setTenants] = useState<TenantOption[]>([])
+  const [isLoadingTenants, setIsLoadingTenants] = useState(false)
   const [serialNumber, setSerialNumber] = useState("SN-POSTMAN-0001")
   const [ehomeKey, setEhomeKey] = useState("0123456789ABCDEF0123456789ABCDEF")
-  const [deviceName, setDeviceName] = useState("Pointeuse Entrée Principale")
-  const [deviceType, setDeviceType] = useState("AccessControl")
+  const [devicePassword, setDevicePassword] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitMessage, setSubmitMessage] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [deletingDeviceId, setDeletingDeviceId] = useState<string | null>(null)
+  const [restartingDeviceId, setRestartingDeviceId] = useState<string | null>(null)
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null)
+  const [editDeviceOpen, setEditDeviceOpen] = useState(false)
+  const [editName, setEditName] = useState("")
+  const [isUpdatingDevice, setIsUpdatingDevice] = useState(false)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const [configuringDeviceId, setConfiguringDeviceId] = useState<string | null>(null)
+
+  const getAccessToken = async (normalizedBaseUrl: string) => {
+    const tokenResponse = await fetch(`${normalizedBaseUrl}/api/auth/token/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: API_USERNAME,
+        password: API_PASSWORD,
+      }),
+    })
+
+    if (!tokenResponse.ok) {
+      throw new Error(`Echec authentification API (${tokenResponse.status})`)
+    }
+
+    const tokenData = await tokenResponse.json()
+    if (!tokenData?.access) {
+      throw new Error("Token d'acces manquant dans la reponse JWT")
+    }
+    return String(tokenData.access)
+  }
+
+  const refreshDevices = async () => {
+    setIsLoadingDevices(true)
+    setDevicesError(null)
+
+    try {
+      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+      const accessToken = await getAccessToken(normalizedBaseUrl)
+
+      await fetch(`${normalizedBaseUrl}/api/hikgateway/sync-devices/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ dispatch_core_devices: true }),
+      }).catch(() => null)
+
+      const query = tenantCode.trim()
+        ? `?tenant=${encodeURIComponent(tenantCode.trim())}&normalized=1&max_result=200`
+        : "?normalized=1&max_result=200"
+
+      const response = await fetch(`${normalizedBaseUrl}/api/hikgateway/devices/${query}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`Echec lecture devices (${response.status})`)
+      }
+
+      const data = await response.json()
+      const results = Array.isArray(data?.results) ? data.results : []
+      const mappedDevices = results.map((item: GatewayDevice, index: number) => mapGatewayDevice(item, index))
+
+      const coreDevicesResponse = await fetch(`${normalizedBaseUrl}/api/devices/`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      const coreByDevIndex = new Map<string, { id: number; name: string; serialNumber: string }>()
+      const coreBySerial = new Map<string, { id: number; name: string; serialNumber: string }>()
+      if (coreDevicesResponse.ok) {
+        const corePayload = await coreDevicesResponse.json()
+        const coreRows = Array.isArray(corePayload)
+          ? corePayload
+          : Array.isArray(corePayload?.results)
+            ? corePayload.results
+            : []
+
+        for (const row of coreRows as Array<Record<string, unknown>>) {
+          const rowId = Number(row.id)
+          const rowDevIndex = String(row.dev_index ?? "").trim()
+          const rowName = String(row.name ?? "").trim()
+          const rowSerialNumber = String(row.serial_number ?? "").trim()
+          if (!Number.isFinite(rowId)) {
+            continue
+          }
+          const normalized = {
+            id: rowId,
+            name: rowName,
+            serialNumber: rowSerialNumber,
+          }
+          if (rowDevIndex) {
+            coreByDevIndex.set(rowDevIndex, normalized)
+          }
+          if (rowSerialNumber) {
+            coreBySerial.set(rowSerialNumber, normalized)
+          }
+        }
+      }
+
+      setDevices(
+        mappedDevices.map((device: Device) => ({
+          ...device,
+          coreDeviceId:
+            coreByDevIndex.get(device.devIndex)?.id ?? coreBySerial.get(device.serialNumber)?.id,
+          name:
+            coreByDevIndex.get(device.devIndex)?.name ||
+            coreBySerial.get(device.serialNumber)?.name ||
+            device.name,
+        })),
+      )
+    } catch (error) {
+      setDevices([])
+      setDevicesError(error instanceof Error ? error.message : "Erreur chargement des appareils")
+    } finally {
+      setIsLoadingDevices(false)
+    }
+  }
+
+  const loadTenants = async () => {
+    setIsLoadingTenants(true)
+    try {
+      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+      const accessToken = await getAccessToken(normalizedBaseUrl)
+      const response = await fetch(`${normalizedBaseUrl}/api/tenants/`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`Echec lecture tenants (${response.status})`)
+      }
+
+      const data = await response.json()
+      const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
+      const parsed = rows
+        .map((item: Record<string, unknown>) => ({
+          id: Number(item.id),
+          code: String(item.code ?? "").trim(),
+          name: String(item.name ?? "").trim(),
+        }))
+        .filter((item: TenantOption) => Number.isFinite(item.id) && item.code)
+
+      setTenants(parsed)
+      if (!tenantCode && parsed.length > 0) {
+        setTenantCode(parsed[0].code)
+      }
+    } catch {
+      setTenants([])
+    } finally {
+      setIsLoadingTenants(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshDevices()
+    void loadTenants()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (addDeviceOpen && tenants.length === 0) {
+      void loadTenants()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addDeviceOpen])
 
   // Calculate stats
   const onlineDevices = devices.filter((d) => d.status === "online").length
@@ -292,68 +380,287 @@ export default function DevicesPage() {
     setDetailsOpen(true)
   }
 
-  const handleOnboardDevice = async () => {
+  const handleCreateDevice = async () => {
     setIsSubmitting(true)
     setSubmitError(null)
     setSubmitMessage(null)
 
     try {
-      const normalizedBaseUrl = baseUrl.replace(/\/$/, "")
+      if (!tenantCode.trim()) {
+        throw new Error("Le champ tenant_code est obligatoire.")
+      }
+      if (!serialNumber.trim()) {
+        throw new Error("Le champ serial_number/sn est obligatoire.")
+      }
+      if (!ehomeKey.trim()) {
+        throw new Error("Le champ ehome_key est obligatoire.")
+      }
+      if (!devicePassword.trim()) {
+        throw new Error("Le champ device_password est obligatoire.")
+      }
 
-      const tokenResponse = await fetch(`${normalizedBaseUrl}/api/auth/token/`, {
+      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+      const accessToken = await getAccessToken(normalizedBaseUrl)
+
+      const createResponse = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          username: "admin",
-          password: "Lsg@2020",
+          tenant_code: tenantCode.trim(),
+          sn: serialNumber.trim(),
+          ehome_key: ehomeKey.trim(),
+          dev_name: `Device ${serialNumber.trim()}`,
+          dev_type: "AccessControl",
+          device_username: "admin",
+          device_password: devicePassword.trim(),
         }),
       })
 
-      if (!tokenResponse.ok) {
-        throw new Error(`Echec authentification (${tokenResponse.status})`)
-      }
+      const responseData = await createResponse.json().catch(() => ({}))
 
-      const tokenData = await tokenResponse.json()
-      if (!tokenData?.access) {
-        throw new Error("Token d'accès manquant dans la réponse JWT")
-      }
-
-      const onboardResponse = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${tokenData.access}`,
-        },
-        body: JSON.stringify({
-          tenant_code: tenantCode,
-          sn: serialNumber,
-          ehome_key: ehomeKey,
-          dev_name: deviceName,
-          dev_type: deviceType,
-        }),
-      })
-
-      const responseData = await onboardResponse.json().catch(() => ({}))
-
-      if (![200, 201, 409].includes(onboardResponse.status)) {
+      if (![200, 201, 409].includes(createResponse.status)) {
         throw new Error(
-          responseData?.detail || responseData?.message || `Echec onboarding (${onboardResponse.status})`,
+          responseData?.detail || responseData?.message || `Echec onboarding device (${createResponse.status})`,
         )
       }
 
-      if (onboardResponse.status === 409) {
-        setSubmitMessage("Conflit: ce numéro de série est déjà affecté à un autre tenant.")
-      } else if (onboardResponse.status === 201) {
-        setSubmitMessage("Appareil ajouté avec succès via /api/devices/onboard/ (201).")
+      if (createResponse.status === 201) {
+        setSubmitMessage("Appareil ajoute avec succes via /api/devices/onboard/ (201).")
+      } else if (createResponse.status === 200) {
+        setSubmitMessage("Appareil deja onboarde sur ce tenant (200).")
       } else {
-        setSubmitMessage("Appareil déjà onboardé sur ce tenant (200).")
+        setSubmitMessage("Conflit: ce numero de serie est deja affecte a un autre tenant.")
       }
+      await refreshDevices()
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Erreur inattendue")
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleDeleteDevice = async (device: Device) => {
+    if (!device.coreDeviceId) {
+      setDevicesError("Impossible de supprimer: id local introuvable. Lance une synchronisation puis reessaie.")
+      return
+    }
+
+    const confirmed = window.confirm(`Supprimer l'appareil "${device.name}" ?`)
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingDeviceId(device.id)
+    setDevicesError(null)
+
+    try {
+      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+      const accessToken = await getAccessToken(normalizedBaseUrl)
+      const response = await fetch(`${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/?gateway=1`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}))
+        throw new Error(
+          String(
+            errorPayload?.detail ??
+              errorPayload?.message ??
+              `Echec suppression device (${response.status})`,
+          ),
+        )
+      }
+
+      setDevices((previous) => previous.filter((item) => item.id !== device.id))
+      if (selectedDevice?.id === device.id) {
+        setDetailsOpen(false)
+        setSelectedDevice(null)
+      }
+    } catch (error) {
+      setDevicesError(error instanceof Error ? error.message : "Erreur suppression appareil")
+    } finally {
+      setDeletingDeviceId(null)
+    }
+  }
+
+  const handleRestartDevice = async (device: Device) => {
+    if (!device.coreDeviceId) {
+      setDevicesError("Impossible de redemarrer: id local introuvable. Lance une synchronisation puis reessaie.")
+      return
+    }
+
+    const confirmed = window.confirm(`Redemarrer l'appareil "${device.name}" ?`)
+    if (!confirmed) {
+      return
+    }
+
+    setRestartingDeviceId(device.id)
+    setDevicesError(null)
+
+    try {
+      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+      const accessToken = await getAccessToken(normalizedBaseUrl)
+      const response = await fetch(`${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/reboot/`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(
+          String(payload?.detail ?? payload?.message ?? `Echec redemarrage device (${response.status})`),
+        )
+      }
+    } catch (error) {
+      setDevicesError(error instanceof Error ? error.message : "Erreur redemarrage appareil")
+    } finally {
+      setRestartingDeviceId(null)
+    }
+  }
+
+  const openEditDevice = (device: Device) => {
+    setEditingDevice(device)
+    setEditName(device.name)
+    setUpdateError(null)
+    setEditDeviceOpen(true)
+  }
+
+  const handleUpdateDevice = async () => {
+    if (!editingDevice) {
+      return
+    }
+    if (!editingDevice.coreDeviceId) {
+      setUpdateError("Impossible de modifier: id local introuvable. Lance une synchronisation puis reessaie.")
+      return
+    }
+    if (!editName.trim()) {
+      setUpdateError("Le nom est obligatoire.")
+      return
+    }
+
+    setIsUpdatingDevice(true)
+    setUpdateError(null)
+
+    try {
+      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+      const accessToken = await getAccessToken(normalizedBaseUrl)
+      const response = await fetch(`${normalizedBaseUrl}/api/devices/${editingDevice.coreDeviceId}/`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          name: editName.trim(),
+        }),
+      })
+
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(
+          String(payload?.detail ?? payload?.message ?? `Echec modification device (${response.status})`),
+        )
+      }
+
+      setDevices((previous) =>
+        previous.map((item) =>
+          item.id === editingDevice.id
+            ? {
+                ...item,
+                name: String(payload?.name ?? editName.trim()),
+              }
+            : item,
+        ),
+      )
+      setSelectedDevice((previous) =>
+        previous && previous.id === editingDevice.id
+          ? { ...previous, name: String(payload?.name ?? editName.trim()) }
+          : previous,
+      )
+      setEditDeviceOpen(false)
+      setEditingDevice(null)
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : "Erreur modification appareil")
+    } finally {
+      setIsUpdatingDevice(false)
+    }
+  }
+
+  const handleOpenDeviceConfiguration = async (device: Device) => {
+    if (!device.coreDeviceId) {
+      setDevicesError("Impossible d'ouvrir la configuration: id local introuvable. Lance une synchronisation puis reessaie.")
+      return
+    }
+
+    setConfiguringDeviceId(device.id)
+    setDevicesError(null)
+
+    let popup: Window | null = null
+    try {
+      popup = window.open("", "_blank", "noopener,noreferrer")
+
+      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+      const accessToken = await getAccessToken(normalizedBaseUrl)
+      const query = new URLSearchParams({
+        scheme: DEVICE_CONFIG_SCHEME,
+        path: DEVICE_CONFIG_PATH,
+      })
+      let hostCandidate = getConfigHostCandidate(device.ipAddress)
+      if (!hostCandidate) {
+        const manualHost = window.prompt(
+          "IP/hostname du terminal (optionnel).\nExemple: 192.168.1.90\nLaisse vide pour utiliser la configuration via Gateway ISAPI.",
+          "",
+        )
+        hostCandidate = getConfigHostCandidate(manualHost ?? "")
+      }
+      if (hostCandidate) {
+        query.set("host", hostCandidate)
+      } else {
+        query.set("allow_gateway_fallback", "1")
+      }
+
+      const response = await fetch(
+        `${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/config-page/?${query.toString()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      )
+
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(
+          String(payload?.detail ?? payload?.message ?? `Echec ouverture config device (${response.status})`),
+        )
+      }
+
+      const configurationUrl = String(payload?.configuration_url ?? "").trim()
+      if (!configurationUrl) {
+        throw new Error("URL de configuration introuvable pour cet appareil.")
+      }
+
+      if (popup && !popup.closed) {
+        popup.location.replace(configurationUrl)
+        popup.focus()
+      } else {
+        window.open(configurationUrl, "_blank", "noopener,noreferrer")
+      }
+    } catch (error) {
+      if (popup && !popup.closed) {
+        popup.close()
+      }
+      setDevicesError(error instanceof Error ? error.message : "Erreur ouverture configuration appareil")
+    } finally {
+      setConfiguringDeviceId(null)
     }
   }
 
@@ -365,58 +672,67 @@ export default function DevicesPage() {
         <Header systemStatus="connected" />
 
         <main className="p-6">
-          {/* Page Header */}
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-foreground">
-                Appareils <span className="text-muted-foreground">({devices.length})</span>
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Gestion des controleurs et lecteurs HikVision
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
+          <PageContextBar
+            title="Appareils"
+            description="Inventaire, sante et actions de maintenance sur les controleurs et lecteurs Hikvision."
+            stats={[
+              { value: devices.length, label: "Appareils suivis" },
+              { value: devices.filter((device) => device.status === "offline").length, label: "Hors ligne", tone: "critical" },
+              { value: devices.filter((device) => device.status === "warning").length, label: "A surveiller", tone: "warning" },
+            ]}
+            actions={
+              <>
+              <Button variant="outline" size="sm" onClick={() => void refreshDevices()} disabled={isLoadingDevices}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
-                Synchroniser
+                {isLoadingDevices ? "Synchronisation..." : "Synchroniser"}
               </Button>
               <Button size="sm" onClick={() => setAddDeviceOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Ajouter un appareil
               </Button>
-            </div>
-          </div>
+              </>
+            }
+          />
+
+          {devicesError && (
+            <p className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
+              {devicesError}
+            </p>
+          )}
 
           <Dialog open={addDeviceOpen} onOpenChange={setAddDeviceOpen}>
             <DialogContent className="max-w-xl">
               <DialogHeader>
                 <DialogTitle>Ajouter un appareil (API Hikvision)</DialogTitle>
                 <DialogDescription>
-                  Authentification automatique via <code>/api/auth/token/</code> avec admin,
-                  puis onboarding avec <code>/api/devices/onboard/</code>.
+                  Tenants recuperes automatiquement. Champs requis: tenant_code, SN, ehome_key, device_password.
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="base-url">Base URL API</Label>
-                  <Input
-                    id="base-url"
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder="http://localhost:8000"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="tenant-code">Tenant code</Label>
-                  <Input
-                    id="tenant-code"
-                    value={tenantCode}
-                    onChange={(e) => setTenantCode(e.target.value)}
-                    placeholder="HQ-CASA"
-                  />
+                  <Label htmlFor="tenant-code">tenant_code</Label>
+                  {tenants.length > 0 ? (
+                    <Select value={tenantCode} onValueChange={setTenantCode}>
+                      <SelectTrigger id="tenant-code">
+                        <SelectValue placeholder={isLoadingTenants ? "Chargement..." : "Selectionner un tenant"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tenants.map((tenant) => (
+                          <SelectItem key={tenant.id} value={tenant.code}>
+                            {tenant.name || tenant.code} ({tenant.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="tenant-code"
+                      value={tenantCode}
+                      onChange={(e) => setTenantCode(e.target.value)}
+                      placeholder={isLoadingTenants ? "Chargement..." : "TENANT-A"}
+                    />
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -440,28 +756,14 @@ export default function DevicesPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="device-name">dev_name</Label>
+                  <Label htmlFor="device-password">device_password</Label>
                   <Input
-                    id="device-name"
-                    value={deviceName}
-                    onChange={(e) => setDeviceName(e.target.value)}
-                    placeholder="Pointeuse Entrée Principale"
+                    id="device-password"
+                    type="password"
+                    value={devicePassword}
+                    onChange={(e) => setDevicePassword(e.target.value)}
+                    placeholder="requis"
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="device-type">dev_type</Label>
-                  <Input
-                    id="device-type"
-                    value={deviceType}
-                    onChange={(e) => setDeviceType(e.target.value)}
-                    placeholder="AccessControl"
-                  />
-                </div>
-
-                <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-                  Login utilisé : <span className="font-mono">admin</span> — Password :
-                  <span className="font-mono"> Lsg@2020</span>
                 </div>
 
                 {submitMessage && (
@@ -476,8 +778,41 @@ export default function DevicesPage() {
                   </p>
                 )}
 
-                <Button className="w-full" onClick={handleOnboardDevice} disabled={isSubmitting}>
+                <Button className="w-full" onClick={handleCreateDevice} disabled={isSubmitting}>
                   {isSubmitting ? "Ajout en cours..." : "Ajouter via API"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={editDeviceOpen} onOpenChange={setEditDeviceOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Modifier l&apos;appareil</DialogTitle>
+                <DialogDescription>
+                  Champs modifiables via API locale: nom (et autres champs autorises cote backend).
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-device-name">Nom</Label>
+                  <Input
+                    id="edit-device-name"
+                    value={editName}
+                    onChange={(event) => setEditName(event.target.value)}
+                    placeholder="Nom de l'appareil"
+                  />
+                </div>
+
+                {updateError && (
+                  <p className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
+                    {updateError}
+                  </p>
+                )}
+
+                <Button className="w-full" onClick={handleUpdateDevice} disabled={isUpdatingDevice}>
+                  {isUpdatingDevice ? "Enregistrement..." : "Enregistrer"}
                 </Button>
               </div>
             </DialogContent>
@@ -607,22 +942,40 @@ export default function DevicesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openEditDevice(device)
+                            }}
+                          >
                             <Settings className="mr-2 h-4 w-4" />
-                            Configurer
+                            Modifier
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={restartingDeviceId === device.id}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void handleRestartDevice(device)
+                            }}
+                          >
                             <RefreshCcw className="mr-2 h-4 w-4" />
-                            Redemarrer
+                            {restartingDeviceId === device.id ? "Redemarrage..." : "Redemarrer"}
                           </DropdownMenuItem>
                           <DropdownMenuItem>
                             <Power className="mr-2 h-4 w-4" />
                             {device.status === "offline" ? "Activer" : "Desactiver"}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-destructive">
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            disabled={deletingDeviceId === device.id}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void handleDeleteDevice(device)
+                            }}
+                          >
                             <Trash2 className="mr-2 h-4 w-4" />
-                            Supprimer
+                            {deletingDeviceId === device.id ? "Suppression..." : "Supprimer"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -691,6 +1044,12 @@ export default function DevicesPage() {
               )
             })}
           </div>
+
+          {!isLoadingDevices && filteredDevices.length === 0 && (
+            <p className="mt-4 rounded-md border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+              Aucun appareil trouvé avec les filtres actuels.
+            </p>
+          )}
 
           {/* Device Details Dialog */}
           <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
@@ -787,6 +1146,18 @@ export default function DevicesPage() {
                         </p>
                       </div>
                     </div>
+
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      disabled={configuringDeviceId === selectedDevice.id}
+                      onClick={() => void handleOpenDeviceConfiguration(selectedDevice)}
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      {configuringDeviceId === selectedDevice.id
+                        ? "Ouverture de l'interface..."
+                        : "Ouvrir l'interface de configuration"}
+                    </Button>
                   </TabsContent>
 
                   <TabsContent value="network" className="mt-4 space-y-4">
@@ -862,3 +1233,6 @@ export default function DevicesPage() {
     </div>
   )
 }
+
+
+

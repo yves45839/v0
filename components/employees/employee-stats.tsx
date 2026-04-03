@@ -1,17 +1,17 @@
 "use client"
 
 import { Card } from "@/components/ui/card"
-import { CheckCircle2, Clock, AlertTriangle } from "lucide-react"
+import { CheckCircle2, Users, AlertTriangle } from "lucide-react"
 
 type EmployeeStatsProps = {
   totalActive: number
-  pendingSync: number
+  totalEmployees: number
   biometricAlerts: number
 }
 
 export function EmployeeStats({
   totalActive,
-  pendingSync,
+  totalEmployees,
   biometricAlerts,
 }: EmployeeStatsProps) {
   return (
@@ -27,14 +27,14 @@ export function EmployeeStats({
         </div>
       </Card>
 
-      {/* Pending Sync */}
+      {/* Total Employees */}
       <Card className="flex items-center gap-4 p-4 transition-colors hover:bg-accent/50">
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning/10">
-          <Clock className="h-6 w-6 text-warning" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10">
+          <Users className="h-6 w-6 text-blue-400" />
         </div>
         <div>
-          <p className="text-sm font-medium text-muted-foreground">En attente de Synchro</p>
-          <p className="text-2xl font-semibold text-foreground">{pendingSync}</p>
+          <p className="text-sm font-medium text-muted-foreground">Employes</p>
+          <p className="text-2xl font-semibold text-foreground">{totalEmployees}</p>
         </div>
       </Card>
 

@@ -5,15 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { Cpu, DoorOpen, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-interface Device {
-  id: string
-  name: string
-  type: "door_controller" | "turnstile" | "reader"
-  location: string
-  status: "online" | "offline" | "warning"
-  lastSeen: string
-}
+import type { Device } from "@/components/dashboard/types"
 
 interface DeviceHealthProps {
   devices: Device[]
@@ -27,34 +19,39 @@ const deviceTypeIcons = {
 
 const statusConfig = {
   online: {
-    label: "Online",
+    label: "En ligne",
     dotColor: "bg-primary",
     textColor: "text-primary",
   },
   offline: {
-    label: "Offline",
+    label: "Hors ligne",
     dotColor: "bg-destructive",
     textColor: "text-destructive",
   },
   warning: {
-    label: "Warning",
+    label: "A surveiller",
     dotColor: "bg-warning animate-pulse",
     textColor: "text-warning",
   },
 }
 
 export function DeviceHealth({ devices }: DeviceHealthProps) {
+  const sortedDevices = [...devices].sort((left, right) => {
+    const severity = { offline: 0, warning: 1, online: 2 } as const
+    return severity[left.status] - severity[right.status] || left.name.localeCompare(right.name)
+  })
   const onlineCount = devices.filter((d) => d.status === "online").length
   const offlineCount = devices.filter((d) => d.status === "offline").length
+  const warningCount = devices.filter((d) => d.status === "warning").length
 
   return (
     <Card className="h-full border-border bg-card">
       <CardHeader className="flex flex-row items-center justify-between pb-4">
         <div>
           <CardTitle className="text-lg font-semibold text-card-foreground">
-            Device Health
+            Sante des appareils
           </CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">HikCentral Controllers</p>
+          <p className="mt-1 text-xs text-muted-foreground">Controleurs et lecteurs Hikvision</p>
         </div>
         <Button
           variant="ghost"
@@ -70,13 +67,19 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-primary" />
             <span className="text-sm text-muted-foreground">
-              <span className="font-semibold text-card-foreground">{onlineCount}</span> Online
+              <span className="font-semibold text-card-foreground">{onlineCount}</span> En ligne
             </span>
           </div>
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-destructive" />
             <span className="text-sm text-muted-foreground">
-              <span className="font-semibold text-card-foreground">{offlineCount}</span> Offline
+              <span className="font-semibold text-card-foreground">{offlineCount}</span> Hors ligne
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-warning" />
+            <span className="text-sm text-muted-foreground">
+              <span className="font-semibold text-card-foreground">{warningCount}</span> A surveiller
             </span>
           </div>
         </div>
@@ -84,7 +87,7 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
         {/* Device List */}
         <ScrollArea className="h-80">
           <div className="space-y-2 pr-4">
-            {devices.map((device) => {
+            {sortedDevices.map((device) => {
               const Icon = deviceTypeIcons[device.type]
               const status = statusConfig[device.status]
 

@@ -14,17 +14,7 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { Activity, TrendingUp } from "lucide-react"
-
-interface AccessEvent {
-  id: string
-  employeeId: string
-  name: string
-  photo?: string
-  department: string
-  deviceName: string
-  status: "granted" | "denied"
-  timestamp: string
-}
+import type { AccessEvent } from "@/components/dashboard/types"
 
 interface AccessStreamProps {
   events: AccessEvent[]
@@ -45,7 +35,7 @@ function StatusDot({ status }: { status: "granted" | "denied" }) {
           status === "granted" ? "text-primary" : "text-destructive"
         )}
       >
-        {status === "granted" ? "Access Granted" : "Access Denied"}
+        {status === "granted" ? "Acces autorise" : "Acces refuse"}
       </span>
     </div>
   )
@@ -67,12 +57,12 @@ export function AccessStream({ events }: AccessStreamProps) {
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-primary" />
           <CardTitle className="text-lg font-semibold text-card-foreground">
-            Real-time Access Stream
+            Flux d'acces en temps reel
           </CardTitle>
         </div>
         <Badge variant="outline" className="border-primary/50 text-primary">
           <span className="mr-1.5 h-2 w-2 animate-pulse rounded-full bg-primary" />
-          Live
+          En direct
         </Badge>
       </CardHeader>
       <CardContent>
@@ -82,13 +72,13 @@ export function AccessStream({ events }: AccessStreamProps) {
               value="daily"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
-              Daily View
+              Vue du jour
             </TabsTrigger>
             <TabsTrigger
               value="weekly"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
-              Weekly Trends
+              Tendances
             </TabsTrigger>
           </TabsList>
 
@@ -97,11 +87,11 @@ export function AccessStream({ events }: AccessStreamProps) {
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="text-muted-foreground">Employee</TableHead>
-                    <TableHead className="text-muted-foreground">Department</TableHead>
-                    <TableHead className="text-muted-foreground">Device</TableHead>
-                    <TableHead className="text-muted-foreground">Status</TableHead>
-                    <TableHead className="text-right text-muted-foreground">Time</TableHead>
+                    <TableHead className="text-muted-foreground">Employe</TableHead>
+                    <TableHead className="text-muted-foreground">Departement</TableHead>
+                    <TableHead className="text-muted-foreground">Appareil</TableHead>
+                    <TableHead className="text-muted-foreground">Statut</TableHead>
+                    <TableHead className="text-right text-muted-foreground">Heure</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -151,9 +141,9 @@ export function AccessStream({ events }: AccessStreamProps) {
               <div className="text-center">
                 <TrendingUp className="mx-auto h-12 w-12 text-muted-foreground" />
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Weekly trends visualization
+                  Visualisation des tendances hebdomadaires
                 </p>
-                <p className="text-xs text-muted-foreground">Coming soon</p>
+                <p className="text-xs text-muted-foreground">Activation prochaine</p>
               </div>
             </div>
           </TabsContent>

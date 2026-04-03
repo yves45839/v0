@@ -1,8 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
+import { PageContextBar } from "@/components/dashboard/page-context-bar"
+import { fetchHikEvents, triggerHikEventsCatchup, type HikEvent } from "@/lib/api/access-logs"
+import { fetchEmployees, type EmployeeListItem } from "@/lib/api/employees"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,6 +37,7 @@ import {
   AlertTriangle,
   Calendar,
   RefreshCcw,
+  User,
 } from "lucide-react"
 
 type AccessLog = {
@@ -44,195 +48,295 @@ type AccessLog = {
   deviceId: string
   deviceName: string
   deviceLocation: string
-  status: "granted" | "denied"
+  status: "granted" | "denied" | "unknown"
   reason?: string
   timestamp: string
   date: string
+  dateLabel: string
 }
 
-// Mock data - comprehensive access logs
-const accessLogs: AccessLog[] = [
-  {
-    id: "log-001",
-    employeeId: "EMP-001",
-    employeeName: "Sarah Chen",
-    department: "Engineering",
-    deviceId: "dev-001",
-    deviceName: "Main Entrance A",
-    deviceLocation: "Building A, Ground Floor",
-    status: "granted",
-    timestamp: "09:03:22",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-002",
-    employeeId: "EMP-042",
-    employeeName: "Michael Torres",
-    department: "Marketing",
-    deviceId: "dev-003",
-    deviceName: "Floor 3 Access",
-    deviceLocation: "Building A, Floor 3",
-    status: "granted",
-    timestamp: "09:02:58",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-003",
-    employeeId: "EMP-156",
-    employeeName: "Emily Watson",
-    department: "Finance",
-    deviceId: "dev-005",
-    deviceName: "Server Room",
-    deviceLocation: "Building B, Basement",
-    status: "denied",
-    reason: "Access not authorized",
-    timestamp: "09:02:31",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-004",
-    employeeId: "EMP-089",
-    employeeName: "James Liu",
-    department: "Engineering",
-    deviceId: "dev-002",
-    deviceName: "Main Entrance B",
-    deviceLocation: "Building A, Ground Floor",
-    status: "granted",
-    timestamp: "09:01:45",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-005",
-    employeeId: "EMP-203",
-    employeeName: "Anna Kowalski",
-    department: "HR",
-    deviceId: "dev-006",
-    deviceName: "HR Office",
-    deviceLocation: "Building A, Floor 4",
-    status: "granted",
-    timestamp: "09:00:12",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-006",
-    employeeId: "EMP-078",
-    employeeName: "David Kim",
-    department: "Sales",
-    deviceId: "dev-001",
-    deviceName: "Main Entrance A",
-    deviceLocation: "Building A, Ground Floor",
-    status: "granted",
-    timestamp: "08:59:33",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-007",
-    employeeId: "EMP-112",
-    employeeName: "Rachel Green",
-    department: "Design",
-    deviceId: "dev-007",
-    deviceName: "Creative Lab",
-    deviceLocation: "Building C, Floor 1",
-    status: "granted",
-    timestamp: "08:58:17",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-008",
-    employeeId: "EMP-099",
-    employeeName: "Unknown Card",
-    department: "-",
-    deviceId: "dev-001",
-    deviceName: "Main Entrance A",
-    deviceLocation: "Building A, Ground Floor",
-    status: "denied",
-    reason: "Card not recognized",
-    timestamp: "08:55:44",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-009",
-    employeeId: "EMP-245",
-    employeeName: "Thomas Martin",
-    department: "IT",
-    deviceId: "dev-005",
-    deviceName: "Server Room",
-    deviceLocation: "Building B, Basement",
-    status: "granted",
-    timestamp: "08:55:00",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-010",
-    employeeId: "EMP-089",
-    employeeName: "James Liu",
-    department: "Engineering",
-    deviceId: "dev-008",
-    deviceName: "Parking Gate",
-    deviceLocation: "Parking Lot",
-    status: "granted",
-    timestamp: "08:30:05",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-011",
-    employeeId: "EMP-001",
-    employeeName: "Sarah Chen",
-    department: "Engineering",
-    deviceId: "dev-008",
-    deviceName: "Parking Gate",
-    deviceLocation: "Parking Lot",
-    status: "granted",
-    timestamp: "08:28:22",
-    date: "2024-01-15",
-  },
-  {
-    id: "log-012",
-    employeeId: "EMP-078",
-    employeeName: "David Kim",
-    department: "Sales",
-    deviceId: "dev-005",
-    deviceName: "Server Room",
-    deviceLocation: "Building B, Basement",
-    status: "denied",
-    reason: "Access not authorized",
-    timestamp: "18:45:00",
-    date: "2024-01-14",
-  },
-]
+const LIVE_POLL_INTERVAL_MS = 2000
+const MAX_VISIBLE_LOGS = 500
+
+function toNumericLogId(value: string): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function sortLogsByNewest(a: AccessLog, b: AccessLog): number {
+  return toNumericLogId(b.id) - toNumericLogId(a.id)
+}
+
+function getLatestLogId(logs: AccessLog[]): number | null {
+  if (logs.length === 0) return null
+  return logs.reduce((maxId, log) => {
+    const currentId = toNumericLogId(log.id)
+    return currentId > maxId ? currentId : maxId
+  }, 0)
+}
+
+function mergeAccessLogs(existing: AccessLog[], incoming: AccessLog[]): AccessLog[] {
+  const byId = new Map<string, AccessLog>()
+  for (const log of existing) byId.set(log.id, log)
+  for (const log of incoming) byId.set(log.id, log)
+  return Array.from(byId.values()).sort(sortLogsByNewest).slice(0, MAX_VISIBLE_LOGS)
+}
+
+function toDateKey(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+function inferStatus(event: HikEvent): "granted" | "denied" | "unknown" {
+  const normalizedAction = (event.normalized_action ?? "").trim().toUpperCase()
+  if (normalizedAction === "ACCESS_DENIED") {
+    return "denied"
+  }
+  if (
+    normalizedAction === "CHECK_IN" ||
+    normalizedAction === "CHECK_OUT" ||
+    normalizedAction === "BREAK_IN" ||
+    normalizedAction === "BREAK_OUT" ||
+    normalizedAction === "OVERTIME_IN" ||
+    normalizedAction === "OVERTIME_OUT"
+  ) {
+    return "granted"
+  }
+
+  const text = `${event.access_status ?? ""} ${event.attendance_status ?? ""} ${event.attendance_type ?? ""}`
+    .toLowerCase()
+    .trim()
+  if (text.includes("denied") || text.includes("deny") || text.includes("refus") || text.includes("forbid")) {
+    return "denied"
+  }
+  if (
+    text.includes("granted") ||
+    text.includes("allow") ||
+    text.includes("autor") ||
+    text.includes("success")
+  ) {
+    return "granted"
+  }
+  return "unknown"
+}
+
+function mapEventToAccessLog(event: HikEvent): AccessLog {
+  const dateValue = event.timestamp || event.raw_event?.event_datetime || new Date().toISOString()
+  const parsed = new Date(dateValue)
+  const safeDate = Number.isNaN(parsed.getTime()) ? new Date() : parsed
+  const status = inferStatus(event)
+  const doorNo = event.raw_event?.door_no
+  const readerNo = event.raw_event?.card_reader_no
+  const location =
+    doorNo != null || readerNo != null
+      ? `Porte ${doorNo ?? "-"}${readerNo != null ? `, Lecteur ${readerNo}` : ""}`
+      : `Lecteur ${event.device.dev_index}`
+
+  return {
+    id: String(event.id),
+    employeeId: event.person_id || "-",
+    employeeName: event.employee_name?.trim() || event.person_id || "Systeme",
+    department: event.department_name?.trim() || "-",
+    deviceId: String(event.device.id),
+    deviceName: event.device.device_name?.trim() || event.device.dev_index || event.device.serial_number || "-",
+    deviceLocation: location,
+    status,
+    reason:
+      status === "denied"
+        ? event.attendance_status || "Acces refuse"
+        : status === "unknown"
+          ? event.attendance_status || "Evenement non classe"
+          : undefined,
+    timestamp: safeDate.toLocaleTimeString("fr-FR", { hour12: false }),
+    date: toDateKey(safeDate),
+    dateLabel: safeDate.toLocaleDateString("fr-FR"),
+  }
+}
 
 export default function AccessLogsPage() {
+  const tenantCode = (
+    process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ??
+    process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ??
+    "HQ-CASA"
+  ).trim()
+  const latestLogIdRef = useRef<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [deviceFilter, setDeviceFilter] = useState("all")
+  const [personFilter, setPersonFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState("today")
   const [isLive, setIsLive] = useState(true)
+  const [accessLogs, setAccessLogs] = useState<AccessLog[]>([])
+  const [employees, setEmployees] = useState<EmployeeListItem[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [peopleError, setPeopleError] = useState<string | null>(null)
+  const [catchupLoading, setCatchupLoading] = useState(false)
+  const [hasAutoCatchupAttempted, setHasAutoCatchupAttempted] = useState(false)
 
-  // Calculate stats
-  const todayLogs = accessLogs.filter((log) => log.date === "2024-01-15")
+  const loadLogs = useCallback(async (showLoader = true) => {
+    if (showLoader) setLoading(true)
+    setError(null)
+    try {
+      const payload = await fetchHikEvents({
+        limit: 300,
+        autoCatchup: true,
+        tenant: tenantCode,
+        personId: personFilter !== "all" ? personFilter : undefined,
+      })
+      const mapped = payload.results.map(mapEventToAccessLog).sort(sortLogsByNewest)
+      latestLogIdRef.current = getLatestLogId(mapped)
+      setAccessLogs(mapped)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Impossible de charger les evenements."
+      setError(message)
+    } finally {
+      if (showLoader) setLoading(false)
+    }
+  }, [personFilter, tenantCode])
+
+  const loadLatestLogs = useCallback(async () => {
+    const sinceId = latestLogIdRef.current
+    if (!sinceId) {
+      await loadLogs(false)
+      return
+    }
+
+    try {
+      const payload = await fetchHikEvents({
+        limit: 100,
+        sinceId,
+        autoCatchup: true,
+        tenant: tenantCode,
+        personId: personFilter !== "all" ? personFilter : undefined,
+      })
+      if (payload.results.length === 0) return
+
+      const mapped = payload.results.map(mapEventToAccessLog)
+      setAccessLogs((existing) => {
+        const merged = mergeAccessLogs(existing, mapped)
+        latestLogIdRef.current = getLatestLogId(merged)
+        return merged
+      })
+    } catch {
+      // Ignore transient live refresh errors and keep the last successful state.
+    }
+  }, [loadLogs, personFilter, tenantCode])
+
+  const loadPeople = useCallback(async () => {
+    setPeopleError(null)
+    try {
+      const list = await fetchEmployees(tenantCode)
+      setEmployees(list)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Impossible de charger les personnes."
+      setPeopleError(message)
+    }
+  }, [tenantCode])
+
+  useEffect(() => {
+    void loadLogs(true)
+  }, [loadLogs])
+
+  useEffect(() => {
+    void loadPeople()
+  }, [loadPeople])
+
+  useEffect(() => {
+    if (!isLive) return
+    const interval = setInterval(() => {
+      void loadLatestLogs()
+    }, LIVE_POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [isLive, loadLatestLogs])
+
+  const now = new Date()
+  const todayKey = toDateKey(now)
+  const yesterday = new Date()
+  yesterday.setDate(now.getDate() - 1)
+  const yesterdayKey = toDateKey(yesterday)
+
+  const recentLogsCount = useMemo(
+    () => accessLogs.filter((log) => log.date === todayKey || log.date === yesterdayKey).length,
+    [accessLogs, todayKey, yesterdayKey],
+  )
+
+  const runCatchupAndReload = useCallback(async () => {
+    setCatchupLoading(true)
+    setError(null)
+    try {
+      await triggerHikEventsCatchup(500)
+      await loadLogs(true)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Le rattrapage des evenements a echoue."
+      setError(message)
+    } finally {
+      setCatchupLoading(false)
+    }
+  }, [loadLogs])
+
+  useEffect(() => {
+    if (loading || catchupLoading || hasAutoCatchupAttempted) return
+    if (accessLogs.length === 0 || recentLogsCount === 0) {
+      setHasAutoCatchupAttempted(true)
+      void runCatchupAndReload()
+    }
+  }, [accessLogs.length, recentLogsCount, loading, catchupLoading, hasAutoCatchupAttempted, runCatchupAndReload])
+
+  const todayLogs = useMemo(() => accessLogs.filter((log) => log.date === todayKey), [accessLogs, todayKey])
   const totalAccess = todayLogs.length
   const grantedAccess = todayLogs.filter((log) => log.status === "granted").length
   const deniedAccess = todayLogs.filter((log) => log.status === "denied").length
+  const devices = useMemo(() => [...new Set(accessLogs.map((log) => log.deviceName))], [accessLogs])
 
-  // Get unique devices for filter
-  const devices = [...new Set(accessLogs.map((log) => log.deviceName))]
+  const filteredLogs = useMemo(
+    () =>
+      accessLogs.filter((log) => {
+        const query = searchQuery.toLowerCase()
+        const matchesSearch =
+          log.employeeName.toLowerCase().includes(query) ||
+          log.employeeId.toLowerCase().includes(query) ||
+          log.deviceName.toLowerCase().includes(query)
 
-  // Filter logs
-  const filteredLogs = accessLogs.filter((log) => {
-    const matchesSearch =
-      log.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.employeeId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.deviceName.toLowerCase().includes(searchQuery.toLowerCase())
+        const matchesStatus = statusFilter === "all" || log.status === statusFilter
+        const matchesDevice = deviceFilter === "all" || log.deviceName === deviceFilter
+        const matchesPerson = personFilter === "all" || log.employeeId === personFilter
+        const matchesDate =
+          dateFilter === "all" ||
+          (dateFilter === "today" && log.date === todayKey) ||
+          (dateFilter === "yesterday" && log.date === yesterdayKey)
 
-    const matchesStatus = statusFilter === "all" || log.status === statusFilter
-    const matchesDevice = deviceFilter === "all" || log.deviceName === deviceFilter
-    const matchesDate =
-      dateFilter === "all" ||
-      (dateFilter === "today" && log.date === "2024-01-15") ||
-      (dateFilter === "yesterday" && log.date === "2024-01-14")
+        return matchesSearch && matchesStatus && matchesDevice && matchesPerson && matchesDate
+      }),
+    [accessLogs, searchQuery, statusFilter, deviceFilter, personFilter, dateFilter, todayKey, yesterdayKey],
+  )
 
-    return matchesSearch && matchesStatus && matchesDevice && matchesDate
-  })
+  const handleExportCsv = () => {
+    const rows = [
+      ["Heure", "Employe", "Matricule", "Departement", "Appareil", "Localisation", "Statut", "Details"].join(","),
+      ...filteredLogs.map((log) =>
+        [
+          log.timestamp,
+          `"${log.employeeName.replaceAll('"', '""')}"`,
+          log.employeeId,
+          `"${log.department.replaceAll('"', '""')}"`,
+          `"${log.deviceName.replaceAll('"', '""')}"`,
+          `"${log.deviceLocation.replaceAll('"', '""')}"`,
+          log.status === "granted" ? "Autorise" : log.status === "denied" ? "Refuse" : "Inconnu",
+          `"${(log.reason ?? "").replaceAll('"', '""')}"`,
+        ].join(","),
+      ),
+    ]
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `access-logs-${todayKey}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -242,42 +346,53 @@ export default function AccessLogsPage() {
         <Header systemStatus="connected" />
 
         <main className="p-6">
-          {/* Page Header */}
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-foreground">
-                Journal d&apos;Acces
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Historique complet des evenements d&apos;acces en temps reel
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
+          <PageContextBar
+            title="Journal d'acces"
+            description="Historique temps reel des acces autorises et refuses, avec capacites de rattrapage et d'export."
+            stats={[
+              { value: totalAccess, label: "Evenements du jour" },
+              { value: deniedAccess, label: "Refus", tone: deniedAccess > 0 ? "critical" : "success" },
+              { value: devices.length, label: "Appareils concernes" },
+            ]}
+            actions={
+              <>
               <Button
-                variant={isLive ? "default" : "outline"}
+                variant="outline"
                 size="sm"
-                onClick={() => setIsLive(!isLive)}
+                onClick={() => setIsLive((v) => !v)}
+                className={
+                  isLive
+                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+                    : ""
+                }
               >
-                {isLive && (
-                  <span className="mr-2 h-2 w-2 animate-pulse rounded-full bg-red-500" />
-                )}
-                {isLive ? "Live" : "Pause"}
+                {isLive && <span className="mr-2 h-2 w-2 animate-pulse rounded-full bg-emerald-400" />}
+                Live
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => void loadLogs(true)} disabled={loading}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
                 Actualiser
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => void runCatchupAndReload()} disabled={catchupLoading}>
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                {catchupLoading ? "Rattrapage..." : "Rattraper les acces"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleExportCsv}>
                 <Download className="mr-2 h-4 w-4" />
                 Exporter CSV
               </Button>
-            </div>
-          </div>
+              </>
+            }
+          />
 
-          {/* Stats Cards */}
+          {peopleError && (
+            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
+              {peopleError}
+            </div>
+          )}
+
           <div className="mb-6 grid gap-4 sm:grid-cols-3">
-            <Card className="border-border bg-card">
+            <Card className="border-border/70 bg-card/90">
               <CardContent className="flex items-center gap-4 p-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
                   <DoorOpen className="h-6 w-6 text-primary" />
@@ -289,7 +404,7 @@ export default function AccessLogsPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-border bg-card">
+            <Card className="border-border/70 bg-card/90">
               <CardContent className="flex items-center gap-4 p-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-500/10">
                   <CheckCircle2 className="h-6 w-6 text-green-500" />
@@ -301,7 +416,7 @@ export default function AccessLogsPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-border bg-card">
+            <Card className="border-border/70 bg-card/90">
               <CardContent className="flex items-center gap-4 p-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
                   <XCircle className="h-6 w-6 text-red-500" />
@@ -314,8 +429,7 @@ export default function AccessLogsPage() {
             </Card>
           </div>
 
-          {/* Filters */}
-          <Card className="mb-6 border-border bg-card">
+          <Card className="mb-6 border-border/70 bg-card/90">
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Filter className="h-4 w-4" />
@@ -324,7 +438,6 @@ export default function AccessLogsPage() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                {/* Search */}
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -335,7 +448,6 @@ export default function AccessLogsPage() {
                   />
                 </div>
 
-                {/* Date Filter */}
                 <Select value={dateFilter} onValueChange={setDateFilter}>
                   <SelectTrigger className="w-full lg:w-[180px]">
                     <Calendar className="mr-2 h-4 w-4" />
@@ -348,7 +460,6 @@ export default function AccessLogsPage() {
                   </SelectContent>
                 </Select>
 
-                {/* Status Filter */}
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="w-full lg:w-[180px]">
                     <SelectValue placeholder="Statut" />
@@ -357,12 +468,27 @@ export default function AccessLogsPage() {
                     <SelectItem value="all">Tous les statuts</SelectItem>
                     <SelectItem value="granted">Autorise</SelectItem>
                     <SelectItem value="denied">Refuse</SelectItem>
+                    <SelectItem value="unknown">Inconnu</SelectItem>
                   </SelectContent>
                 </Select>
 
-                {/* Device Filter */}
+                <Select value={personFilter} onValueChange={setPersonFilter}>
+                  <SelectTrigger className="w-full lg:w-[260px]">
+                    <User className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Toutes les personnes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Toutes les personnes ({employees.length})</SelectItem>
+                    {employees.map((employee) => (
+                      <SelectItem key={String(employee.id)} value={employee.employee_no}>
+                        {employee.name || employee.employee_no} ({employee.employee_no})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
                 <Select value={deviceFilter} onValueChange={setDeviceFilter}>
-                  <SelectTrigger className="w-full lg:w-[200px]">
+                  <SelectTrigger className="w-full lg:w-[220px]">
                     <SelectValue placeholder="Appareil" />
                   </SelectTrigger>
                   <SelectContent>
@@ -378,26 +504,28 @@ export default function AccessLogsPage() {
             </CardContent>
           </Card>
 
-          {/* Logs Table */}
-          <Card className="border-border bg-card">
+          <Card className="border-border/70 bg-card/90">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">
-                  Evenements ({filteredLogs.length})
-                </CardTitle>
+                <CardTitle className="text-base">Evenements ({filteredLogs.length})</CardTitle>
                 {isLive && (
-                  <Badge variant="outline" className="border-primary/50 text-primary">
-                    <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+                  <Badge variant="outline" className="border-emerald-500/50 text-emerald-400">
+                    <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
                     Temps reel
                   </Badge>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="overflow-x-auto p-0">
+              {error && (
+                <div className="mx-4 mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                  {error}
+                </div>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="w-[100px]">Heure</TableHead>
+                    <TableHead className="w-[180px]">Heure</TableHead>
                     <TableHead>Employe</TableHead>
                     <TableHead>Departement</TableHead>
                     <TableHead>Appareil</TableHead>
@@ -407,15 +535,20 @@ export default function AccessLogsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {!loading && filteredLogs.length === 0 && (
+                    <TableRow className="border-border">
+                      <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                        Aucun evenement trouve.
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {filteredLogs.map((log) => (
-                    <TableRow
-                      key={log.id}
-                      className="border-border transition-colors hover:bg-muted/50"
-                    >
+                    <TableRow key={log.id} className="border-border transition-colors hover:bg-muted/50">
                       <TableCell>
                         <div className="flex items-center gap-2 text-sm">
                           <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                           <span className="font-mono">{log.timestamp}</span>
+                          <span className="text-xs text-muted-foreground">{log.dateLabel}</span>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -425,16 +558,14 @@ export default function AccessLogsPage() {
                               {log.employeeName
                                 .split(" ")
                                 .map((n) => n[0])
-                                .join("")}
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <p className="font-medium text-foreground">
-                              {log.employeeName}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {log.employeeId}
-                            </p>
+                            <p className="font-medium text-foreground">{log.employeeName}</p>
+                            <p className="text-xs text-muted-foreground">{log.employeeId}</p>
                           </div>
                         </div>
                       </TableCell>
@@ -444,14 +575,10 @@ export default function AccessLogsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <p className="text-sm font-medium text-foreground">
-                          {log.deviceName}
-                        </p>
+                        <p className="text-sm font-medium text-foreground">{log.deviceName}</p>
                       </TableCell>
                       <TableCell>
-                        <p className="text-sm text-muted-foreground">
-                          {log.deviceLocation}
-                        </p>
+                        <p className="text-sm text-muted-foreground">{log.deviceLocation}</p>
                       </TableCell>
                       <TableCell className="text-center">
                         {log.status === "granted" ? (
@@ -459,10 +586,15 @@ export default function AccessLogsPage() {
                             <CheckCircle2 className="mr-1 h-3 w-3" />
                             Autorise
                           </Badge>
-                        ) : (
+                        ) : log.status === "denied" ? (
                           <Badge className="bg-red-500/10 text-red-500 hover:bg-red-500/20">
                             <XCircle className="mr-1 h-3 w-3" />
                             Refuse
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20">
+                            <AlertTriangle className="mr-1 h-3 w-3" />
+                            Inconnu
                           </Badge>
                         )}
                       </TableCell>

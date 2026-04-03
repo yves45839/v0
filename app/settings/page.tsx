@@ -1,8 +1,9 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
+import { PageContextBar } from "@/components/dashboard/page-context-bar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -26,6 +28,35 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  assignDepartmentPlanning,
+  assignDepartmentWorkShift,
+  createAccessGroup,
+  createDepartment,
+  createPlanning,
+  createWorkShift,
+  deleteAccessGroup,
+  deleteDepartment as deleteDepartmentApi,
+  deletePlanning,
+  deleteWorkShift,
+  fetchAccessGroups,
+  fetchDepartments,
+  fetchOrganizations,
+  fetchPlannings,
+  fetchReaders,
+  fetchTenants,
+  fetchWorkShifts,
+  type DeviceItem,
+  type DepartmentItem,
+  type OrganizationItem,
+  type PlanningItem,
+  type TenantItem,
+  type WorkShiftItem,
+  updateAccessGroup,
+  updateDepartment,
+  updatePlanning,
+  updateWorkShift,
+} from "@/lib/api/settings"
 import {
   Bell,
   Building,
@@ -42,195 +73,543 @@ import {
   Users,
 } from "lucide-react"
 
-type Department = {
-  id: string
-  name: string
-  manager: string
-  employeeCount: number
-}
-
 type AccessGroup = {
   id: string
+  backendId?: number
   name: string
   description: string
+  planningId?: string
+  planningName?: string
+  readerIds: string[]
   deviceCount: number
-}
-
-type WorkSchedule = {
-  id: string
-  name: string
-  type: "Horaire" | "Quart" | "Repos"
-  startTime: string
-  endTime: string
-  workDays: string
 }
 
 type Assignment = {
   id: string
-  scheduleId: string
+  planningId: string
   targetType: "Departement" | "Groupe"
   targetId: string
 }
 
-const defaultDepartments: Department[] = [
-  { id: "dep-001", name: "IT", manager: "Sarah N.", employeeCount: 34 },
-  { id: "dep-002", name: "RH", manager: "Amina K.", employeeCount: 12 },
-  { id: "dep-003", name: "Operations", manager: "Marc D.", employeeCount: 56 },
-]
-
-const defaultGroups: AccessGroup[] = [
-  { id: "grp-001", name: "Batiment A", description: "Acces general", deviceCount: 4 },
-  { id: "grp-002", name: "Salle serveur", description: "Acces restreint", deviceCount: 1 },
-  { id: "grp-003", name: "Parking", description: "Acces parking", deviceCount: 2 },
-]
-
-const defaultSchedules: WorkSchedule[] = [
-  {
-    id: "sch-001",
-    name: "Bureau standard",
-    type: "Horaire",
-    startTime: "09:00",
-    endTime: "18:00",
-    workDays: "Lun-Ven",
-  },
-  {
-    id: "sch-002",
-    name: "Quart nuit",
-    type: "Quart",
-    startTime: "22:00",
-    endTime: "06:00",
-    workDays: "Lun-Sam",
-  },
-  {
-    id: "sch-003",
-    name: "Repos weekend",
-    type: "Repos",
-    startTime: "00:00",
-    endTime: "23:59",
-    workDays: "Sam-Dim",
-  },
-]
-
-const defaultAssignments: Assignment[] = [
-  { id: "asg-001", scheduleId: "sch-001", targetType: "Departement", targetId: "dep-001" },
-  { id: "asg-002", scheduleId: "sch-002", targetType: "Groupe", targetId: "grp-002" },
-]
-
 export default function SettingsPage() {
-  const [departments, setDepartments] = useState(defaultDepartments)
-  const [groups, setGroups] = useState(defaultGroups)
-  const [schedules, setSchedules] = useState(defaultSchedules)
-  const [assignments, setAssignments] = useState(defaultAssignments)
+  const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
+  const [groups, setGroups] = useState<AccessGroup[]>([])
+  const [tenantId, setTenantId] = useState<number | null>(null)
+  const [tenants, setTenants] = useState<TenantItem[]>([])
+  const [apiOrganizations, setApiOrganizations] = useState<OrganizationItem[]>([])
+  const [apiReaders, setApiReaders] = useState<DeviceItem[]>([])
+  const [apiPlannings, setApiPlannings] = useState<PlanningItem[]>([])
+  const [apiDepartments, setApiDepartments] = useState<DepartmentItem[]>([])
+  const [apiWorkShifts, setApiWorkShifts] = useState<WorkShiftItem[]>([])
+  const [departmentError, setDepartmentError] = useState<string | null>(null)
+  const [planningError, setPlanningError] = useState<string | null>(null)
+  const [groupError, setGroupError] = useState<string | null>(null)
+  const [workShiftError, setWorkShiftError] = useState<string | null>(null)
 
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [pushNotifications, setPushNotifications] = useState(false)
   const [syncEnabled, setSyncEnabled] = useState(true)
 
   const [depDialogOpen, setDepDialogOpen] = useState(false)
-  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null)
-  const [depForm, setDepForm] = useState({ name: "", manager: "", employeeCount: "0" })
+  const [editingDepartment, setEditingDepartment] = useState<DepartmentItem | null>(null)
+  const [depForm, setDepForm] = useState({
+    name: "",
+    code: "",
+    organizationId: "",
+    parentId: "",
+  })
 
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<AccessGroup | null>(null)
-  const [groupForm, setGroupForm] = useState({ name: "", description: "", deviceCount: "0" })
+  const [groupForm, setGroupForm] = useState({ name: "", description: "", planningId: "", readerIds: [] as string[] })
 
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false)
-  const [editingSchedule, setEditingSchedule] = useState<WorkSchedule | null>(null)
+  const [editingSchedule, setEditingSchedule] = useState<PlanningItem | null>(null)
   const [scheduleForm, setScheduleForm] = useState<{
     name: string
-    type: WorkSchedule["type"]
-    startTime: string
-    endTime: string
-    workDays: string
-  }>({ name: "", type: "Horaire", startTime: "09:00", endTime: "18:00", workDays: "Lun-Ven" })
+    code: string
+    description: string
+    timezone: string
+  }>({ name: "", code: "", description: "", timezone: "UTC" })
 
   const [assignmentForm, setAssignmentForm] = useState({
-    scheduleId: defaultSchedules[0].id,
+    planningId: "",
     targetType: "Departement" as Assignment["targetType"],
-    targetId: defaultDepartments[0].id,
+    targetId: "",
+  })
+  const [workShiftDialogOpen, setWorkShiftDialogOpen] = useState(false)
+  const [editingWorkShift, setEditingWorkShift] = useState<WorkShiftItem | null>(null)
+  const [workShiftForm, setWorkShiftForm] = useState({
+    name: "",
+    code: "",
+    description: "",
+    start_time: "08:00",
+    end_time: "17:00",
+    break_start_time: "12:00",
+    break_end_time: "13:00",
+    overtime_minutes: "",
+    late_allowable_minutes: "10",
+    early_leave_allowable_minutes: "10",
+  })
+  const [departmentShiftForm, setDepartmentShiftForm] = useState({
+    departmentId: "",
+    workShiftId: "",
   })
 
+  const organizationById = useMemo(
+    () => new Map(apiOrganizations.map((organization) => [organization.id, organization])),
+    [apiOrganizations],
+  )
+  const departmentById = useMemo(
+    () => new Map(apiDepartments.map((department) => [department.id, department])),
+    [apiDepartments],
+  )
+  const departmentTargets = useMemo(
+    () => apiDepartments.map((department) => ({ id: String(department.id), name: department.name })),
+    [apiDepartments],
+  )
+  const groupTargets = useMemo(
+    () => groups.map((group) => ({ id: group.id, name: group.name })),
+    [groups],
+  )
+  const assignments = useMemo<Assignment[]>(
+    () => [
+      ...apiDepartments
+        .filter((department) => department.planning)
+        .map((department) => ({
+          id: `dep-${department.id}`,
+          planningId: String(department.planning),
+          targetType: "Departement" as const,
+          targetId: String(department.id),
+        })),
+      ...groups
+        .filter((group) => group.planningId)
+        .map((group) => ({
+          id: `grp-${group.id}`,
+          planningId: group.planningId || "",
+          targetType: "Groupe" as const,
+          targetId: group.id,
+        })),
+    ],
+    [apiDepartments, groups],
+  )
   const availableTargets = useMemo(() => {
-    return assignmentForm.targetType === "Departement" ? departments : groups
-  }, [assignmentForm.targetType, departments, groups])
+    return assignmentForm.targetType === "Departement" ? departmentTargets : groupTargets
+  }, [assignmentForm.targetType, departmentTargets, groupTargets])
+  const activeTenantName = useMemo(
+    () => tenants.find((tenant) => tenant.id === tenantId)?.name ?? "",
+    [tenants, tenantId],
+  )
 
-  const resetDepartmentForm = () => setDepForm({ name: "", manager: "", employeeCount: "0" })
-  const resetGroupForm = () => setGroupForm({ name: "", description: "", deviceCount: "0" })
+  const resetDepartmentForm = () =>
+    setDepForm({
+      name: "",
+      code: "",
+      organizationId: apiOrganizations[0] ? String(apiOrganizations[0].id) : "",
+      parentId: "",
+    })
+  const resetGroupForm = () => setGroupForm({ name: "", description: "", planningId: "", readerIds: [] })
   const resetScheduleForm = () =>
-    setScheduleForm({ name: "", type: "Horaire", startTime: "09:00", endTime: "18:00", workDays: "Lun-Ven" })
+    setScheduleForm({ name: "", code: "", description: "", timezone: "UTC" })
+  const resetWorkShiftForm = () =>
+    setWorkShiftForm({
+      name: "",
+      code: "",
+      description: "",
+      start_time: "08:00",
+      end_time: "17:00",
+      break_start_time: "12:00",
+      break_end_time: "13:00",
+      overtime_minutes: "",
+      late_allowable_minutes: "10",
+      early_leave_allowable_minutes: "10",
+    })
 
-  const submitDepartment = () => {
-    const payload: Department = {
-      id: editingDepartment?.id ?? `dep-${Date.now()}`,
-      name: depForm.name,
-      manager: depForm.manager,
-      employeeCount: Number(depForm.employeeCount || 0),
+  const mapAccessGroupToUi = (group: {
+    id: number
+    name: string
+    description: string
+    planning: number | null
+    planning_name?: string
+    readers?: number[]
+    reader_count?: number
+  }): AccessGroup => ({
+    id: String(group.id),
+    backendId: group.id,
+    name: group.name,
+    description: group.description,
+    planningId: group.planning ? String(group.planning) : "",
+    planningName: group.planning_name || "",
+    readerIds: (group.readers || []).map((id) => String(id)),
+    deviceCount: group.reader_count ?? (group.readers || []).length,
+  })
+
+  const submitDepartment = async () => {
+    if (!tenantId || !depForm.name.trim() || !depForm.organizationId) return
+    setDepartmentError(null)
+    try {
+      const payload = {
+        tenant: tenantId,
+        organization: Number(depForm.organizationId),
+        parent: depForm.parentId ? Number(depForm.parentId) : null,
+        name: depForm.name.trim(),
+        code: depForm.code.trim() || undefined,
+      }
+      const saved = editingDepartment
+        ? await updateDepartment(editingDepartment.id, payload)
+        : await createDepartment(payload)
+      setApiDepartments((prev) => {
+        const exists = prev.some((item) => item.id === saved.id)
+        if (exists) {
+          return prev.map((item) => (item.id === saved.id ? saved : item))
+        }
+        return [saved, ...prev]
+      })
+      setDepDialogOpen(false)
+      setEditingDepartment(null)
+      resetDepartmentForm()
+    } catch (error) {
+      setDepartmentError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du departement.")
+    }
+  }
+
+  const submitGroup = async () => {
+    if (!tenantId || !groupForm.name.trim()) return
+    setGroupError(null)
+    try {
+      const payload = {
+        tenant: tenantId,
+        name: groupForm.name.trim(),
+        description: groupForm.description.trim(),
+        planning: groupForm.planningId ? Number(groupForm.planningId) : null,
+        readers: groupForm.readerIds.map((id) => Number(id)),
+      }
+
+      const saved = editingGroup?.backendId
+        ? await updateAccessGroup(editingGroup.backendId, payload)
+        : await createAccessGroup(payload)
+
+      const uiGroup: AccessGroup = {
+        id: String(saved.id),
+        backendId: saved.id,
+        name: saved.name,
+        description: saved.description,
+        planningId: saved.planning ? String(saved.planning) : "",
+        planningName: saved.planning_name || "",
+        readerIds: (saved.readers || []).map((id) => String(id)),
+        deviceCount: saved.reader_count ?? (saved.readers || []).length,
+      }
+
+      setGroups((prev) => {
+        const exists = prev.some((item) => item.id === uiGroup.id)
+        if (exists) {
+          return prev.map((item) => (item.id === uiGroup.id ? uiGroup : item))
+        }
+        return [uiGroup, ...prev]
+      })
+
+      setGroupDialogOpen(false)
+      setEditingGroup(null)
+      resetGroupForm()
+    } catch (error) {
+      setGroupError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du groupe.")
+    }
+  }
+
+  const submitSchedule = async () => {
+    if (!tenantId || !scheduleForm.name.trim()) return
+    setPlanningError(null)
+    try {
+      const payload = {
+        tenant: tenantId,
+        name: scheduleForm.name.trim(),
+        code: scheduleForm.code.trim() || undefined,
+        description: scheduleForm.description.trim(),
+        timezone: scheduleForm.timezone.trim() || "UTC",
+      }
+      const saved = editingSchedule
+        ? await updatePlanning(editingSchedule.id, payload)
+        : await createPlanning(payload)
+      setApiPlannings((prev) => {
+        const exists = prev.some((item) => item.id === saved.id)
+        if (exists) {
+          return prev.map((item) => (item.id === saved.id ? saved : item))
+        }
+        return [saved, ...prev]
+      })
+      setScheduleDialogOpen(false)
+      setEditingSchedule(null)
+      resetScheduleForm()
+    } catch (error) {
+      setPlanningError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du planning.")
+    }
+  }
+
+  const submitWorkShift = async () => {
+    if (!tenantId || !workShiftForm.name.trim()) return
+    setWorkShiftError(null)
+    try {
+      const overtimeMinutesRaw = workShiftForm.overtime_minutes.trim()
+      if (overtimeMinutesRaw && Number.isNaN(Number(overtimeMinutesRaw))) {
+        setWorkShiftError("Les heures supplementaires doivent etre un nombre valide.")
+        return
+      }
+      const lateAllowableRaw = workShiftForm.late_allowable_minutes.trim()
+      if (lateAllowableRaw && Number.isNaN(Number(lateAllowableRaw))) {
+        setWorkShiftError("Le retard tolere doit etre un nombre valide.")
+        return
+      }
+      const earlyLeaveAllowableRaw = workShiftForm.early_leave_allowable_minutes.trim()
+      if (earlyLeaveAllowableRaw && Number.isNaN(Number(earlyLeaveAllowableRaw))) {
+        setWorkShiftError("La marge de depart anticipe doit etre un nombre valide.")
+        return
+      }
+
+      const payload = {
+        tenant: tenantId,
+        name: workShiftForm.name.trim(),
+        code: workShiftForm.code.trim() || undefined,
+        description: workShiftForm.description.trim(),
+        start_time: workShiftForm.start_time,
+        end_time: workShiftForm.end_time,
+        break_start_time: workShiftForm.break_start_time || null,
+        break_end_time: workShiftForm.break_end_time || null,
+      }
+      if (overtimeMinutesRaw) {
+        Object.assign(payload, { overtime_minutes: Number(overtimeMinutesRaw) })
+      }
+      if (lateAllowableRaw) {
+        Object.assign(payload, { late_allowable_minutes: Number(lateAllowableRaw) })
+      }
+      if (earlyLeaveAllowableRaw) {
+        Object.assign(payload, { early_leave_allowable_minutes: Number(earlyLeaveAllowableRaw) })
+      }
+      const saved = editingWorkShift
+        ? await updateWorkShift(editingWorkShift.id, payload)
+        : await createWorkShift(payload)
+
+      setApiWorkShifts((prev) => {
+        const exists = prev.some((item) => item.id === saved.id)
+        if (exists) {
+          return prev.map((item) => (item.id === saved.id ? saved : item))
+        }
+        return [saved, ...prev]
+      })
+
+      setWorkShiftDialogOpen(false)
+      setEditingWorkShift(null)
+      resetWorkShiftForm()
+    } catch (error) {
+      setWorkShiftError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du quart.")
+    }
+  }
+
+  const removeDepartment = async (id: number) => {
+    setDepartmentError(null)
+    try {
+      await deleteDepartmentApi(id)
+      setApiDepartments((prev) => prev.filter((department) => department.id !== id))
+    } catch (error) {
+      setDepartmentError(error instanceof Error ? error.message : "Erreur lors de la suppression du departement.")
+    }
+  }
+
+  const deleteGroup = async (id: string) => {
+    const target = groups.find((group) => group.id === id)
+    if (!target?.backendId) {
+      setGroups((prev) => prev.filter((group) => group.id !== id))
+      return
+    }
+    setGroupError(null)
+    try {
+      await deleteAccessGroup(target.backendId)
+      setGroups((prev) => prev.filter((group) => group.id !== id))
+    } catch (error) {
+      setGroupError(error instanceof Error ? error.message : "Erreur lors de la suppression du groupe.")
+    }
+  }
+
+  const deleteSchedule = async (id: number) => {
+    setPlanningError(null)
+    try {
+      await deletePlanning(id)
+      setApiPlannings((prev) => prev.filter((planning) => planning.id !== id))
+      setGroups((prev) =>
+        prev.map((group) =>
+          group.planningId === String(id) ? { ...group, planningId: "", planningName: "" } : group,
+        ),
+      )
+      setApiDepartments((prev) =>
+        prev.map((department) => (department.planning === id ? { ...department, planning: null } : department)),
+      )
+    } catch (error) {
+      setPlanningError(error instanceof Error ? error.message : "Erreur lors de la suppression du planning.")
+    }
+  }
+
+  const addAssignment = async () => {
+    if (!assignmentForm.planningId || !assignmentForm.targetId) return
+    setPlanningError(null)
+    try {
+      if (assignmentForm.targetType === "Departement") {
+        const updated = await assignDepartmentPlanning(
+          Number(assignmentForm.targetId),
+          Number(assignmentForm.planningId),
+        )
+        setApiDepartments((prev) => prev.map((department) => (department.id === updated.id ? updated : department)))
+        return
+      }
+      const targetGroup = groups.find((group) => group.id === assignmentForm.targetId)
+      if (!targetGroup?.backendId) return
+      const saved = await updateAccessGroup(targetGroup.backendId, { planning: Number(assignmentForm.planningId) })
+      const mapped = mapAccessGroupToUi(saved)
+      setGroups((prev) => prev.map((group) => (group.id === mapped.id ? mapped : group)))
+    } catch (error) {
+      setPlanningError(error instanceof Error ? error.message : "Erreur lors de l'attribution du planning.")
+    }
+  }
+
+  const removeAssignment = async (assignment: Assignment) => {
+    setPlanningError(null)
+    try {
+      if (assignment.targetType === "Departement") {
+        const updated = await updateDepartment(Number(assignment.targetId), { planning: null })
+        setApiDepartments((prev) => prev.map((department) => (department.id === updated.id ? updated : department)))
+        return
+      }
+      const targetGroup = groups.find((group) => group.id === assignment.targetId)
+      if (!targetGroup?.backendId) return
+      const saved = await updateAccessGroup(targetGroup.backendId, { planning: null })
+      const mapped = mapAccessGroupToUi(saved)
+      setGroups((prev) => prev.map((group) => (group.id === mapped.id ? mapped : group)))
+    } catch (error) {
+      setPlanningError(error instanceof Error ? error.message : "Erreur lors de la suppression de l'attribution.")
+    }
+  }
+
+  const removeWorkShift = async (id: number) => {
+    setWorkShiftError(null)
+    try {
+      await deleteWorkShift(id)
+      setApiWorkShifts((prev) => prev.filter((shift) => shift.id !== id))
+      setApiDepartments((prev) =>
+        prev.map((department) =>
+          department.work_shift === id ? { ...department, work_shift: null, effective_work_shift: null } : department
+        )
+      )
+    } catch (error) {
+      setWorkShiftError(error instanceof Error ? error.message : "Erreur lors de la suppression du quart.")
+    }
+  }
+
+  const submitDepartmentShiftAssignment = async () => {
+    if (!departmentShiftForm.departmentId || !departmentShiftForm.workShiftId) return
+    setWorkShiftError(null)
+    try {
+      const updatedDepartment = await assignDepartmentWorkShift(
+        Number(departmentShiftForm.departmentId),
+        Number(departmentShiftForm.workShiftId),
+      )
+      setApiDepartments((prev) =>
+        prev.map((item) => (item.id === updatedDepartment.id ? updatedDepartment : item))
+      )
+      setDepartmentShiftForm((prev) => ({ ...prev, workShiftId: "" }))
+    } catch (error) {
+      setWorkShiftError(error instanceof Error ? error.message : "Erreur d'attribution du quart au departement.")
+    }
+  }
+
+  const toggleReader = (readerId: string, checked: boolean) => {
+    setGroupForm((prev) => {
+      if (checked) {
+        if (prev.readerIds.includes(readerId)) return prev
+        return { ...prev, readerIds: [...prev.readerIds, readerId] }
+      }
+      return { ...prev, readerIds: prev.readerIds.filter((id) => id !== readerId) }
+    })
+  }
+
+  useEffect(() => {
+    let active = true
+    const loadAccessGroupData = async () => {
+      setGroupError(null)
+      setDepartmentError(null)
+      setPlanningError(null)
+      try {
+        const tenantList = await fetchTenants()
+        if (!active) return
+        setTenants(tenantList)
+
+        const resolvedTenant = tenantCode
+          ? tenantList.find((item) => item.code.toLowerCase() === tenantCode.toLowerCase())
+          : tenantList[0]
+        if (!resolvedTenant) return
+
+        setTenantId(resolvedTenant.id)
+        const [plannings, readers, accessGroups, organizationsList, departmentsList, workShiftsList] = await Promise.all([
+          fetchPlannings(resolvedTenant.code),
+          fetchReaders(resolvedTenant.code),
+          fetchAccessGroups(resolvedTenant.code),
+          fetchOrganizations(resolvedTenant.code),
+          fetchDepartments(resolvedTenant.code),
+          fetchWorkShifts(resolvedTenant.code),
+        ])
+        if (!active) return
+
+        setApiPlannings(plannings)
+        setApiReaders(readers)
+        setApiOrganizations(organizationsList)
+        setApiDepartments(departmentsList)
+        setApiWorkShifts(workShiftsList)
+        setDepForm((prev) => ({
+          ...prev,
+          organizationId: prev.organizationId || (organizationsList[0] ? String(organizationsList[0].id) : ""),
+        }))
+        setDepartmentShiftForm({
+          departmentId: departmentsList[0] ? String(departmentsList[0].id) : "",
+          workShiftId: workShiftsList[0] ? String(workShiftsList[0].id) : "",
+        })
+        setGroups(accessGroups.map((group) => mapAccessGroupToUi(group)))
+      } catch (error) {
+        if (!active) return
+        setGroupError(error instanceof Error ? error.message : "Impossible de charger les groupes d'acces.")
+      }
     }
 
-    setDepartments((prev) =>
-      editingDepartment ? prev.map((dep) => (dep.id === payload.id ? payload : dep)) : [...prev, payload]
-    )
-
-    setDepDialogOpen(false)
-    setEditingDepartment(null)
-    resetDepartmentForm()
-  }
-
-  const submitGroup = () => {
-    const payload: AccessGroup = {
-      id: editingGroup?.id ?? `grp-${Date.now()}`,
-      name: groupForm.name,
-      description: groupForm.description,
-      deviceCount: Number(groupForm.deviceCount || 0),
+    void loadAccessGroupData()
+    return () => {
+      active = false
     }
+  }, [tenantCode])
 
-    setGroups((prev) =>
-      editingGroup ? prev.map((group) => (group.id === payload.id ? payload : group)) : [...prev, payload]
-    )
+  useEffect(() => {
+    if (depForm.organizationId || !apiOrganizations[0]) return
+    setDepForm((prev) => ({ ...prev, organizationId: String(apiOrganizations[0].id) }))
+  }, [apiOrganizations, depForm.organizationId])
 
-    setGroupDialogOpen(false)
-    setEditingGroup(null)
-    resetGroupForm()
-  }
+  useEffect(() => {
+    setAssignmentForm((prev) => {
+      const planningIds = apiPlannings.map((planning) => String(planning.id))
+      const targetIds =
+        prev.targetType === "Departement"
+          ? apiDepartments.map((department) => String(department.id))
+          : groups.map((group) => group.id)
 
-  const submitSchedule = () => {
-    const payload: WorkSchedule = {
-      id: editingSchedule?.id ?? `sch-${Date.now()}`,
-      name: scheduleForm.name,
-      type: scheduleForm.type,
-      startTime: scheduleForm.startTime,
-      endTime: scheduleForm.endTime,
-      workDays: scheduleForm.workDays,
-    }
+      const nextPlanningId =
+        prev.planningId && planningIds.includes(prev.planningId) ? prev.planningId : (planningIds[0] ?? "")
+      const nextTargetId =
+        prev.targetId && targetIds.includes(prev.targetId) ? prev.targetId : (targetIds[0] ?? "")
 
-    setSchedules((prev) =>
-      editingSchedule ? prev.map((schedule) => (schedule.id === payload.id ? payload : schedule)) : [...prev, payload]
-    )
-
-    setScheduleDialogOpen(false)
-    setEditingSchedule(null)
-    resetScheduleForm()
-  }
-
-  const deleteDepartment = (id: string) => {
-    setDepartments((prev) => prev.filter((dep) => dep.id !== id))
-    setAssignments((prev) => prev.filter((asgn) => !(asgn.targetType === "Departement" && asgn.targetId === id)))
-  }
-
-  const deleteGroup = (id: string) => {
-    setGroups((prev) => prev.filter((group) => group.id !== id))
-    setAssignments((prev) => prev.filter((asgn) => !(asgn.targetType === "Groupe" && asgn.targetId === id)))
-  }
-
-  const deleteSchedule = (id: string) => {
-    setSchedules((prev) => prev.filter((schedule) => schedule.id !== id))
-    setAssignments((prev) => prev.filter((asgn) => asgn.scheduleId !== id))
-  }
-
-  const addAssignment = () => {
-    if (!assignmentForm.scheduleId || !assignmentForm.targetId) return
-    setAssignments((prev) => [...prev, { id: `asg-${Date.now()}`, ...assignmentForm }])
-  }
+      if (nextPlanningId === prev.planningId && nextTargetId === prev.targetId) {
+        return prev
+      }
+      return {
+        ...prev,
+        planningId: nextPlanningId,
+        targetId: nextTargetId,
+      }
+    })
+  }, [apiPlannings, apiDepartments, groups])
 
   return (
     <div className="min-h-screen bg-background">
@@ -240,10 +619,15 @@ export default function SettingsPage() {
         <Header systemStatus="connected" />
 
         <main className="p-6">
-          <div className="mb-6">
-            <h1 className="text-2xl font-semibold text-foreground">Parametres</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Configuration globale du systeme</p>
-          </div>
+          <PageContextBar
+            title="Parametres"
+            description="Configuration globale: organisation, groupes d'acces, horaires, notifications et securite."
+            stats={[
+              { value: tenants.length, label: "Tenants disponibles" },
+              { value: groups.length, label: "Groupes d'acces" },
+              { value: apiReaders.length, label: "Lecteurs references" },
+            ]}
+          />
 
           <Tabs defaultValue="organization" className="space-y-6">
             <TabsList className="flex-wrap">
@@ -305,12 +689,47 @@ export default function SettingsPage() {
                             <Input value={depForm.name} onChange={(e) => setDepForm((p) => ({ ...p, name: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <Label>Responsable</Label>
-                            <Input value={depForm.manager} onChange={(e) => setDepForm((p) => ({ ...p, manager: e.target.value }))} />
+                            <Label>Code</Label>
+                            <Input value={depForm.code} onChange={(e) => setDepForm((p) => ({ ...p, code: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <Label>Nombre d'employes</Label>
-                            <Input type="number" value={depForm.employeeCount} onChange={(e) => setDepForm((p) => ({ ...p, employeeCount: e.target.value }))} />
+                            <Label>Organisation</Label>
+                            <Select
+                              value={depForm.organizationId}
+                              onValueChange={(value) => setDepForm((p) => ({ ...p, organizationId: value }))}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selectionner une organisation" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {apiOrganizations.map((organization) => (
+                                  <SelectItem key={organization.id} value={String(organization.id)}>
+                                    {organization.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Parent (optionnel)</Label>
+                            <Select
+                              value={depForm.parentId}
+                              onValueChange={(value) => setDepForm((p) => ({ ...p, parentId: value === "__none__" ? "" : value }))}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Aucun parent" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">Aucun parent</SelectItem>
+                                {apiDepartments
+                                  .filter((department) => department.id !== editingDepartment?.id)
+                                  .map((department) => (
+                                    <SelectItem key={department.id} value={String(department.id)}>
+                                      {department.name}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                         <DialogFooter>
@@ -322,25 +741,45 @@ export default function SettingsPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {departments.map((dep) => (
+                  {departmentError && (
+                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                      {departmentError}
+                    </div>
+                  )}
+                  {apiDepartments.map((dep) => {
+                    const organization = organizationById.get(dep.organization)
+                    const parent = dep.parent ? departmentById.get(dep.parent) : null
+                    return (
                     <div key={dep.id} className="flex items-center justify-between rounded-lg border p-4">
                       <div className="flex items-center gap-3">
                         <Building className="h-5 w-5 text-primary" />
                         <div>
                           <p className="font-medium">{dep.name}</p>
-                          <p className="text-xs text-muted-foreground">Manager: {dep.manager} • {dep.employeeCount} employes</p>
+                          <p className="text-xs text-muted-foreground">
+                            Code: {dep.code || "-"} • {organization?.name || `Organisation #${dep.organization}`}
+                            {parent ? ` • Parent: ${parent.name}` : ""}
+                          </p>
                         </div>
                       </div>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="icon" onClick={() => {
                           setEditingDepartment(dep)
-                          setDepForm({ name: dep.name, manager: dep.manager, employeeCount: String(dep.employeeCount) })
+                          setDepForm({
+                            name: dep.name,
+                            code: dep.code || "",
+                            organizationId: String(dep.organization),
+                            parentId: dep.parent ? String(dep.parent) : "",
+                          })
                           setDepDialogOpen(true)
                         }}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteDepartment(dep.id)}><Trash2 className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void removeDepartment(dep.id)}><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
+                  {apiDepartments.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Aucun departement configure pour ce tenant.</p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -367,12 +806,43 @@ export default function SettingsPage() {
                       <DialogContent>
                         <DialogHeader>
                           <DialogTitle>{editingGroup ? "Modifier" : "Creer"} un groupe</DialogTitle>
-                          <DialogDescription>Definissez la zone et le volume d'appareils.</DialogDescription>
+                          <DialogDescription>Definissez le groupe d'acces: emploi de temps + lecteurs.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
                           <div className="space-y-2"><Label>Nom</Label><Input value={groupForm.name} onChange={(e) => setGroupForm((p) => ({ ...p, name: e.target.value }))} /></div>
                           <div className="space-y-2"><Label>Description</Label><Input value={groupForm.description} onChange={(e) => setGroupForm((p) => ({ ...p, description: e.target.value }))} /></div>
-                          <div className="space-y-2"><Label>Nombre d'appareils</Label><Input type="number" value={groupForm.deviceCount} onChange={(e) => setGroupForm((p) => ({ ...p, deviceCount: e.target.value }))} /></div>
+                          <div className="space-y-2">
+                            <Label>Emploi de temps</Label>
+                            <Select value={groupForm.planningId} onValueChange={(value) => setGroupForm((p) => ({ ...p, planningId: value === "__none__" ? "" : value }))}>
+                              <SelectTrigger><SelectValue placeholder="Selectionner un planning" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">Aucun planning</SelectItem>
+                                {apiPlannings.map((planning) => (
+                                  <SelectItem key={planning.id} value={String(planning.id)}>
+                                    {planning.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Lecteurs autorises</Label>
+                            <div className="max-h-44 space-y-2 overflow-auto rounded-md border p-3">
+                              {apiReaders.length === 0 && (
+                                <p className="text-xs text-muted-foreground">Aucun lecteur disponible.</p>
+                              )}
+                              {apiReaders.map((reader) => {
+                                const readerId = String(reader.id)
+                                const checked = groupForm.readerIds.includes(readerId)
+                                return (
+                                  <label key={reader.id} className="flex items-center gap-2 text-sm">
+                                    <Checkbox checked={checked} onCheckedChange={(value) => toggleReader(readerId, value === true)} />
+                                    <span>{reader.name || reader.dev_index} ({reader.serial_number})</span>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          </div>
                         </div>
                         <DialogFooter>
                           <Button variant="outline" onClick={() => setGroupDialogOpen(false)}>Annuler</Button>
@@ -383,19 +853,35 @@ export default function SettingsPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {activeTenantName && (
+                    <p className="text-xs text-muted-foreground">Tenant actif: {activeTenantName}</p>
+                  )}
+                  {groupError && (
+                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                      {groupError}
+                    </div>
+                  )}
                   {groups.map((group) => (
                     <div key={group.id} className="flex items-center justify-between rounded-lg border p-4">
                       <div>
                         <p className="font-medium">{group.name}</p>
-                        <p className="text-xs text-muted-foreground">{group.description} • {group.deviceCount} appareils</p>
+                        <p className="text-xs text-muted-foreground">
+                          {group.description || "Sans description"} • {group.deviceCount} lecteurs
+                          {group.planningName ? ` • Planning: ${group.planningName}` : ""}
+                        </p>
                       </div>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="icon" onClick={() => {
                           setEditingGroup(group)
-                          setGroupForm({ name: group.name, description: group.description, deviceCount: String(group.deviceCount) })
+                          setGroupForm({
+                            name: group.name,
+                            description: group.description,
+                            planningId: group.planningId || "",
+                            readerIds: group.readerIds,
+                          })
                           setGroupDialogOpen(true)
                         }}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteGroup(group.id)}><Trash2 className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void deleteGroup(group.id)}><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
                   ))}
@@ -408,8 +894,8 @@ export default function SettingsPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-base">Horaires, repos et quarts</CardTitle>
-                      <CardDescription>Definition des plages de travail et types de planning</CardDescription>
+                      <CardTitle className="text-base">Plannings (backend)</CardTitle>
+                      <CardDescription>Creation, edition et suppression des plannings</CardDescription>
                     </div>
                     <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
                       <DialogTrigger asChild>
@@ -421,26 +907,22 @@ export default function SettingsPage() {
                       <DialogContent>
                         <DialogHeader>
                           <DialogTitle>{editingSchedule ? "Modifier" : "Creer"} un planning</DialogTitle>
-                          <DialogDescription>Configurez un horaire de travail, un quart ou un repos.</DialogDescription>
+                          <DialogDescription>Configurez les metadonnees du planning backend.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
                           <div className="space-y-2"><Label>Nom</Label><Input value={scheduleForm.name} onChange={(e) => setScheduleForm((p) => ({ ...p, name: e.target.value }))} /></div>
                           <div className="space-y-2">
-                            <Label>Type</Label>
-                            <Select value={scheduleForm.type} onValueChange={(value: WorkSchedule["type"]) => setScheduleForm((p) => ({ ...p, type: value }))}>
-                              <SelectTrigger><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Horaire">Horaire</SelectItem>
-                                <SelectItem value="Quart">Quart</SelectItem>
-                                <SelectItem value="Repos">Repos</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            <Label>Code (optionnel)</Label>
+                            <Input value={scheduleForm.code} onChange={(e) => setScheduleForm((p) => ({ ...p, code: e.target.value }))} />
                           </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2"><Label>Debut</Label><Input type="time" value={scheduleForm.startTime} onChange={(e) => setScheduleForm((p) => ({ ...p, startTime: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label>Fin</Label><Input type="time" value={scheduleForm.endTime} onChange={(e) => setScheduleForm((p) => ({ ...p, endTime: e.target.value }))} /></div>
+                          <div className="space-y-2">
+                            <Label>Description</Label>
+                            <Input value={scheduleForm.description} onChange={(e) => setScheduleForm((p) => ({ ...p, description: e.target.value }))} />
                           </div>
-                          <div className="space-y-2"><Label>Jours</Label><Input value={scheduleForm.workDays} onChange={(e) => setScheduleForm((p) => ({ ...p, workDays: e.target.value }))} placeholder="ex: Lun-Ven" /></div>
+                          <div className="space-y-2">
+                            <Label>Timezone</Label>
+                            <Input value={scheduleForm.timezone} onChange={(e) => setScheduleForm((p) => ({ ...p, timezone: e.target.value }))} placeholder="Ex: Africa/Abidjan" />
+                          </div>
                         </div>
                         <DialogFooter>
                           <Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>Annuler</Button>
@@ -451,22 +933,38 @@ export default function SettingsPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {schedules.map((schedule) => (
+                  {planningError && (
+                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                      {planningError}
+                    </div>
+                  )}
+                  {apiPlannings.map((schedule) => (
                     <div key={schedule.id} className="flex items-center justify-between rounded-lg border p-4">
                       <div>
-                        <p className="font-medium">{schedule.name} <Badge variant="secondary">{schedule.type}</Badge></p>
-                        <p className="text-xs text-muted-foreground">{schedule.startTime} - {schedule.endTime} • {schedule.workDays}</p>
+                        <p className="font-medium">{schedule.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Code: {schedule.code || "-"} • TZ: {schedule.timezone || "UTC"}
+                          {schedule.description ? ` • ${schedule.description}` : ""}
+                        </p>
                       </div>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="icon" onClick={() => {
                           setEditingSchedule(schedule)
-                          setScheduleForm({ name: schedule.name, type: schedule.type, startTime: schedule.startTime, endTime: schedule.endTime, workDays: schedule.workDays })
+                          setScheduleForm({
+                            name: schedule.name,
+                            code: schedule.code || "",
+                            description: schedule.description || "",
+                            timezone: schedule.timezone || "UTC",
+                          })
                           setScheduleDialogOpen(true)
                         }}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteSchedule(schedule.id)}><Trash2 className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void deleteSchedule(schedule.id)}><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
                   ))}
+                  {apiPlannings.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Aucun planning configure pour ce tenant.</p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -477,9 +975,9 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-4">
-                    <Select value={assignmentForm.scheduleId} onValueChange={(v) => setAssignmentForm((p) => ({ ...p, scheduleId: v }))}>
+                    <Select value={assignmentForm.planningId} onValueChange={(v) => setAssignmentForm((p) => ({ ...p, planningId: v }))}>
                       <SelectTrigger><SelectValue placeholder="Planning" /></SelectTrigger>
-                      <SelectContent>{schedules.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                      <SelectContent>{apiPlannings.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
                     </Select>
                     <Select value={assignmentForm.targetType} onValueChange={(v: Assignment["targetType"]) => setAssignmentForm((p) => ({ ...p, targetType: v, targetId: "" }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -496,24 +994,288 @@ export default function SettingsPage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button onClick={addAssignment}>Attribuer</Button>
+                    <Button onClick={() => void addAssignment()}>Attribuer</Button>
                   </div>
 
                   <div className="space-y-2">
                     {assignments.map((asgn) => {
-                      const schedule = schedules.find((s) => s.id === asgn.scheduleId)
-                      const target = asgn.targetType === "Departement" ? departments.find((d) => d.id === asgn.targetId) : groups.find((g) => g.id === asgn.targetId)
+                      const schedule = apiPlannings.find((s) => String(s.id) === asgn.planningId)
+                      const target = asgn.targetType === "Departement"
+                        ? departmentById.get(Number(asgn.targetId))
+                        : groups.find((g) => g.id === asgn.targetId)
                       return (
                         <div key={asgn.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
                           <p>
-                            <span className="font-medium">{schedule?.name ?? "Planning supprime"}</span> → {asgn.targetType}: {target?.name ?? "Cible supprimee"}
+                            <span className="font-medium">{schedule?.name ?? "Planning supprime"}</span>
+                            {" -> "}
+                            {asgn.targetType}: {target?.name ?? "Cible supprimee"}
                           </p>
-                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setAssignments((prev) => prev.filter((a) => a.id !== asgn.id))}>
+                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void removeAssignment(asgn)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       )
                     })}
+                    {assignments.length === 0 && (
+                      <p className="text-sm text-muted-foreground">Aucune attribution de planning pour ce tenant.</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base">Quarts de travail (backend)</CardTitle>
+                      <CardDescription>Creation et affectation des quarts aux departements</CardDescription>
+                    </div>
+                    <Dialog open={workShiftDialogOpen} onOpenChange={setWorkShiftDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setEditingWorkShift(null)
+                            resetWorkShiftForm()
+                          }}
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          Nouveau quart
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>{editingWorkShift ? "Modifier" : "Creer"} un quart de travail</DialogTitle>
+                          <DialogDescription>Ce quart sera disponible pour les employes et departements.</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div className="space-y-2">
+                            <Label>Nom</Label>
+                            <Input
+                              value={workShiftForm.name}
+                              onChange={(e) => setWorkShiftForm((p) => ({ ...p, name: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Code (optionnel)</Label>
+                            <Input
+                              value={workShiftForm.code}
+                              onChange={(e) => setWorkShiftForm((p) => ({ ...p, code: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prise de service</p>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label>Heure de debut</Label>
+                                <Input
+                                  type="time"
+                                  value={workShiftForm.start_time}
+                                  onChange={(e) => setWorkShiftForm((p) => ({ ...p, start_time: e.target.value }))}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Heure de fin</Label>
+                                <Input
+                                  type="time"
+                                  value={workShiftForm.end_time}
+                                  onChange={(e) => setWorkShiftForm((p) => ({ ...p, end_time: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Description</Label>
+                            <Input
+                              value={workShiftForm.description}
+                              onChange={(e) => setWorkShiftForm((p) => ({ ...p, description: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pause</p>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label>Heure de debut</Label>
+                                <Input
+                                  type="time"
+                                  value={workShiftForm.break_start_time}
+                                  onChange={(e) => setWorkShiftForm((p) => ({ ...p, break_start_time: e.target.value }))}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Heure de fin</Label>
+                                <Input
+                                  type="time"
+                                  value={workShiftForm.break_end_time}
+                                  onChange={(e) => setWorkShiftForm((p) => ({ ...p, break_end_time: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Heures supplementaires (minutes)</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={workShiftForm.overtime_minutes}
+                              onChange={(e) => setWorkShiftForm((p) => ({ ...p, overtime_minutes: e.target.value }))}
+                              placeholder="Optionnel"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Tolerance
+                            </p>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label>Retard tolere (min)</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={workShiftForm.late_allowable_minutes}
+                                  onChange={(e) =>
+                                    setWorkShiftForm((p) => ({ ...p, late_allowable_minutes: e.target.value }))
+                                  }
+                                  placeholder="0"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Marge depart anticipe (min)</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={workShiftForm.early_leave_allowable_minutes}
+                                  onChange={(e) =>
+                                    setWorkShiftForm((p) => ({ ...p, early_leave_allowable_minutes: e.target.value }))
+                                  }
+                                  placeholder="10"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setWorkShiftDialogOpen(false)}>Annuler</Button>
+                          <Button onClick={() => void submitWorkShift()}>Enregistrer</Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {workShiftError && (
+                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                      {workShiftError}
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {apiWorkShifts.map((shift) => (
+                      <div key={shift.id} className="flex items-center justify-between rounded-lg border p-4">
+                        <div>
+                          <p className="font-medium">{shift.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(shift.start_time ?? "--:--")} - {(shift.end_time ?? "--:--")} • {shift.code || "auto"}
+                            {shift.description ? ` • ${shift.description}` : ""}
+                            {shift.break_start_time && shift.break_end_time
+                              ? ` • Pause: ${shift.break_start_time}-${shift.break_end_time}`
+                              : ""}
+                            {shift.overtime_minutes ? ` • HS: ${shift.overtime_minutes} min` : ""}
+                            {shift.late_allowable_minutes ? ` • Retard tolere: ${shift.late_allowable_minutes} min` : ""}
+                            {shift.early_leave_allowable_minutes
+                              ? ` • Depart anticipe tolere: ${shift.early_leave_allowable_minutes} min`
+                              : ""}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setEditingWorkShift(shift)
+                              setWorkShiftForm({
+                                name: shift.name,
+                                code: shift.code,
+                                description: shift.description || "",
+                                start_time: shift.start_time ?? "08:00",
+                                end_time: shift.end_time ?? "17:00",
+                                break_start_time: shift.break_start_time ?? "12:00",
+                                break_end_time: shift.break_end_time ?? "13:00",
+                                overtime_minutes: shift.overtime_minutes ? String(shift.overtime_minutes) : "",
+                                late_allowable_minutes: shift.late_allowable_minutes
+                                  ? String(shift.late_allowable_minutes)
+                                  : "10",
+                                early_leave_allowable_minutes: shift.early_leave_allowable_minutes
+                                  ? String(shift.early_leave_allowable_minutes)
+                                  : "10",
+                              })
+                              setWorkShiftDialogOpen(true)
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() => void removeWorkShift(shift.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    {apiWorkShifts.length === 0 && (
+                      <p className="text-sm text-muted-foreground">Aucun quart configure pour ce tenant.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border p-4">
+                    <p className="mb-3 text-sm font-medium">Attribuer un quart a un departement</p>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Select
+                        value={departmentShiftForm.departmentId}
+                        onValueChange={(value) => setDepartmentShiftForm((prev) => ({ ...prev, departmentId: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Departement" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {apiDepartments.map((department) => (
+                            <SelectItem key={department.id} value={String(department.id)}>
+                              {department.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={departmentShiftForm.workShiftId}
+                        onValueChange={(value) => setDepartmentShiftForm((prev) => ({ ...prev, workShiftId: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Quart de travail" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {apiWorkShifts.map((shift) => (
+                            <SelectItem key={shift.id} value={String(shift.id)}>
+                              {shift.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button onClick={() => void submitDepartmentShiftAssignment()}>Attribuer</Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {apiDepartments.map((department) => (
+                      <div key={department.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
+                        <span>{department.name}</span>
+                        <Badge variant="secondary">
+                          {department.effective_work_shift?.name ?? "Aucun quart"}
+                        </Badge>
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -586,3 +1348,4 @@ export default function SettingsPage() {
     </div>
   )
 }
+
