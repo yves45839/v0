@@ -1,6 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  DEMO_EMPLOYEES_RAW,
+  DEMO_DEPARTMENTS_DATA,
+  DEMO_ORGANIZATIONS_DATA,
+  DEMO_WORK_SHIFTS_DATA,
+  DEMO_ACCESS_GROUPS_DATA,
+} from "@/lib/mock-data/demo-employees"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { PageContextBar } from "@/components/dashboard/page-context-bar"
@@ -10,6 +17,7 @@ import { OrganizationTree, type EmployeeScope } from "@/components/employees/org
 import { EmployeeTable } from "@/components/employees/employee-table"
 import { EmployeeDrawer } from "@/components/employees/employee-drawer"
 import { AddEmployeeModal } from "@/components/employees/add-employee-modal"
+import { ImportEmployeesDialog, type EmployeeImportRow } from "@/components/employees/import-employees-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { useSearchParams } from "next/navigation"
 import {
   assignEmployeeWorkShifts,
   createWorkShift,
@@ -99,6 +108,21 @@ export type Employee = {
 }
 
 const EMPLOYEE_TENANT_CODE = process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ?? "HQ-CASA"
+
+function normalizeLookupValue(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
+function createLocalEmployeeId(seed: string) {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `local-${seed || "employee"}-${crypto.randomUUID()}`
+  }
+  return `local-${seed || "employee"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 function normalizeFaceData(faceData: string): string {
   const trimmed = String(faceData || "").trim()
@@ -180,6 +204,7 @@ function mapApiEmployeeToUi(
 }
 
 export default function EmployeesPage() {
+  const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [accessGroupFilter, setAccessGroupFilter] = useState("all")
@@ -187,6 +212,7 @@ export default function EmployeesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
   const [employeeList, setEmployeeList] = useState<Employee[]>([])
   const [accessGroups, setAccessGroups] = useState<AccessGroupApiItem[]>([])
@@ -225,9 +251,21 @@ export default function EmployeesPage() {
     () => new Map(workShifts.map((workShift) => [workShift.id, workShift])),
     [workShifts]
   )
+  const departmentByName = useMemo(
+    () => new Map(departments.map((department) => [normalizeLookupValue(department.name), department])),
+    [departments]
+  )
 
   const loadEmployeesData = useCallback(async () => {
-    if (!isEmployeeApiEnabled()) return
+    if (!isEmployeeApiEnabled()) {
+      // Mode demonstration : charger les donnees fictives
+      setAccessGroups(DEMO_ACCESS_GROUPS_DATA as AccessGroupApiItem[])
+      setDepartments(DEMO_DEPARTMENTS_DATA as DepartmentApiItem[])
+      setOrganizations(DEMO_ORGANIZATIONS_DATA as OrganizationApiItem[])
+      setWorkShifts(DEMO_WORK_SHIFTS_DATA as WorkShiftApiItem[])
+      setEmployeeList(DEMO_EMPLOYEES_RAW as unknown as Employee[])
+      return
+    }
 
     setIsLoadingEmployees(true)
     setEmployeesError(null)
@@ -267,6 +305,46 @@ export default function EmployeesPage() {
   useEffect(() => {
     void loadEmployeesData()
   }, [loadEmployeesData])
+
+  useEffect(() => {
+    const initialSearch = searchParams.get("search")
+    const initialStatus = searchParams.get("status")
+    const initialAction = searchParams.get("action")
+    const initialFocus = searchParams.get("focus")
+
+    if (initialSearch !== null) {
+      setSearchQuery(initialSearch)
+    }
+
+    if (initialStatus && ["all", "synced", "pending", "suspended"].includes(initialStatus)) {
+      setSyncStatusFilter(initialStatus)
+    }
+
+    if (initialFocus === "pending-sync") {
+      setSyncStatusFilter("pending")
+    }
+
+    if (initialFocus === "present-today") {
+      setSyncStatusFilter("synced")
+    }
+
+    if (initialFocus === "organization") {
+      setSelectedScope({ type: "all", label: "Tous les employes" })
+    }
+
+    if (initialAction === "new-employee") {
+      setEditingEmployee(null)
+      setAddModalOpen(true)
+    }
+
+    if (initialAction === "new-shift") {
+      setCreateShiftOpen(true)
+    }
+
+    if (initialAction === "import") {
+      setImportDialogOpen(true)
+    }
+  }, [searchParams])
 
   // Calculate stats
   const totalActive = employeeList.filter((e) => e.syncStatus === "synced").length
@@ -428,6 +506,73 @@ export default function EmployeesPage() {
     }
     toast.success(isEdit ? "Employé modifié avec succès" : "Employé ajouté avec succès")
   }
+
+  const handleImportEmployees = useCallback((rows: EmployeeImportRow[]) => {
+    let createdCount = 0
+    let updatedCount = 0
+
+    setEmployeeList((prev) => {
+      const nextEmployees = [...prev]
+
+      for (const row of rows) {
+        const employeeId = row.employeeId.trim()
+        const existingIndex = employeeId
+          ? nextEmployees.findIndex(
+              (employee) => normalizeLookupValue(employee.employeeId) === normalizeLookupValue(employeeId)
+            )
+          : -1
+        const existingEmployee = existingIndex >= 0 ? nextEmployees[existingIndex] : null
+        const matchedDepartment = departmentByName.get(normalizeLookupValue(row.department))
+
+        const mappedEmployee: Employee = {
+          id: existingEmployee?.id ?? createLocalEmployeeId(employeeId || row.name),
+          apiId: existingEmployee?.apiId ?? null,
+          tenantId: existingEmployee?.tenantId ?? tenantId,
+          employeeId: employeeId || existingEmployee?.employeeId || `EMP-${Date.now()}`,
+          name: row.name.trim() || existingEmployee?.name || "Employe sans nom",
+          email: row.email.trim() || existingEmployee?.email || "-",
+          phone: row.phone.trim() || existingEmployee?.phone || "-",
+          departmentId: matchedDepartment?.id ?? existingEmployee?.departmentId ?? null,
+          department: row.department.trim() || existingEmployee?.department || matchedDepartment?.name || "Non assigne",
+          organizationId: matchedDepartment?.organization ?? existingEmployee?.organizationId ?? null,
+          workShiftId: existingEmployee?.workShiftId ?? null,
+          workShift: existingEmployee?.workShift || "Non assigne",
+          workShiftIds: existingEmployee?.workShiftIds ?? [],
+          workShifts: existingEmployee?.workShifts ?? [],
+          position: row.position.trim() || existingEmployee?.position || "N/A",
+          photoUrl: existingEmployee?.photoUrl || "",
+          faceData: existingEmployee?.faceData || "",
+          cardNumber: existingEmployee?.cardNumber || "Non attribue",
+          deviceIds: existingEmployee?.deviceIds ?? [],
+          accessGroupIds: existingEmployee?.accessGroupIds ?? [],
+          accessGroups: existingEmployee?.accessGroups ?? [],
+          syncStatus: existingEmployee?.syncStatus ?? "pending",
+          biometricStatus: existingEmployee?.biometricStatus ?? {
+            hasFacePhoto: false,
+            hasFingerprint: false,
+          },
+          fingerprints: existingEmployee?.fingerprints ?? [],
+          hireDate: existingEmployee?.hireDate ?? new Date().toISOString().split("T")[0],
+          lastAccess: existingEmployee?.lastAccess ?? "-",
+          accessLogs: existingEmployee?.accessLogs ?? [],
+        }
+
+        if (existingIndex >= 0) {
+          nextEmployees[existingIndex] = mappedEmployee
+          updatedCount += 1
+        } else {
+          nextEmployees.unshift(mappedEmployee)
+          createdCount += 1
+        }
+      }
+
+      return nextEmployees
+    })
+
+    toast.success("Import CSV termine", {
+      description: `${createdCount} ajoute(s), ${updatedCount} mis a jour dans la vue front.`,
+    })
+  }, [departmentByName, tenantId])
 
   const handleEditEmployee = (employee: Employee) => {
     setEditingEmployee(employee)
@@ -673,9 +818,7 @@ export default function EmployeesPage() {
                 <Download className="mr-2 h-4 w-4" />
                 Exporter
               </Button>
-              <Button variant="outline" size="sm" onClick={() => {
-                toast.info("Fonctionnalité d'import", { description: "L'import CSV sera disponible prochainement. Utilisez l'ajout individuel pour l'instant." })
-              }}>
+              <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
                 <Upload className="mr-2 h-4 w-4" />
                 Importer
               </Button>
@@ -718,7 +861,7 @@ export default function EmployeesPage() {
                     {selectedScope.label}
                   </Badge>
                   {hasEmployeeFilters && (
-                    <Badge variant="outline" className="border-amber-400/25 bg-amber-500/8 text-amber-200 backdrop-blur-sm">
+                    <Badge variant="outline" className="border-amber-400/25 bg-amber-500/8 text-amber-700 dark:text-amber-300 backdrop-blur-sm">
                       <SlidersHorizontal className="h-3 w-3" />
                       {activeFilterCount} filtre{activeFilterCount > 1 ? "s" : ""} actif{activeFilterCount > 1 ? "s" : ""}
                     </Badge>
@@ -778,7 +921,7 @@ export default function EmployeesPage() {
                   <div className="rounded-2xl border border-white/6 bg-white/4 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-slate-200">Synchronises</p>
-                      <Badge variant="outline" className="border-amber-400/25 bg-amber-500/8 text-[10px] text-amber-200">
+                      <Badge variant="outline" className="border-amber-400/25 bg-amber-500/8 text-[10px] text-amber-700 dark:text-amber-300">
                         {pendingSyncCount} en attente
                       </Badge>
                     </div>
@@ -886,7 +1029,7 @@ export default function EmployeesPage() {
               {(employeesError || isLoadingEmployees || draggedEmployee) && (
                 <div className="grid gap-2.5 lg:grid-cols-3">
                   {employeesError && (
-                    <div className="animate-fade-up rounded-xl border border-red-500/25 bg-red-500/8 px-4 py-3 text-sm text-red-200">
+                    <div className="animate-fade-up rounded-xl border border-red-500/25 bg-red-500/8 px-4 py-3 text-sm text-red-700 dark:text-red-300">
                       {employeesError}
                     </div>
                   )}
@@ -971,6 +1114,11 @@ export default function EmployeesPage() {
             employee={selectedEmployee}
             open={drawerOpen}
             onOpenChange={setDrawerOpen}
+            onRequestFacePhotoUpload={(employee) => {
+              setSelectedEmployee(employee)
+              setDrawerOpen(false)
+              handleEditEmployee(employee)
+            }}
           />
 
           {/* Add Employee Modal */}
@@ -993,6 +1141,12 @@ export default function EmployeesPage() {
               name: device.name,
               status: device.status,
             }))}
+          />
+
+          <ImportEmployeesDialog
+            open={importDialogOpen}
+            onOpenChange={setImportDialogOpen}
+            onImport={handleImportEmployees}
           />
 
           <Dialog open={createShiftOpen} onOpenChange={setCreateShiftOpen}>

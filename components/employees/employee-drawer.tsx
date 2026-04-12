@@ -27,22 +27,28 @@ type EmployeeDrawerProps = {
   employee: Employee | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onRequestFacePhotoUpload?: (employee: Employee) => void
 }
 
-export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerProps) {
+export function EmployeeDrawer({
+  employee,
+  open,
+  onOpenChange,
+  onRequestFacePhotoUpload,
+}: EmployeeDrawerProps) {
   if (!employee) return null
 
   const getInitials = (name: string) => {
     return name
       .split(" ")
-      .map((n) => n[0])
+      .map((part) => part[0])
       .join("")
       .toUpperCase()
   }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
         <SheetHeader className="pb-6">
           <div className="flex items-center gap-4">
             <Avatar className="h-14 w-14 border-2 border-border/60 shadow-[0_4px_16px_rgba(0,0,0,0.12)]">
@@ -53,10 +59,7 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
             <div className="min-w-0">
               <SheetTitle className="truncate text-lg font-bold">{employee.name}</SheetTitle>
               <p className="text-sm text-muted-foreground">{employee.position}</p>
-              <Badge
-                variant="secondary"
-                className="mt-1.5 bg-primary/8 text-primary"
-              >
+              <Badge variant="secondary" className="mt-1.5 bg-primary/8 text-primary">
                 {employee.department}
               </Badge>
             </div>
@@ -76,7 +79,6 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
             </TabsTrigger>
           </TabsList>
 
-          {/* General Tab */}
           <TabsContent value="general" className="mt-6 space-y-6">
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -108,32 +110,25 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
                 {employee.syncStatus === "synced" && (
                   <>
                     <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                    <span className="text-sm font-medium text-emerald-300">
-                      Synchronise
-                    </span>
+                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Synchronise</span>
                   </>
                 )}
                 {employee.syncStatus === "pending" && (
                   <>
                     <Clock className="h-5 w-5 text-amber-400" />
-                    <span className="text-sm font-medium text-amber-300">
-                      En attente
-                    </span>
+                    <span className="text-sm font-medium text-amber-700 dark:text-amber-300">En attente</span>
                   </>
                 )}
                 {employee.syncStatus === "error" && (
                   <>
                     <XCircle className="h-5 w-5 text-destructive" />
-                    <span className="text-sm font-medium text-destructive">
-                      Erreur
-                    </span>
+                    <span className="text-sm font-medium text-destructive">Erreur</span>
                   </>
                 )}
               </div>
             </div>
           </TabsContent>
 
-          {/* Access Tab */}
           <TabsContent value="access" className="mt-6 space-y-6">
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -141,9 +136,7 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
               </h3>
               <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
                 <CreditCard className="h-4 w-4 text-muted-foreground/70" />
-                <span className="font-mono text-sm tabular-nums text-foreground">
-                  {employee.cardNumber}
-                </span>
+                <span className="font-mono text-sm tabular-nums text-foreground">{employee.cardNumber}</span>
               </div>
             </div>
 
@@ -171,7 +164,7 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/80 p-3">
                   <span className="text-sm text-foreground">Photo faciale</span>
                   {employee.biometricStatus.hasFacePhoto ? (
-                    <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-300">
+                    <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
                       <CheckCircle2 className="mr-1 h-3 w-3" />
                       OK
                     </Badge>
@@ -181,9 +174,20 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
                         <XCircle className="mr-1 h-3 w-3" />
                         Manquante
                       </Badge>
-                      <Button size="sm" variant="outline" className="h-7 rounded-lg text-[11px]" onClick={() => {
-                        toast.info("Upload photo", { description: "Utilisez le formulaire d'édition pour ajouter une photo faciale." })
-                      }}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 rounded-lg text-[11px]"
+                        onClick={() => {
+                          if (onRequestFacePhotoUpload) {
+                            onRequestFacePhotoUpload(employee)
+                            return
+                          }
+                          toast.info("Upload photo", {
+                            description: "Utilisez le formulaire d'edition pour ajouter une photo faciale.",
+                          })
+                        }}
+                      >
                         <Upload className="mr-1 h-3 w-3" />
                         Upload
                       </Button>
@@ -193,7 +197,7 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/80 p-3">
                   <span className="text-sm text-foreground">Empreinte digitale</span>
                   {employee.biometricStatus.hasFingerprint ? (
-                    <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-300">
+                    <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
                       <CheckCircle2 className="mr-1 h-3 w-3" />
                       OK
                     </Badge>
@@ -208,7 +212,6 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
             </div>
           </TabsContent>
 
-          {/* History Tab */}
           <TabsContent value="history" className="mt-6 space-y-6">
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -230,17 +233,13 @@ export function EmployeeDrawer({ employee, open, onOpenChange }: EmployeeDrawerP
                         }`}
                       />
                       <div>
-                        <p className="text-sm font-medium text-foreground">
-                          {log.device}
-                        </p>
+                        <p className="text-sm font-medium text-foreground">{log.device}</p>
                         <p className="text-xs text-muted-foreground">
                           {log.status === "granted" ? "Accorde" : "Refuse"}
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {log.timestamp}
-                    </span>
+                    <span className="text-xs tabular-nums text-muted-foreground">{log.timestamp}</span>
                   </div>
                 ))}
               </div>

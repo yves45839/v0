@@ -153,7 +153,7 @@ export const priorityActions: PriorityAction[] = [
     priority: "critical",
     count: 3,
     ctaLabel: "Diagnostiquer",
-    ctaHref: "/settings",
+    ctaHref: "/settings?tab=hikcentral",
   },
   {
     id: "warning-devices",

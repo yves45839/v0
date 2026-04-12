@@ -173,21 +173,21 @@ export function AccessStream({ events }: AccessStreamProps) {
                   <p className="text-2xl font-bold text-primary tabular-nums">{events.filter(e => e.status === "granted").length}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Accès autorisés</p>
                   <Button variant="link" size="sm" className="mt-1 h-6 px-0 text-xs" asChild>
-                    <Link href="/access-logs?status=granted">Voir le detail</Link>
+                    <Link href="/access-logs?status=granted&date=today">Voir le detail</Link>
                   </Button>
                 </div>
                 <div className="rounded-xl border border-border/60 bg-card/80 p-4 text-center">
                   <p className="text-2xl font-bold text-destructive tabular-nums">{events.filter(e => e.status === "denied").length}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Accès refusés</p>
                   <Button variant="link" size="sm" className="mt-1 h-6 px-0 text-xs" asChild>
-                    <Link href="/access-logs?status=denied">Diagnostiquer</Link>
+                    <Link href="/access-logs?status=denied&date=today">Diagnostiquer</Link>
                   </Button>
                 </div>
                 <div className="rounded-xl border border-border/60 bg-card/80 p-4 text-center">
                   <p className="text-2xl font-bold text-foreground tabular-nums">{new Set(events.map(e => e.department)).size}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Départements actifs</p>
                   <Button variant="link" size="sm" className="mt-1 h-6 px-0 text-xs" asChild>
-                    <Link href="/access-logs?scope=departments">Explorer</Link>
+                    <Link href="/employees?focus=organization">Explorer</Link>
                   </Button>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Badge } from "@/components/ui/badge"
@@ -105,6 +106,7 @@ type PendingSensitiveAction =
 
 export default function SettingsPage() {
   const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
+  const searchParams = useSearchParams()
   const [groups, setGroups] = useState<AccessGroup[]>([])
   const [tenantId, setTenantId] = useState<number | null>(null)
   const [tenants, setTenants] = useState<TenantItem[]>([])
@@ -118,7 +120,11 @@ export default function SettingsPage() {
   const [groupError, setGroupError] = useState<string | null>(null)
   const [workShiftError, setWorkShiftError] = useState<string | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState("organization")
+  const VALID_TABS = ["organization", "planning", "hikcentral", "security", "notifications", "general"] as const
+  const initialTab = searchParams.get("tab")
+  const [activeTab, setActiveTab] = useState<string>(
+    VALID_TABS.includes(initialTab as typeof VALID_TABS[number]) ? (initialTab as string) : "organization"
+  )
   const [isSavingDepartment, setIsSavingDepartment] = useState(false)
   const [isSavingGroup, setIsSavingGroup] = useState(false)
   const [isSavingSchedule, setIsSavingSchedule] = useState(false)
@@ -1678,7 +1684,7 @@ export default function SettingsPage() {
                     {apiDepartments.map((department) => (
                       <div key={department.id} className="flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-3 text-sm wow-transition hover:border-border">
                         <span className="text-muted-foreground">{department.name}</span>
-                        <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-300 border border-emerald-400/20">
+                        <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-400/20">
                           {department.effective_work_shift?.name ?? "Aucun quart"}
                         </Badge>
                       </div>

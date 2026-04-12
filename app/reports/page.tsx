@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { PageContextBar } from "@/components/dashboard/page-context-bar"
@@ -233,6 +234,7 @@ function normalizeTimeValue(value: string): string | null {
 }
 
 export default function ReportsPage() {
+  const searchParams = useSearchParams()
   const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
   const [selectedPeriod, setSelectedPeriod] = useState<AttendanceReportPeriod>("weekly")
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -377,6 +379,36 @@ export default function ReportsPage() {
     selectedPersonIds,
     selectedDepartmentId,
   ])
+
+  useEffect(() => {
+    const initialSearch = searchParams.get("search")
+    const initialFocus = searchParams.get("focus")
+    const initialTab = searchParams.get("tab")
+    const initialAction = searchParams.get("action")
+
+    if (initialSearch !== null) {
+      setSearchQuery(initialSearch)
+      setActiveTab("details")
+    }
+
+    if (initialTab === "recap" || initialTab === "details") {
+      setActiveTab(initialTab)
+    }
+
+    if (initialFocus === "absences") {
+      setActiveTab("details")
+      setDetailFocus("missing")
+    } else if (initialFocus === "late-arrivals") {
+      setActiveTab("details")
+      setDetailFocus("late")
+    } else if (initialFocus === "corrections") {
+      setActiveTab("recap")
+    }
+
+    if (initialAction === "generate-report") {
+      void loadReport()
+    }
+  }, [loadReport, searchParams])
 
   const loadSelectedCorrection = useCallback(async () => {
     if (!selectedCorrectionPersonId) {
@@ -880,7 +912,7 @@ export default function ReportsPage() {
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-500/15">
                 <AlertTriangle className="h-4 w-4 text-red-400" />
               </div>
-              <p className="text-sm leading-relaxed text-red-300">{error}</p>
+              <p className="text-sm leading-relaxed text-red-700 dark:text-red-300">{error}</p>
             </div>
           )}
 
@@ -1294,7 +1326,7 @@ export default function ReportsPage() {
                         corrected: (day) => correctedDateSet.has(toDateInputValue(day)),
                       }}
                       modifiersClassNames={{
-                        corrected: "bg-emerald-500/20 text-emerald-300",
+                        corrected: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
                       }}
                     />
                   </PopoverContent>

@@ -131,7 +131,7 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
                 <Cpu className="mb-3 h-8 w-8 text-muted-foreground/30" />
                 <p className="text-sm text-muted-foreground">Aucun appareil détecté</p>
                 <Button variant="link" size="sm" className="mt-2 text-xs" asChild>
-                  <Link href="/devices">Configurer les appareils</Link>
+                  <Link href="/devices?action=new-device">Configurer les appareils</Link>
                 </Button>
               </div>
             )}
@@ -141,7 +141,7 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
 
               return (
                 <Link
-                  href="/devices"
+                  href={`/devices?device=${encodeURIComponent(device.id)}`}
                   key={device.id}
                   className={cn(
                     "group card-shine wow-transition flex items-center justify-between rounded-xl border border-border/70 bg-background/35 p-3 hover:border-primary/35 hover:bg-secondary/40",

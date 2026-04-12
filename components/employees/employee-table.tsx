@@ -58,9 +58,9 @@ type EmployeeTableProps = {
 }
 
 const departmentColors: Record<string, string> = {
-  Engineering: "border-blue-400/20 bg-blue-500/12 text-blue-300",
+  Engineering: "border-blue-400/20 bg-blue-500/12 text-blue-700 dark:text-blue-300",
   Marketing: "border-fuchsia-400/20 bg-fuchsia-500/12 text-fuchsia-300",
-  Finance: "border-emerald-400/20 bg-emerald-500/12 text-emerald-300",
+  Finance: "border-emerald-400/20 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
   HR: "border-pink-400/20 bg-pink-500/12 text-pink-300",
   Sales: "border-orange-400/20 bg-orange-500/12 text-orange-300",
   Design: "border-cyan-400/20 bg-cyan-500/12 text-cyan-300",
@@ -228,10 +228,10 @@ export function EmployeeTable({
                             className={cn(
                               "text-[10px] font-medium",
                               suspendedEmployeeIds.has(employee.id)
-                                ? "border-red-400/25 bg-red-500/8 text-red-200"
+                                ? "border-red-400/25 bg-red-500/8 text-red-700 dark:text-red-300"
                                 : employee.syncStatus === "pending"
-                                ? "border-amber-400/25 bg-amber-500/8 text-amber-300"
-                                : "border-emerald-400/20 bg-emerald-500/8 text-emerald-300"
+                                ? "border-amber-400/25 bg-amber-500/8 text-amber-700 dark:text-amber-300"
+                                : "border-emerald-400/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
                             )}
                           >
                             <CheckCircle2 className="h-3 w-3" />
@@ -242,7 +242,7 @@ export function EmployeeTable({
                             className={cn(
                               "text-[10px] font-medium",
                               employee.biometricStatus.hasFacePhoto && employee.biometricStatus.hasFingerprint
-                                ? "border-emerald-400/20 bg-emerald-500/8 text-emerald-300"
+                                ? "border-emerald-400/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
                                 : "border-border/50 bg-background/25 text-muted-foreground/80"
                             )}
                           >

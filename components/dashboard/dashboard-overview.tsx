@@ -40,7 +40,7 @@ export function DashboardOverview({
             { value: criticalCount, label: "Incidents critiques", tone: "critical", href: "/access-logs" },
             { value: warningCount, label: "Elements a surveiller", tone: "warning", href: "/devices" },
             { value: infoCount, label: "Actions en attente", tone: "neutral", href: "/reports" },
-            { value: systemStatus === "connected" ? "OK" : systemStatus === "syncing" ? "Partiel" : "Hors ligne", label: "Etat API", tone: systemStatus === "connected" ? "success" : systemStatus === "syncing" ? "warning" : "critical", href: "/settings" },
+            { value: systemStatus === "connected" ? "OK" : systemStatus === "syncing" ? "Partiel" : "Hors ligne", label: "Etat API", tone: systemStatus === "connected" ? "success" : systemStatus === "syncing" ? "warning" : "critical", href: "/settings?tab=hikcentral" },
           ]}
         />
       </div>

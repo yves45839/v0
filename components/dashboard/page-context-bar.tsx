@@ -22,9 +22,9 @@ type PageContextBarProps = {
 }
 
 const toneClassNames: Record<ContextTone, string> = {
-  critical: "border-red-500/35 bg-red-500/14 text-red-200 shadow-[0_8px_18px_rgba(227,90,90,0.18)]",
-  warning: "border-amber-500/35 bg-amber-500/14 text-amber-200 shadow-[0_8px_18px_rgba(244,179,93,0.16)]",
-  success: "border-emerald-500/35 bg-emerald-500/14 text-emerald-200 shadow-[0_8px_18px_rgba(47,213,165,0.16)]",
+  critical: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300 shadow-[0_8px_18px_rgba(227,90,90,0.18)]",
+  warning: "border-amber-500/35 bg-amber-500/12 text-amber-700 dark:text-amber-300 shadow-[0_8px_18px_rgba(244,179,93,0.16)]",
+  success: "border-emerald-500/35 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 shadow-[0_8px_18px_rgba(47,213,165,0.16)]",
   neutral: "border-border/70 bg-secondary/55 text-muted-foreground shadow-[0_8px_16px_rgba(0,0,0,0.14)]",
 }
 

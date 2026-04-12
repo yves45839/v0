@@ -14,17 +14,17 @@ type PriorityActionsProps = {
 
 const priorityStyles = {
   critical: {
-    badge: "border-red-500/35 bg-red-500/10 text-red-300",
+    badge: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400",
     icon: ShieldAlert,
     label: "Critique",
   },
   warning: {
-    badge: "border-amber-500/35 bg-amber-500/10 text-amber-300",
+    badge: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
     icon: AlertTriangle,
     label: "A surveiller",
   },
   info: {
-    badge: "border-blue-500/35 bg-blue-500/10 text-blue-300",
+    badge: "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-400",
     icon: CircleAlert,
     label: "Info actionnable",
   },

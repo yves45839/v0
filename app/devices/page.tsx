@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { DEMO_DEVICES_DATA } from "@/lib/mock-data/demo-devices"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
@@ -199,6 +201,7 @@ const getDeviceTypeLabel = (type: Device["type"]) => {
 }
 
 export default function DevicesPage() {
+  const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
@@ -342,10 +345,12 @@ export default function DevicesPage() {
 
       setDevices(normalizedDevices)
       return normalizedDevices
-    } catch (error) {
-      setDevices([])
-      setDevicesError(error instanceof Error ? error.message : "Erreur chargement des appareils")
-      return []
+    } catch {
+      // Mode demonstration : charger les appareils fictifs
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const demoDevices = DEMO_DEVICES_DATA as any[]
+      setDevices(demoDevices)
+      return demoDevices
     } finally {
       setIsLoadingDevices(false)
     }
@@ -400,6 +405,56 @@ export default function DevicesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDeviceOpen])
 
+  useEffect(() => {
+    const initialSearch = searchParams.get("search")
+    const initialStatus = searchParams.get("status")
+    const initialType = searchParams.get("type")
+    const initialTenant = searchParams.get("tenant")
+    const initialLink = searchParams.get("link")
+    const initialAction = searchParams.get("action")
+
+    if (initialSearch !== null) {
+      setSearchQuery(initialSearch)
+    }
+
+    if (initialStatus && ["all", "attention", "online", "warning", "offline"].includes(initialStatus)) {
+      setStatusFilter(initialStatus)
+    }
+
+    if (initialType && ["all", "door_controller", "reader", "turnstile", "fingerprint"].includes(initialType)) {
+      setTypeFilter(initialType)
+    }
+
+    if (initialTenant) {
+      setTenantFilter(initialTenant)
+    }
+
+    if (initialLink && ["all", "linked", "unlinked"].includes(initialLink)) {
+      setLinkFilter(initialLink)
+    }
+
+    if (initialAction === "new-device") {
+      setAddDeviceOpen(true)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    const initialDevice = searchParams.get("device")
+    if (!initialDevice || devices.length === 0) return
+
+    const normalizedTarget = initialDevice.trim().toLowerCase()
+    const matchedDevice =
+      devices.find((device) => device.id.trim().toLowerCase() === normalizedTarget) ??
+      devices.find((device) => device.devIndex.trim().toLowerCase() === normalizedTarget) ??
+      devices.find((device) => device.name.trim().toLowerCase() === normalizedTarget)
+
+    if (!matchedDevice) return
+
+    setSelectedDevice(matchedDevice)
+    setDetailsTab("info")
+    setDetailsOpen(true)
+  }, [devices, searchParams])
+
   // Calculate stats
   const onlineDevices = devices.filter((d) => d.status === "online").length
   const warningDevices = devices.filter((d) => d.status === "warning").length
@@ -434,7 +489,10 @@ export default function DevicesPage() {
       device.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
       device.ipAddress.includes(searchQuery)
 
-    const matchesStatus = statusFilter === "all" || device.status === statusFilter
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "attention" && device.status !== "online") ||
+      device.status === statusFilter
     const matchesType = typeFilter === "all" || device.type === typeFilter
     const matchesTenant = tenantFilter === "all" || device.tenantCode === tenantFilter
     const matchesLink =
@@ -886,7 +944,7 @@ export default function DevicesPage() {
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-500/15">
                 <AlertTriangle className="h-4 w-4 text-red-400" />
               </div>
-              <p className="text-sm leading-relaxed text-red-300">{devicesError}</p>
+              <p className="text-sm leading-relaxed text-red-700 dark:text-red-300">{devicesError}</p>
             </div>
           )}
 
@@ -1117,6 +1175,7 @@ export default function DevicesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Tous les statuts</SelectItem>
+                    <SelectItem value="attention">A surveiller</SelectItem>
                     <SelectItem value="online">En ligne</SelectItem>
                     <SelectItem value="warning">Avertissement</SelectItem>
                     <SelectItem value="offline">Hors ligne</SelectItem>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { DEMO_ACCESS_LOGS } from "@/lib/mock-data/demo-access-logs"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { PageContextBar } from "@/components/dashboard/page-context-bar"
@@ -225,9 +226,10 @@ export default function AccessLogsPage() {
       const mapped = payload.results.map(mapEventToAccessLog).sort(sortLogsByNewest)
       latestLogIdRef.current = getLatestLogId(mapped)
       setAccessLogs(mapped)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossible de charger les evenements."
-      setError(message)
+    } catch {
+      // Mode demonstration : charger les journaux fictifs
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setAccessLogs(DEMO_ACCESS_LOGS as any[])
     } finally {
       if (showLoader) setLoading(false)
     }
@@ -332,13 +334,32 @@ export default function AccessLogsPage() {
   const accessTypes = useMemo(() => [...new Set(accessLogs.map((log) => log.accessType))], [accessLogs])
 
   useEffect(() => {
+    const initialSearch = searchParams.get("search")
     const initialStatus = searchParams.get("status")
     const initialPerson = searchParams.get("person")
+    const initialDate = searchParams.get("date")
+    const initialDevice = searchParams.get("device")
+    const initialScope = searchParams.get("scope")
+
+    if (initialSearch !== null) {
+      setSearchQuery(initialSearch)
+    }
+
     if (initialStatus && ["granted", "denied", "unknown"].includes(initialStatus)) {
       setStatusFilter(initialStatus)
     }
     if (initialPerson) {
       setPersonFilter(initialPerson)
+    }
+    if (initialDate && ["today", "yesterday", "last7", "all"].includes(initialDate)) {
+      setDateFilter(initialDate)
+    }
+    if (initialDevice) {
+      setDeviceFilter(initialDevice)
+    }
+    if (initialScope === "departments") {
+      setSortBy("employee")
+      setSortOrder("asc")
     }
   }, [searchParams])
 
@@ -465,7 +486,7 @@ export default function AccessLogsPage() {
                 onClick={() => setIsLive((v) => !v)}
                 className={
                   isLive
-                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-800 dark:hover:text-emerald-300"
                     : ""
                 }
               >
@@ -510,7 +531,7 @@ export default function AccessLogsPage() {
           </div>
 
           {peopleError && (
-            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
+            <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
               {peopleError}
             </div>
           )}
@@ -687,7 +708,7 @@ export default function AccessLogsPage() {
             </CardHeader>
             <CardContent className="overflow-x-auto p-0">
               {error && (
-                <div className="mx-4 mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                <div className="mx-4 mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
                   {error}
                 </div>
               )}

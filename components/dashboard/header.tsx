@@ -66,6 +66,11 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
 
+  const routeWithSearch = useCallback(
+    (path: string, query: string) => `${path}?search=${encodeURIComponent(query)}`,
+    []
+  )
+
   const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault()
     const q = searchQuery.trim()
@@ -73,25 +78,29 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
     // Route to the most relevant page based on keywords
     const lower = q.toLowerCase()
     if (lower.includes("log") || lower.includes("acces") || lower.includes("event")) {
-      router.push("/access-logs")
+      router.push(routeWithSearch("/access-logs", q))
     } else if (lower.includes("employ") || lower.includes("badge") || lower.includes("matricule")) {
-      router.push("/employees")
+      router.push(routeWithSearch("/employees", q))
     } else if (lower.includes("appareil") || lower.includes("device") || lower.includes("terminal")) {
-      router.push("/devices")
+      router.push(routeWithSearch("/devices", q))
     } else if (lower.includes("rapport") || lower.includes("report") || lower.includes("pointage")) {
-      router.push("/reports")
-    } else if (lower.includes("planning") || lower.includes("quart") || lower.includes("shift")) {
-      router.push("/planning")
+      router.push(routeWithSearch("/reports", q))
+    } else if (lower.includes("calendrier") || lower.includes("schedule")) {
+      router.push("/planning?view=schedule")
+    } else if (lower.includes("quart") || lower.includes("shift")) {
+      router.push("/planning?view=shift")
+    } else if (lower.includes("planning") || lower.includes("timetable")) {
+      router.push("/planning?view=timetable")
     } else if (lower.includes("param") || lower.includes("config") || lower.includes("setting")) {
       router.push("/settings")
     } else {
       // Default: go to employees (most search-related page)
-      router.push("/employees")
+      router.push(routeWithSearch("/employees", q))
     }
     setSearchQuery("")
     setMobileSearchOpen(false)
     toast.info(`Recherche: "${q}"`, { description: "Redirection vers la section correspondante" })
-  }, [searchQuery, router])
+  }, [routeWithSearch, searchQuery, router])
 
   const handleLogout = useCallback(() => {
     toast.success("Déconnexion réussie", { description: "À bientôt !" })
@@ -240,10 +249,10 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
                           className={cn(
                             "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                             source.status === "ok"
-                              ? "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"
+                              ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                               : source.status === "warning"
-                                ? "border-amber-500/35 bg-amber-500/12 text-amber-300"
-                                : "border-red-500/35 bg-red-500/12 text-red-300"
+                                ? "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                : "border-red-500/35 bg-red-500/10 text-red-700 dark:text-red-400"
                           )}
                         >
                           {source.status === "ok" ? "OK" : source.status === "warning" ? "Partiel" : "Erreur"}
@@ -269,10 +278,10 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
                 className={cn(
                   "hidden h-8 items-center gap-2 rounded-lg border px-2.5 text-[11px] font-medium lg:flex",
                   webhookStatus === "healthy"
-                    ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
+                    ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                     : webhookStatus === "warning"
-                      ? "border-amber-500/35 bg-amber-500/10 text-amber-300"
-                      : "border-red-500/35 bg-red-500/10 text-red-300"
+                      ? "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                      : "border-red-500/35 bg-red-500/10 text-red-700 dark:text-red-400"
                 )}
               >
                 <span
@@ -321,13 +330,13 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
             <DropdownMenuContent align="end" className="w-52 bg-card/95 border-border/70">
               <DropdownMenuLabel className="text-xs text-muted-foreground">Actions rapides</DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-border" />
-              <DropdownMenuItem onClick={() => router.push("/employees")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
+              <DropdownMenuItem onClick={() => router.push("/employees?action=new-employee")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
                 <Users className="h-4 w-4" /> Ajouter un employé
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push("/devices")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
+              <DropdownMenuItem onClick={() => router.push("/devices?action=new-device")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
                 <Cpu className="h-4 w-4" /> Ajouter un appareil
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push("/reports")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
+              <DropdownMenuItem onClick={() => router.push("/reports?action=generate-report")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
                 <FileText className="h-4 w-4" /> Générer un rapport
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/access-logs")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">

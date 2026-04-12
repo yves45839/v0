@@ -196,7 +196,7 @@ export function KPICards({ data, systemStatus }: KPICardsProps) {
                         {card.trend}
                       </div>
                       {isFallbackValue ? (
-                        <p className="mt-2 text-[11px] text-amber-400">Donnees partielles: source API indisponible.</p>
+                        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">Donnees partielles: source API indisponible.</p>
                       ) : null}
                     </div>
                     {card.showProgress && card.progressValue !== undefined && card.progressTotal !== undefined && (
@@ -228,7 +228,7 @@ export function KPICards({ data, systemStatus }: KPICardsProps) {
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Valeur actuelle</p>
             <p className="mt-1 text-3xl font-bold text-foreground tabular-nums">{selectedCard?.value ?? 0}</p>
             {hasFallbackData ? (
-              <p className="mt-2 text-xs text-amber-400">
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                 Certaines sources sont degradees. Les valeurs peuvent etre incompletes.
               </p>
             ) : null}

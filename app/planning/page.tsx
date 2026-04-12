@@ -1,6 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import {
+  DEMO_DEPARTMENTS_DATA,
+  DEMO_EMPLOYEES_RAW,
+  DEMO_WORK_SHIFTS_DATA,
+} from "@/lib/mock-data/demo-employees"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 
@@ -301,6 +307,14 @@ function formatTime(time: string | null | undefined) {
   return time ? time.slice(0, 5) : "--:--"
 }
 
+function normalizePlanningLookupValue(value: string | number | null | undefined) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
 function timeToMinutes(time: string | null | undefined) {
   if (!time) return 0
   const [hours, minutes] = time.split(":").map(Number)
@@ -375,7 +389,7 @@ function getEmployeeDepartment(
 function getSlotBadgeClass(slotType: "work" | "shift" | "rest") {
   if (slotType === "rest") return "border-rose-500/30 bg-rose-500/10 text-rose-200"
   if (slotType === "shift") return "border-sky-500/30 bg-sky-500/10 text-sky-200"
-  return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+  return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
 }
 
 function getPlanningDayEntries(
@@ -475,6 +489,7 @@ function getErrorDetail(error: unknown) {
 }
 
 export default function PlanningPage() {
+  const searchParams = useSearchParams()
   const [activeView, setActiveView] = useState<PlanningView>("timetable")
   const [employees, setEmployees] = useState<EmployeeApiItem[]>([])
   const [departments, setDepartments] = useState<DepartmentApiItem[]>([])
@@ -515,6 +530,7 @@ export default function PlanningPage() {
   const timetableRef = useRef<HTMLElement | null>(null)
   const shiftRef = useRef<HTMLElement | null>(null)
   const scheduleRef = useRef<HTMLElement | null>(null)
+  const handledQueryActionRef = useRef<string | null>(null)
 
   const [newShift, setNewShift] = useState(buildDefaultShiftForm)
   const [newPlanning, setNewPlanning] = useState(buildDefaultPlanningForm)
@@ -566,6 +582,12 @@ export default function PlanningPage() {
         .some((value) => value.toLowerCase().includes(normalizedAssignSearch))
     )
   }, [departments, normalizedAssignSearch])
+  const focusView = useCallback((view: PlanningView) => {
+    setActiveView(view)
+    const targetRef =
+      view === "timetable" ? timetableRef.current : view === "shift" ? shiftRef.current : scheduleRef.current
+    targetRef?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [])
 
   const planningCards = useMemo(
     () => [
@@ -574,33 +596,24 @@ export default function PlanningPage() {
         label: "Timetable",
         helper: `${plannings.length} existant${plannings.length > 1 ? "s" : ""}`,
         icon: Plus,
-        action: () => {
-          setActiveView("timetable")
-          timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-        },
+        action: () => focusView("timetable"),
       },
       {
         key: "shift" as const,
         label: "Shift",
         helper: `${workShifts.length} existant${workShifts.length > 1 ? "s" : ""}`,
         icon: Shapes,
-        action: () => {
-          setActiveView("shift")
-          shiftRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-        },
+        action: () => focusView("shift"),
       },
       {
         key: "schedule" as const,
         label: "Shift Schedule",
         helper: "Calendrier mensuel",
         icon: CalendarRange,
-        action: () => {
-          setActiveView("schedule")
-          scheduleRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-        },
+        action: () => focusView("schedule"),
       },
     ],
-    [plannings.length, workShifts.length]
+    [focusView, plannings.length, workShifts.length]
   )
 
   const hrGuideStats = useMemo(() => {
@@ -639,9 +652,41 @@ export default function PlanningPage() {
 
   const loadBaseData = useCallback(async () => {
     if (!isEmployeeApiEnabled()) {
-      raiseError("EMP_API_DISABLED")
+      // Mode demonstration : charger les donnees fictives
+      setEmployees(DEMO_EMPLOYEES_RAW as unknown as EmployeeApiItem[])
+      setDepartments(DEMO_DEPARTMENTS_DATA as unknown as DepartmentApiItem[])
+      setWorkShifts(DEMO_WORK_SHIFTS_DATA as unknown as WorkShiftApiItem[])
+      setPlannings([{
+        id: 1,
+        tenant: 0,
+        name: "Planning Standard RH",
+        code: "STD-RH",
+        description: "Planning hebdomadaire standard 5j/7",
+        timezone: "Africa/Casablanca",
+        metadata: {},
+        daily_slots: [
+          { day_of_week: 0, slot_type: "work", start_time: "08:00", end_time: "17:00", label: "Journee" },
+          { day_of_week: 1, slot_type: "work", start_time: "08:00", end_time: "17:00", label: "Journee" },
+          { day_of_week: 2, slot_type: "work", start_time: "08:00", end_time: "17:00", label: "Journee" },
+          { day_of_week: 3, slot_type: "work", start_time: "08:00", end_time: "17:00", label: "Journee" },
+          { day_of_week: 4, slot_type: "work", start_time: "08:00", end_time: "17:00", label: "Journee" },
+          { day_of_week: 5, slot_type: "rest", start_time: "00:00", end_time: "00:00", label: "Repos" },
+          { day_of_week: 6, slot_type: "rest", start_time: "00:00", end_time: "00:00", label: "Repos" },
+        ],
+        entries: [],
+      } as unknown as PlanningApiItem])
+      setTenantId(0)
+      setDepartmentsById(new Map(DEMO_DEPARTMENTS_DATA.map((d) => [d.id, d.name])))
+      if (!selectedEmployeeId && DEMO_EMPLOYEES_RAW.length > 0) {
+        setSelectedEmployeeId(DEMO_EMPLOYEES_RAW[0].id as unknown as number)
+      }
       setLoading(false)
-      return null
+      return {
+        employeesData: DEMO_EMPLOYEES_RAW as unknown as EmployeeApiItem[],
+        departmentsData: DEMO_DEPARTMENTS_DATA as unknown as DepartmentApiItem[],
+        shiftsData: DEMO_WORK_SHIFTS_DATA as unknown as WorkShiftApiItem[],
+        planningsData: [] as PlanningApiItem[],
+      }
     }
 
     setLoading(true)
@@ -719,6 +764,118 @@ export default function PlanningPage() {
       return schedule.days[0].date
     })
   }, [schedule])
+
+  useEffect(() => {
+    const requestedView = searchParams.get("view")
+    const requestedFocus = searchParams.get("focus")
+    const nextView =
+      requestedView === "timetable" || requestedView === "shift" || requestedView === "schedule"
+        ? requestedView
+        : requestedFocus === "timetables" || requestedFocus === "planning"
+          ? "timetable"
+          : requestedFocus === "shifts"
+            ? "shift"
+            : requestedFocus === "schedule" || requestedFocus === "calendar"
+              ? "schedule"
+              : null
+
+    if (nextView) {
+      focusView(nextView)
+    }
+  }, [focusView, searchParams])
+
+  useEffect(() => {
+    const requestedMonth = searchParams.get("month")
+    if (requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth) && requestedMonth !== month) {
+      setMonth(requestedMonth)
+    }
+  }, [month, searchParams])
+
+  useEffect(() => {
+    const requestedEmployee = searchParams.get("employee")?.trim()
+    if (!requestedEmployee || employees.length === 0) {
+      return
+    }
+
+    const lookup = normalizePlanningLookupValue(requestedEmployee)
+    const matchedEmployee =
+      employees.find((employee) => normalizePlanningLookupValue(employee.id) === lookup) ??
+      employees.find((employee) => normalizePlanningLookupValue(employee.employee_no) === lookup) ??
+      employees.find((employee) => normalizePlanningLookupValue(employee.name).includes(lookup))
+
+    if (!matchedEmployee) {
+      return
+    }
+
+    if (matchedEmployee.id !== selectedEmployeeId) {
+      setSelectedEmployeeId(matchedEmployee.id)
+    }
+    focusView("schedule")
+  }, [employees, focusView, searchParams, selectedEmployeeId])
+
+  useEffect(() => {
+    const action = searchParams.get("action")
+    if (!action) {
+      handledQueryActionRef.current = null
+      return
+    }
+
+    const signature = [action, searchParams.get("planning") ?? "", searchParams.get("scope") ?? ""].join("|")
+    if (handledQueryActionRef.current === signature) {
+      return
+    }
+
+    if (action === "new-shift") {
+      focusView("shift")
+      setError(null)
+      setEditingShift(null)
+      setNewShift(buildDefaultShiftForm())
+      setCreateShiftOpen(true)
+      handledQueryActionRef.current = signature
+      return
+    }
+
+    if (action === "new-planning") {
+      focusView("timetable")
+      setError(null)
+      setEditingPlanning(null)
+      setSelectedShiftId(null)
+      setPlanningEditorMode("builder")
+      setCopyMenuDay(null)
+      setNewPlanning(buildDefaultPlanningForm())
+      setCreatePlanningOpen(true)
+      handledQueryActionRef.current = signature
+      return
+    }
+
+    if (action !== "assign-planning" || plannings.length === 0) {
+      return
+    }
+
+    const planningLookup = normalizePlanningLookupValue(searchParams.get("planning"))
+    const matchedPlanning =
+      (planningLookup
+        ? plannings.find((planning) => normalizePlanningLookupValue(planning.id) === planningLookup) ??
+          plannings.find((planning) => normalizePlanningLookupValue(planning.code) === planningLookup) ??
+          plannings.find((planning) => normalizePlanningLookupValue(planning.name).includes(planningLookup))
+        : plannings[0]) ?? null
+
+    if (!matchedPlanning) {
+      return
+    }
+
+    const nextAssignMode = searchParams.get("scope") === "departments" ? "departments" : "employees"
+    focusView("timetable")
+    setError(null)
+    setAssignPlanningTarget(matchedPlanning)
+    setAssignMode(nextAssignMode)
+    setAssignSearch("")
+    setSelectedAssignEmployeeIds([])
+    setSelectedAssignDepartmentIds([])
+    setIncludeSubDepartments(false)
+    setAssignPlanningOpen(true)
+    handledQueryActionRef.current = signature
+  }, [focusView, plannings, searchParams])
 
   const openCreateShiftDialog = () => {
     setError(null)
@@ -1446,7 +1603,7 @@ export default function PlanningPage() {
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-primary">
                     <CalendarClock className="h-3 w-3" /> Planning
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-300">
                     <Clock className="h-3 w-3" /> Gestion du temps
                   </span>
                 </div>
@@ -1461,7 +1618,7 @@ export default function PlanningPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
-                    className="h-10 rounded-xl border-amber-400/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/18 hover:text-amber-100"
+                    className="h-10 rounded-xl border-amber-400/30 bg-amber-500/10 text-amber-700 dark:text-amber-200 hover:bg-amber-500/18 hover:text-amber-800 dark:hover:text-amber-100"
                     onClick={() => setHrGuideOpen(true)}
                   >
                     <Sparkles className="h-4 w-4" />
@@ -1762,7 +1919,7 @@ export default function PlanningPage() {
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center gap-1">
-                              <span className="rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 tabular-nums">
+                              <span className="rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 tabular-nums">
                                 {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
                               </span>
                               <Button
@@ -1995,7 +2152,7 @@ export default function PlanningPage() {
                                         key={`${day.date}-${shift.id}`}
                                         className="rounded-lg bg-amber-500/10 px-2 py-1 text-[10px]"
                                       >
-                                        <div className="truncate font-semibold text-amber-300">{shift.name}</div>
+                                        <div className="truncate font-semibold text-amber-700 dark:text-amber-300">{shift.name}</div>
                                         <div className="text-[9px] text-amber-300/60 tabular-nums">
                                           {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
                                         </div>
@@ -2715,7 +2872,7 @@ export default function PlanningPage() {
                                   {!slot.isRestDay && hiddenShiftIds.length > 0 ? (
                                     <button
                                       type="button"
-                                      className="rounded-lg border border-amber-300/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300 wow-transition hover:bg-amber-500/20"
+                                      className="rounded-lg border border-amber-300/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300 wow-transition hover:bg-amber-500/20"
                                       title={hiddenShiftDetails || `${hiddenShiftIds.length} quart(s) supplémentaire(s)`}
                                     >
                                       +{hiddenShiftIds.length}

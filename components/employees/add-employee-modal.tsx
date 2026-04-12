@@ -1103,7 +1103,7 @@ export function AddEmployeeModal({
                 {(cardReadMessage || cardReadError || (!isLoadingReaders && onlineReaders.length === 0 && !cardReadError)) && (
                   <div className="mt-4 space-y-2">
                     {cardReadMessage && (
-                      <p className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+                      <p className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-200">
                         {cardReadMessage}
                       </p>
                     )}

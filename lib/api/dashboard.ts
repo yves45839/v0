@@ -149,7 +149,7 @@ function buildPriorityActions(params: {
         priority: "critical",
         count: params.apiIssueCount,
         ctaLabel: "Diagnostiquer",
-        ctaHref: "/settings",
+        ctaHref: "/settings?tab=hikcentral",
       }
     : {
         id: "critical-webhook",
@@ -160,7 +160,7 @@ function buildPriorityActions(params: {
         priority: "critical",
         count: params.webhookIssue ? 1 : params.deniedEventsCount,
         ctaLabel: "Diagnostiquer",
-        ctaHref: params.webhookIssue ? "/settings" : "/access-logs",
+        ctaHref: params.webhookIssue ? "/settings?tab=hikcentral" : "/access-logs?status=denied&date=today",
       }
 
   return [
@@ -172,7 +172,7 @@ function buildPriorityActions(params: {
       priority: "warning",
       count: params.warningDevicesCount,
       ctaLabel: "Voir les appareils",
-      ctaHref: "/devices",
+      ctaHref: "/devices?status=attention",
     },
     {
       id: "warning-pending-push",
@@ -181,7 +181,7 @@ function buildPriorityActions(params: {
       priority: "warning",
       count: params.pendingGatewayPushCount,
       ctaLabel: "Traiter la file",
-      ctaHref: "/employees",
+      ctaHref: "/employees?focus=pending-sync",
     },
     {
       id: "info-corrections",
@@ -190,7 +190,7 @@ function buildPriorityActions(params: {
       priority: "info",
       count: params.correctionCount,
       ctaLabel: "Valider",
-      ctaHref: "/reports",
+      ctaHref: "/reports?focus=corrections",
     },
   ]
 }

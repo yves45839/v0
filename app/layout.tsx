@@ -3,6 +3,7 @@ import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
+import { DemoBanner } from '@/components/demo-banner'
 import './globals.css'
 
 const ibmPlexSans = IBM_Plex_Sans({
@@ -51,6 +52,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+          <DemoBanner />
           {children}
           <Toaster richColors closeButton position="bottom-right" />
         </ThemeProvider>
