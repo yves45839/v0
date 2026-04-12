@@ -13,7 +13,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { Activity, TrendingUp } from "lucide-react"
+import { Activity, TrendingUp, ArrowUpRight } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import type { AccessEvent } from "@/components/dashboard/types"
 
 interface AccessStreamProps {
@@ -52,7 +54,7 @@ function getInitials(name: string) {
 
 export function AccessStream({ events }: AccessStreamProps) {
   return (
-    <Card className="border-border bg-card">
+    <Card className="border-border/70 bg-card/90">
       <CardHeader className="flex flex-row items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-primary" />
@@ -60,14 +62,22 @@ export function AccessStream({ events }: AccessStreamProps) {
             Flux d'acces en temps reel
           </CardTitle>
         </div>
-        <Badge variant="outline" className="border-primary/50 text-primary">
-          <span className="mr-1.5 h-2 w-2 animate-pulse rounded-full bg-primary" />
-          En direct
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary" asChild>
+            <Link href="/access-logs">
+              Voir tout
+              <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          </Button>
+          <Badge variant="outline" className="border-primary/50 text-primary">
+            <span className="mr-1.5 h-2 w-2 animate-pulse rounded-full bg-primary" />
+            En direct
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="daily" className="w-full">
-          <TabsList className="mb-4 grid w-full max-w-xs grid-cols-2 bg-secondary">
+          <TabsList className="mb-4 grid w-full max-w-64 grid-cols-2 bg-secondary/70 sm:max-w-xs">
             <TabsTrigger
               value="daily"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -83,7 +93,14 @@ export function AccessStream({ events }: AccessStreamProps) {
           </TabsList>
 
           <TabsContent value="daily" className="mt-0">
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="overflow-x-auto rounded-xl border border-border/70 bg-background/35">
+              {events.length === 0 ? (
+                <div className="flex flex-col items-center py-12 text-center">
+                  <Activity className="mb-3 h-8 w-8 text-muted-foreground/30" />
+                  <p className="text-sm font-medium text-muted-foreground">Aucun événement aujourd&apos;hui</p>
+                  <p className="text-xs text-muted-foreground/60">Les accès apparaîtront ici en temps réel</p>
+                </div>
+              ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
@@ -92,13 +109,14 @@ export function AccessStream({ events }: AccessStreamProps) {
                     <TableHead className="text-muted-foreground">Appareil</TableHead>
                     <TableHead className="text-muted-foreground">Statut</TableHead>
                     <TableHead className="text-right text-muted-foreground">Heure</TableHead>
+                    <TableHead className="text-right text-muted-foreground">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {events.map((event) => (
                     <TableRow
                       key={event.id}
-                      className="group border-border transition-colors hover:bg-secondary/50"
+                      className="group border-border transition-colors hover:bg-secondary/45"
                     >
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -129,22 +147,53 @@ export function AccessStream({ events }: AccessStreamProps) {
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {event.timestamp}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+                          <Link href={`/access-logs?person=${encodeURIComponent(event.employeeId)}&status=${event.status}`}>
+                            Analyser
+                          </Link>
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              )}
             </div>
           </TabsContent>
 
           <TabsContent value="weekly" className="mt-0">
-            <div className="flex h-64 items-center justify-center rounded-lg border border-border bg-secondary/50">
-              <div className="text-center">
-                <TrendingUp className="mx-auto h-12 w-12 text-muted-foreground" />
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Visualisation des tendances hebdomadaires
-                </p>
-                <p className="text-xs text-muted-foreground">Activation prochaine</p>
+            <div className="rounded-xl border border-border/70 bg-background/35 p-6">
+              <div className="mb-4 flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Résumé des tendances</h3>
               </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-border/60 bg-card/80 p-4 text-center">
+                  <p className="text-2xl font-bold text-primary tabular-nums">{events.filter(e => e.status === "granted").length}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Accès autorisés</p>
+                  <Button variant="link" size="sm" className="mt-1 h-6 px-0 text-xs" asChild>
+                    <Link href="/access-logs?status=granted">Voir le detail</Link>
+                  </Button>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-card/80 p-4 text-center">
+                  <p className="text-2xl font-bold text-destructive tabular-nums">{events.filter(e => e.status === "denied").length}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Accès refusés</p>
+                  <Button variant="link" size="sm" className="mt-1 h-6 px-0 text-xs" asChild>
+                    <Link href="/access-logs?status=denied">Diagnostiquer</Link>
+                  </Button>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-card/80 p-4 text-center">
+                  <p className="text-2xl font-bold text-foreground tabular-nums">{new Set(events.map(e => e.department)).size}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Départements actifs</p>
+                  <Button variant="link" size="sm" className="mt-1 h-6 px-0 text-xs" asChild>
+                    <Link href="/access-logs?scope=departments">Explorer</Link>
+                  </Button>
+                </div>
+              </div>
+              <p className="mt-4 text-center text-xs text-muted-foreground">
+                Statistiques basées sur les {events.length} derniers événements du jour
+              </p>
             </div>
           </TabsContent>
         </Tabs>

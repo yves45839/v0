@@ -9,14 +9,18 @@ export default async function DashboardPage() {
   const dashboardData = await fetchDashboardData()
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="app-shell">
       {/* Sidebar */}
       <AppSidebar />
 
       {/* Main Content */}
-      <div className="pl-16 lg:pl-64">
-        <Header systemStatus={dashboardData.systemStatus} />
+      <div className="app-shell-content">
+        <Header
+          systemStatus={dashboardData.systemStatus}
+          statusDetails={dashboardData.statusDetails}
+        />
         <DashboardOverview
+          systemStatus={dashboardData.systemStatus}
           kpiData={dashboardData.kpiData}
           accessEvents={dashboardData.accessEvents}
           devices={dashboardData.devices}

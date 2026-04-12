@@ -1,11 +1,15 @@
 "use client"
 
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
-import { Cpu, DoorOpen, RefreshCw } from "lucide-react"
+import { Cpu, DoorOpen, RefreshCw, ArrowUpRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { Device } from "@/components/dashboard/types"
+import Link from "next/link"
+import { toast } from "sonner"
 
 interface DeviceHealthProps {
   devices: Device[]
@@ -36,6 +40,8 @@ const statusConfig = {
 }
 
 export function DeviceHealth({ devices }: DeviceHealthProps) {
+  const router = useRouter()
+  const [refreshing, setRefreshing] = useState(false)
   const sortedDevices = [...devices].sort((left, right) => {
     const severity = { offline: 0, warning: 1, online: 2 } as const
     return severity[left.status] - severity[right.status] || left.name.localeCompare(right.name)
@@ -45,7 +51,7 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
   const warningCount = devices.filter((d) => d.status === "warning").length
 
   return (
-    <Card className="h-full border-border bg-card">
+    <Card className="h-full border-border/70 bg-card/90">
       <CardHeader className="flex flex-row items-center justify-between pb-4">
         <div>
           <CardTitle className="text-lg font-semibold text-card-foreground">
@@ -53,17 +59,40 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">Controleurs et lecteurs Hikvision</p>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+            asChild
+          >
+            <Link href="/devices">
+              Voir tout
+              <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            disabled={refreshing}
+            onClick={() => {
+              setRefreshing(true)
+              toast.info("Actualisation des appareils...")
+              router.refresh()
+              setTimeout(() => {
+                setRefreshing(false)
+                toast.success("Etat des appareils actualise")
+              }, 700)
+            }}
+          >
+            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="pb-2">
         {/* Summary */}
-        <div className="mb-4 flex gap-4 rounded-lg bg-secondary/50 p-3">
+        <div className="mb-4 flex flex-wrap gap-3 rounded-xl border border-border/70 bg-secondary/45 p-3">
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-primary" />
             <span className="text-sm text-muted-foreground">
@@ -75,27 +104,47 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
             <span className="text-sm text-muted-foreground">
               <span className="font-semibold text-card-foreground">{offlineCount}</span> Hors ligne
             </span>
+            {offlineCount > 0 ? (
+              <Button variant="link" size="sm" className="h-6 px-0 text-xs" asChild>
+                <Link href="/devices?status=offline">Diagnostiquer</Link>
+              </Button>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-warning" />
             <span className="text-sm text-muted-foreground">
               <span className="font-semibold text-card-foreground">{warningCount}</span> A surveiller
             </span>
+            {warningCount > 0 ? (
+              <Button variant="link" size="sm" className="h-6 px-0 text-xs" asChild>
+                <Link href="/devices?status=warning">Voir les alertes</Link>
+              </Button>
+            ) : null}
           </div>
         </div>
 
         {/* Device List */}
         <ScrollArea className="h-80">
-          <div className="space-y-2 pr-4">
+          <div className="space-y-2 pr-4 stagger-children">
+            {sortedDevices.length === 0 && (
+              <div className="flex flex-col items-center py-10 text-center">
+                <Cpu className="mb-3 h-8 w-8 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">Aucun appareil détecté</p>
+                <Button variant="link" size="sm" className="mt-2 text-xs" asChild>
+                  <Link href="/devices">Configurer les appareils</Link>
+                </Button>
+              </div>
+            )}
             {sortedDevices.map((device) => {
               const Icon = deviceTypeIcons[device.type]
               const status = statusConfig[device.status]
 
               return (
-                <div
+                <Link
+                  href="/devices"
                   key={device.id}
                   className={cn(
-                    "group flex items-center justify-between rounded-lg border border-border p-3 transition-all hover:border-primary/50 hover:bg-secondary/50",
+                    "group card-shine wow-transition flex items-center justify-between rounded-xl border border-border/70 bg-background/35 p-3 hover:border-primary/35 hover:bg-secondary/40",
                     device.status === "offline" && "opacity-60"
                   )}
                 >
@@ -126,7 +175,7 @@ export function DeviceHealth({ devices }: DeviceHealthProps) {
                     </div>
                     <span className="text-xs text-muted-foreground">{device.lastSeen}</span>
                   </div>
-                </div>
+                </Link>
               )
             })}
           </div>

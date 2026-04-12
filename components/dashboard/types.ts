@@ -1,3 +1,5 @@
+export type DashboardSystemStatus = "connected" | "disconnected" | "syncing"
+
 export interface DashboardKPIData {
   presentToday: { count: number; total: number }
   totalAbsences: number
@@ -32,4 +34,5 @@ export interface PriorityAction {
   priority: "critical" | "warning" | "info"
   count?: number
   ctaLabel?: string
+  ctaHref?: string
 }

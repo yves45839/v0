@@ -153,6 +153,7 @@ export const priorityActions: PriorityAction[] = [
     priority: "critical",
     count: 3,
     ctaLabel: "Diagnostiquer",
+    ctaHref: "/settings",
   },
   {
     id: "warning-devices",
@@ -161,6 +162,7 @@ export const priorityActions: PriorityAction[] = [
     priority: "warning",
     count: 2,
     ctaLabel: "Voir les appareils",
+    ctaHref: "/devices",
   },
   {
     id: "warning-pending-push",
@@ -169,6 +171,7 @@ export const priorityActions: PriorityAction[] = [
     priority: "warning",
     count: 8,
     ctaLabel: "Traiter la file",
+    ctaHref: "/employees",
   },
   {
     id: "info-corrections",
@@ -177,5 +180,6 @@ export const priorityActions: PriorityAction[] = [
     priority: "info",
     count: 5,
     ctaLabel: "Valider",
+    ctaHref: "/reports",
   },
 ]

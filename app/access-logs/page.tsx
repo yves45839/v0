@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { PageContextBar } from "@/components/dashboard/page-context-bar"
@@ -11,6 +12,14 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -38,7 +47,15 @@ import {
   Calendar,
   RefreshCcw,
   User,
+  Loader2,
+  Eye,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Copy,
 } from "lucide-react"
+import { toast } from "sonner"
 
 type AccessLog = {
   id: string
@@ -49,6 +66,8 @@ type AccessLog = {
   deviceName: string
   deviceLocation: string
   status: "granted" | "denied" | "unknown"
+  accessType: string
+  site: string
   reason?: string
   timestamp: string
   date: string
@@ -57,6 +76,7 @@ type AccessLog = {
 
 const LIVE_POLL_INTERVAL_MS = 2000
 const MAX_VISIBLE_LOGS = 500
+const PAGE_SIZE = 25
 
 function toNumericLogId(value: string): number {
   const parsed = Number(value)
@@ -133,6 +153,12 @@ function mapEventToAccessLog(event: HikEvent): AccessLog {
     doorNo != null || readerNo != null
       ? `Porte ${doorNo ?? "-"}${readerNo != null ? `, Lecteur ${readerNo}` : ""}`
       : `Lecteur ${event.device.dev_index}`
+  const accessType =
+    (event.normalized_action ?? "").toString().trim() ||
+    (event.attendance_type ?? "").toString().trim() ||
+    (event.access_status ?? "").toString().trim() ||
+    "Inconnu"
+  const site = `Site ${event.device.dev_index || "-"}`
 
   return {
     id: String(event.id),
@@ -143,6 +169,8 @@ function mapEventToAccessLog(event: HikEvent): AccessLog {
     deviceName: event.device.device_name?.trim() || event.device.dev_index || event.device.serial_number || "-",
     deviceLocation: location,
     status,
+    accessType,
+    site,
     reason:
       status === "denied"
         ? event.attendance_status || "Acces refuse"
@@ -156,6 +184,7 @@ function mapEventToAccessLog(event: HikEvent): AccessLog {
 }
 
 export default function AccessLogsPage() {
+  const searchParams = useSearchParams()
   const tenantCode = (
     process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ??
     process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ??
@@ -167,6 +196,13 @@ export default function AccessLogsPage() {
   const [deviceFilter, setDeviceFilter] = useState("all")
   const [personFilter, setPersonFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState("today")
+  const [siteFilter, setSiteFilter] = useState("all")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [sortBy, setSortBy] = useState<"datetime" | "employee" | "device" | "status">("datetime")
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
+  const [selectedLog, setSelectedLog] = useState<AccessLog | null>(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
   const [isLive, setIsLive] = useState(true)
   const [accessLogs, setAccessLogs] = useState<AccessLog[]>([])
   const [employees, setEmployees] = useState<EmployeeListItem[]>([])
@@ -269,9 +305,11 @@ export default function AccessLogsPage() {
     try {
       await triggerHikEventsCatchup(500)
       await loadLogs(true)
+      toast.success("Rattrapage des événements terminé")
     } catch (err) {
       const message = err instanceof Error ? err.message : "Le rattrapage des evenements a echoue."
       setError(message)
+      toast.error("Le rattrapage des événements a échoué")
     } finally {
       setCatchupLoading(false)
     }
@@ -290,6 +328,19 @@ export default function AccessLogsPage() {
   const grantedAccess = todayLogs.filter((log) => log.status === "granted").length
   const deniedAccess = todayLogs.filter((log) => log.status === "denied").length
   const devices = useMemo(() => [...new Set(accessLogs.map((log) => log.deviceName))], [accessLogs])
+  const sites = useMemo(() => [...new Set(accessLogs.map((log) => log.site))], [accessLogs])
+  const accessTypes = useMemo(() => [...new Set(accessLogs.map((log) => log.accessType))], [accessLogs])
+
+  useEffect(() => {
+    const initialStatus = searchParams.get("status")
+    const initialPerson = searchParams.get("person")
+    if (initialStatus && ["granted", "denied", "unknown"].includes(initialStatus)) {
+      setStatusFilter(initialStatus)
+    }
+    if (initialPerson) {
+      setPersonFilter(initialPerson)
+    }
+  }, [searchParams])
 
   const filteredLogs = useMemo(
     () =>
@@ -303,15 +354,64 @@ export default function AccessLogsPage() {
         const matchesStatus = statusFilter === "all" || log.status === statusFilter
         const matchesDevice = deviceFilter === "all" || log.deviceName === deviceFilter
         const matchesPerson = personFilter === "all" || log.employeeId === personFilter
+        const matchesSite = siteFilter === "all" || log.site === siteFilter
+        const matchesType = typeFilter === "all" || log.accessType === typeFilter
         const matchesDate =
           dateFilter === "all" ||
           (dateFilter === "today" && log.date === todayKey) ||
-          (dateFilter === "yesterday" && log.date === yesterdayKey)
+          (dateFilter === "yesterday" && log.date === yesterdayKey) ||
+          (dateFilter === "last7" && (() => {
+            const logDate = new Date(`${log.date}T00:00:00`)
+            const diffDays = Math.floor((now.getTime() - logDate.getTime()) / 86400000)
+            return diffDays >= 0 && diffDays <= 6
+          })())
 
-        return matchesSearch && matchesStatus && matchesDevice && matchesPerson && matchesDate
+        return matchesSearch && matchesStatus && matchesDevice && matchesPerson && matchesSite && matchesType && matchesDate
       }),
-    [accessLogs, searchQuery, statusFilter, deviceFilter, personFilter, dateFilter, todayKey, yesterdayKey],
+    [accessLogs, searchQuery, statusFilter, deviceFilter, personFilter, siteFilter, typeFilter, dateFilter, todayKey, yesterdayKey, now],
   )
+
+  const sortedLogs = useMemo(() => {
+    const sorted = [...filteredLogs]
+    sorted.sort((a, b) => {
+      if (sortBy === "employee") return a.employeeName.localeCompare(b.employeeName, "fr")
+      if (sortBy === "device") return a.deviceName.localeCompare(b.deviceName, "fr")
+      if (sortBy === "status") return a.status.localeCompare(b.status, "fr")
+      return toNumericLogId(a.id) - toNumericLogId(b.id)
+    })
+    if (sortOrder === "desc") {
+      sorted.reverse()
+    }
+    return sorted
+  }, [filteredLogs, sortBy, sortOrder])
+
+  const totalPages = Math.max(1, Math.ceil(sortedLogs.length / PAGE_SIZE))
+  const paginatedLogs = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return sortedLogs.slice(start, start + PAGE_SIZE)
+  }, [sortedLogs, currentPage])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, statusFilter, deviceFilter, personFilter, siteFilter, typeFilter, dateFilter, sortBy, sortOrder])
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
+  const hasActiveFilters =
+    Boolean(searchQuery.trim()) ||
+    statusFilter !== "all" ||
+    deviceFilter !== "all" ||
+    personFilter !== "all" ||
+    siteFilter !== "all" ||
+    typeFilter !== "all" ||
+    dateFilter !== "today"
+
+  const pageSystemStatus: "connected" | "disconnected" | "syncing" =
+    loading || catchupLoading ? "syncing" : error && accessLogs.length === 0 ? "disconnected" : "connected"
 
   const handleExportCsv = () => {
     const rows = [
@@ -336,16 +436,18 @@ export default function AccessLogsPage() {
     link.download = `access-logs-${todayKey}.csv`
     link.click()
     URL.revokeObjectURL(url)
+    toast.success(`${filteredLogs.length} événements exportés en CSV`)
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="app-shell">
       <AppSidebar />
 
-      <div className="pl-16 lg:pl-64">
-        <Header systemStatus="connected" />
+      <div className="app-shell-content">
+        <Header systemStatus={pageSystemStatus} />
 
-        <main className="p-6">
+        <main className="app-page">
+          <div className="animate-fade-up">
           <PageContextBar
             title="Journal d'acces"
             description="Historique temps reel des acces autorises et refuses, avec capacites de rattrapage et d'export."
@@ -353,6 +455,7 @@ export default function AccessLogsPage() {
               { value: totalAccess, label: "Evenements du jour" },
               { value: deniedAccess, label: "Refus", tone: deniedAccess > 0 ? "critical" : "success" },
               { value: devices.length, label: "Appareils concernes" },
+              { value: tenantCode, label: "Tenant", tone: "neutral" },
             ]}
             actions={
               <>
@@ -381,9 +484,30 @@ export default function AccessLogsPage() {
                 <Download className="mr-2 h-4 w-4" />
                 Exporter CSV
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasActiveFilters}
+                onClick={() => {
+                  setSearchQuery("")
+                  setStatusFilter("all")
+                  setDeviceFilter("all")
+                  setPersonFilter("all")
+                  setSiteFilter("all")
+                  setTypeFilter("all")
+                  setDateFilter("today")
+                  setSortBy("datetime")
+                  setSortOrder("desc")
+                  toast.success("Filtres reinitialises")
+                }}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Reset filtres
+              </Button>
               </>
             }
           />
+          </div>
 
           {peopleError && (
             <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
@@ -391,7 +515,7 @@ export default function AccessLogsPage() {
             </div>
           )}
 
-          <div className="mb-6 grid gap-4 sm:grid-cols-3">
+          <div className="mb-6 grid gap-4 sm:grid-cols-3 stagger-children animate-fade-up" style={{ animationDelay: "80ms" }}>
             <Card className="border-border/70 bg-card/90">
               <CardContent className="flex items-center gap-4 p-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
@@ -429,7 +553,7 @@ export default function AccessLogsPage() {
             </Card>
           </div>
 
-          <Card className="mb-6 border-border/70 bg-card/90">
+          <Card className="mb-6 border-border/70 bg-card/90 animate-fade-up" style={{ animationDelay: "160ms" }}>
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Filter className="h-4 w-4" />
@@ -449,19 +573,20 @@ export default function AccessLogsPage() {
                 </div>
 
                 <Select value={dateFilter} onValueChange={setDateFilter}>
-                  <SelectTrigger className="w-full lg:w-[180px]">
+                  <SelectTrigger className="w-full lg:w-45">
                     <Calendar className="mr-2 h-4 w-4" />
                     <SelectValue placeholder="Periode" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="today">Aujourd&apos;hui</SelectItem>
                     <SelectItem value="yesterday">Hier</SelectItem>
+                    <SelectItem value="last7">7 derniers jours</SelectItem>
                     <SelectItem value="all">Tout</SelectItem>
                   </SelectContent>
                 </Select>
 
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-full lg:w-[180px]">
+                  <SelectTrigger className="w-full lg:w-45">
                     <SelectValue placeholder="Statut" />
                   </SelectTrigger>
                   <SelectContent>
@@ -473,7 +598,7 @@ export default function AccessLogsPage() {
                 </Select>
 
                 <Select value={personFilter} onValueChange={setPersonFilter}>
-                  <SelectTrigger className="w-full lg:w-[260px]">
+                  <SelectTrigger className="w-full lg:w-65">
                     <User className="mr-2 h-4 w-4" />
                     <SelectValue placeholder="Toutes les personnes" />
                   </SelectTrigger>
@@ -488,7 +613,7 @@ export default function AccessLogsPage() {
                 </Select>
 
                 <Select value={deviceFilter} onValueChange={setDeviceFilter}>
-                  <SelectTrigger className="w-full lg:w-[220px]">
+                  <SelectTrigger className="w-full lg:w-55">
                     <SelectValue placeholder="Appareil" />
                   </SelectTrigger>
                   <SelectContent>
@@ -500,14 +625,58 @@ export default function AccessLogsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+
+                <Select value={siteFilter} onValueChange={setSiteFilter}>
+                  <SelectTrigger className="w-full lg:w-45">
+                    <SelectValue placeholder="Site" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les sites</SelectItem>
+                    {sites.map((site) => (
+                      <SelectItem key={site} value={site}>
+                        {site}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger className="w-full lg:w-55">
+                    <SelectValue placeholder="Type d'acces" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les types</SelectItem>
+                    {accessTypes.map((accessType) => (
+                      <SelectItem key={accessType} value={accessType}>
+                        {accessType}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={sortBy} onValueChange={(value) => setSortBy(value as "datetime" | "employee" | "device" | "status")}>
+                  <SelectTrigger className="w-full lg:w-55">
+                    <ArrowUpDown className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Tri" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="datetime">Tri: Horodatage</SelectItem>
+                    <SelectItem value="employee">Tri: Employe</SelectItem>
+                    <SelectItem value="device">Tri: Appareil</SelectItem>
+                    <SelectItem value="status">Tri: Statut</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" size="sm" onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}>
+                  {sortOrder === "asc" ? "Ordre asc." : "Ordre desc."}
+                </Button>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-border/70 bg-card/90">
+          <Card className="border-border/70 bg-card/90 animate-fade-up" style={{ animationDelay: "240ms" }}>
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Evenements ({filteredLogs.length})</CardTitle>
+                <CardTitle className="text-base">Evenements ({sortedLogs.length})</CardTitle>
                 {isLive && (
                   <Badge variant="outline" className="border-emerald-500/50 text-emerald-400">
                     <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
@@ -525,24 +694,42 @@ export default function AccessLogsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="w-[180px]">Heure</TableHead>
+                    <TableHead className="w-45">Heure</TableHead>
                     <TableHead>Employe</TableHead>
                     <TableHead>Departement</TableHead>
                     <TableHead>Appareil</TableHead>
                     <TableHead>Localisation</TableHead>
                     <TableHead className="text-center">Statut</TableHead>
                     <TableHead>Details</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {!loading && filteredLogs.length === 0 && (
+                  {loading && (
                     <TableRow className="border-border">
-                      <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                        Aucun evenement trouve.
+                      <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          Chargement des événements…
+                        </div>
                       </TableCell>
                     </TableRow>
                   )}
-                  {filteredLogs.map((log) => (
+                  {!loading && sortedLogs.length === 0 && !hasActiveFilters && (
+                    <TableRow className="border-border">
+                      <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                        Aucun evenement trouve pour la periode actuelle.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!loading && sortedLogs.length === 0 && hasActiveFilters && (
+                    <TableRow className="border-border">
+                      <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                        Aucun resultat pour ces filtres. Essayez d'elargir la recherche.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {paginatedLogs.map((log) => (
                     <TableRow key={log.id} className="border-border transition-colors hover:bg-muted/50">
                       <TableCell>
                         <div className="flex items-center gap-2 text-sm">
@@ -606,12 +793,152 @@ export default function AccessLogsPage() {
                           </div>
                         )}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => {
+                            setSelectedLog(log)
+                            setDetailsOpen(true)
+                          }}
+                        >
+                          <Eye className="mr-1.5 h-4 w-4" />
+                          Inspecter
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              <div className="flex items-center justify-between border-t border-border/70 px-4 py-3">
+                <p className="text-xs text-muted-foreground">
+                  {sortedLogs.length === 0
+                    ? "0 resultat"
+                    : `Affichage ${Math.min((currentPage - 1) * PAGE_SIZE + 1, sortedLogs.length)}-${Math.min(currentPage * PAGE_SIZE, sortedLogs.length)} sur ${sortedLogs.length}`}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}>
+                    <ChevronLeft className="mr-1 h-4 w-4" />
+                    Precedent
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Page {currentPage}/{totalPages}
+                  </span>
+                  <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}>
+                    Suivant
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
+
+          <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+            <DialogContent className="sm:max-w-lg border-border/70 bg-card/95">
+              <DialogHeader>
+                <DialogTitle className="text-base">Detail de l'evenement #{selectedLog?.id ?? "-"}</DialogTitle>
+                <DialogDescription>
+                  Inspection complete d'un log d'acces pour supervision et diagnostic.
+                </DialogDescription>
+              </DialogHeader>
+
+              {selectedLog ? (
+                <div className="space-y-3 rounded-xl border border-border/70 bg-background/35 p-4 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Employe</p>
+                      <p className="font-medium text-foreground">{selectedLog.employeeName}</p>
+                      <p className="text-xs text-muted-foreground">{selectedLog.employeeId}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Horodatage</p>
+                      <p className="font-medium text-foreground">{selectedLog.dateLabel} {selectedLog.timestamp}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Appareil</p>
+                      <p className="font-medium text-foreground">{selectedLog.deviceName}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Localisation</p>
+                      <p className="font-medium text-foreground">{selectedLog.deviceLocation}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Departement</p>
+                      <p className="font-medium text-foreground">{selectedLog.department}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Type d'acces</p>
+                      <p className="font-medium text-foreground">{selectedLog.accessType}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Statut</p>
+                    <div className="mt-1">
+                      {selectedLog.status === "granted" ? (
+                        <Badge className="bg-green-500/10 text-green-500">Autorise</Badge>
+                      ) : selectedLog.status === "denied" ? (
+                        <Badge className="bg-red-500/10 text-red-500">Refuse</Badge>
+                      ) : (
+                        <Badge className="bg-amber-500/10 text-amber-500">Inconnu</Badge>
+                      )}
+                    </div>
+                  </div>
+                  {selectedLog.reason ? (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Anomalie / detail</p>
+                      <p className="font-medium text-amber-400">{selectedLog.reason}</p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (!selectedLog) return
+                      setPersonFilter(selectedLog.employeeId)
+                      setDetailsOpen(false)
+                      toast.success("Filtre employe applique")
+                    }}
+                    disabled={!selectedLog}
+                  >
+                    Filtrer cet employe
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (!selectedLog) return
+                      setDeviceFilter(selectedLog.deviceName)
+                      setDetailsOpen(false)
+                      toast.success("Filtre appareil applique")
+                    }}
+                    disabled={!selectedLog}
+                  >
+                    Filtrer cet appareil
+                  </Button>
+                </div>
+                <Button
+                  variant="default"
+                  onClick={async () => {
+                    if (!selectedLog) return
+                    try {
+                      await navigator.clipboard.writeText(JSON.stringify(selectedLog, null, 2))
+                      toast.success("Detail du log copie")
+                    } catch {
+                      toast.error("Copie impossible depuis ce navigateur")
+                    }
+                  }}
+                  disabled={!selectedLog}
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copier
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </main>
       </div>
     </div>

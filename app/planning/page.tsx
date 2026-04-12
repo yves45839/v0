@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
-import { PageContextBar } from "@/components/dashboard/page-context-bar"
+
 import {
   HrPlanningGuideDialog,
   type HrQuickAssignPayload,
@@ -44,8 +44,12 @@ import {
   updateWorkShift,
 } from "@/lib/api/employees"
 import {
+  CalendarClock,
   CalendarDays,
   CalendarRange,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
   Edit,
   Loader2,
   Plus,
@@ -53,7 +57,9 @@ import {
   Shapes,
   Sparkles,
   Trash2,
+  Users,
 } from "lucide-react"
+import { toast } from "sonner"
 
 const EMPLOYEE_TENANT_CODE = process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ?? "HQ-CASA"
 const WEEK_DAYS = [
@@ -489,6 +495,10 @@ export default function PlanningPage() {
   const [isSavingPlanning, setIsSavingPlanning] = useState(false)
   const [deletingShiftId, setDeletingShiftId] = useState<number | null>(null)
   const [deletingPlanningId, setDeletingPlanningId] = useState<number | null>(null)
+  const [pendingShiftDelete, setPendingShiftDelete] = useState<WorkShiftApiItem | null>(null)
+  const [pendingPlanningDelete, setPendingPlanningDelete] = useState<PlanningApiItem | null>(null)
+  const [forceShiftDelete, setForceShiftDelete] = useState(false)
+  const [forcePlanningDelete, setForcePlanningDelete] = useState(false)
   const [editingShift, setEditingShift] = useState<WorkShiftApiItem | null>(null)
   const [editingPlanning, setEditingPlanning] = useState<PlanningApiItem | null>(null)
   const [isAssigningPlanning, setIsAssigningPlanning] = useState(false)
@@ -602,6 +612,30 @@ export default function PlanningPage() {
       assignedEmployeeCount,
     }
   }, [employees, plannings.length, workShifts.length])
+
+  const pageSystemStatus: "connected" | "disconnected" | "syncing" =
+    loading ||
+    loadingSchedule ||
+    isSavingShift ||
+    isSavingPlanning ||
+    isAssigningPlanning ||
+    isPreparingGuideAssign
+      ? "syncing"
+      : error?.scope === "global"
+        ? "disconnected"
+        : "connected"
+
+  const shiftMonth = useCallback((delta: number) => {
+    const base = new Date(`${month}-01T00:00:00`)
+    if (Number.isNaN(base.getTime())) return
+    base.setMonth(base.getMonth() + delta)
+    const nextMonth = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}`
+    setMonth(nextMonth)
+  }, [month])
+
+  const goCurrentMonth = useCallback(() => {
+    setMonth(getCurrentMonthValue())
+  }, [])
 
   const loadBaseData = useCallback(async () => {
     if (!isEmployeeApiEnabled()) {
@@ -1075,6 +1109,7 @@ export default function PlanningPage() {
 
       closeShiftDialog(false)
       await loadBaseData()
+      toast.success(editingShift ? "Quart de travail modifié" : "Quart de travail créé")
     } catch (saveError) {
       raiseError(
         editingShift ? "SHIFT_UPDATE_FAILED" : "SHIFT_CREATE_FAILED",
@@ -1139,6 +1174,7 @@ export default function PlanningPage() {
       closePlanningDialog(false)
       await loadBaseData()
       await loadSchedule()
+      toast.success(editingPlanning ? "Planning modifié" : "Planning créé")
     } catch (saveError) {
       raiseError(
         editingPlanning ? "PLANNING_UPDATE_FAILED" : "PLANNING_CREATE_FAILED",
@@ -1150,69 +1186,75 @@ export default function PlanningPage() {
     }
   }
 
-  const handleDeleteShift = async (shift: WorkShiftApiItem) => {
-    const confirmed = window.confirm(`Supprimer le shift "${shift.name}" ?`)
-    if (!confirmed) {
-      return
-    }
+  const handleDeleteShift = (shift: WorkShiftApiItem) => {
+    setPendingShiftDelete(shift)
+    setForceShiftDelete(false)
+  }
+
+  const confirmDeleteShift = async () => {
+    if (!pendingShiftDelete) return
+    const shift = pendingShiftDelete
 
     setDeletingShiftId(shift.id)
     setError(null)
     try {
       try {
-        await deleteWorkShift(shift.id)
+        await deleteWorkShift(shift.id, forceShiftDelete ? { force: true } : undefined)
       } catch (deleteError) {
         const detail = deleteError instanceof Error ? deleteError.message : ""
-        if (!detail.includes("force=true")) {
-          throw deleteError
-        }
-        const forceConfirmed = window.confirm(
-          "Ce shift est encore lie a des employes/departements/plannings. Voulez-vous forcer la suppression ?"
-        )
-        if (!forceConfirmed) {
+        if (!forceShiftDelete && detail.includes("force=true")) {
+          setForceShiftDelete(true)
+          toast.warning("Ce quart est lié à des éléments actifs. Activez la suppression forcée pour continuer.")
           return
         }
-        await deleteWorkShift(shift.id, { force: true })
+        throw deleteError
       }
 
       await loadBaseData()
       await loadSchedule()
+      toast.success(`Quart "${shift.name}" supprimé`)
+      setPendingShiftDelete(null)
+      setForceShiftDelete(false)
     } catch (deleteError) {
       raiseError("SHIFT_DELETE_FAILED", getErrorDetail(deleteError))
+      toast.error("Erreur lors de la suppression du quart")
     } finally {
       setDeletingShiftId(null)
     }
   }
 
-  const handleDeletePlanning = async (planning: PlanningApiItem) => {
-    const confirmed = window.confirm(`Supprimer le timetable "${planning.name}" ?`)
-    if (!confirmed) {
-      return
-    }
+  const handleDeletePlanning = (planning: PlanningApiItem) => {
+    setPendingPlanningDelete(planning)
+    setForcePlanningDelete(false)
+  }
+
+  const confirmDeletePlanning = async () => {
+    if (!pendingPlanningDelete) return
+    const planning = pendingPlanningDelete
 
     setDeletingPlanningId(planning.id)
     setError(null)
     try {
       try {
-        await deletePlanning(planning.id)
+        await deletePlanning(planning.id, forcePlanningDelete ? { force: true } : undefined)
       } catch (deleteError) {
         const detail = deleteError instanceof Error ? deleteError.message : ""
-        if (!detail.includes("force=true")) {
-          throw deleteError
-        }
-        const forceConfirmed = window.confirm(
-          "Ce timetable est encore lie a des employes/departements/groupes. Voulez-vous forcer la suppression ?"
-        )
-        if (!forceConfirmed) {
+        if (!forcePlanningDelete && detail.includes("force=true")) {
+          setForcePlanningDelete(true)
+          toast.warning("Ce planning est lié à des affectations. Activez la suppression forcée pour continuer.")
           return
         }
-        await deletePlanning(planning.id, { force: true })
+        throw deleteError
       }
 
       await loadBaseData()
       await loadSchedule()
+      toast.success(`Planning "${planning.name}" supprimé`)
+      setPendingPlanningDelete(null)
+      setForcePlanningDelete(false)
     } catch (deleteError) {
       raiseError("PLANNING_DELETE_FAILED", getErrorDetail(deleteError))
+      toast.error("Erreur lors de la suppression du planning")
     } finally {
       setDeletingPlanningId(null)
     }
@@ -1265,8 +1307,10 @@ export default function PlanningPage() {
         await loadBaseData()
       }
       closeAssignPlanningDialog(false)
+      toast.success("Planning assigné avec succès")
     } catch (assignError) {
       raiseError("ASSIGN_PLANNING_FAILED", getErrorDetail(assignError))
+      toast.error("Erreur lors de l'assignation du planning")
     } finally {
       setIsAssigningPlanning(false)
     }
@@ -1382,62 +1426,96 @@ export default function PlanningPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#2b2d33] text-white">
+    <div className="app-shell">
       <AppSidebar />
-      <div className="pl-16 lg:pl-64">
-        <Header systemStatus="connected" />
+      <div className="app-shell-content">
+        <Header systemStatus={pageSystemStatus} />
 
-        <main className="space-y-6 p-4 md:p-6">
-          <PageContextBar
-            title="Planning"
-            description="Pilotez les quarts, timetables et affectations en un flux operationnel unique."
-            className="border-white/10 bg-[#2f3138]"
-            stats={[
-              { value: plannings.length, label: "Timetables actifs", tone: "neutral" },
-              { value: workShifts.length, label: "Shifts disponibles", tone: "neutral" },
-              { value: employees.length, label: "Employes suivis", tone: "neutral" },
-            ]}
-            actions={
-              <>
-                <Button
-                  variant="outline"
-                  className="border-[#ffd37a]/30 bg-[#ffd37a]/10 text-[#ffe5a7] hover:bg-[#ffd37a]/20 hover:text-[#fff0ca]"
-                  onClick={() => setHrGuideOpen(true)}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Assistant RH
-                </Button>
-                <Button
-                  variant="outline"
-                  className="border-white/15 bg-white/5 text-white hover:bg-white/10"
-                  onClick={() => void loadBaseData()}
-                  disabled={loading}
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  Recharger
-                </Button>
-                <Button className="bg-[#7f8cff] text-white hover:bg-[#98a2ff]" onClick={openCreatePlanningDialog}>
-                  <Plus className="h-4 w-4" />
-                  Nouveau timetable
-                </Button>
-                <Button className="bg-[#5cc0a8] text-[#13211d] hover:bg-[#77d3bc]" onClick={openCreateShiftDialog}>
-                  <Plus className="h-4 w-4" />
-                  Nouveau shift
-                </Button>
-              </>
-            }
-          />
+        <main className="app-page space-y-6">
+          {/* ── Premium Hero ── */}
+          <section className="animate-fade-up relative isolate overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,var(--color-primary)/0.06,transparent_60%,var(--color-amber-500)/0.04)]" />
+            <div className="pointer-events-none absolute inset-0 soft-grid opacity-40" />
+            <div className="pointer-events-none absolute -left-24 -top-24 h-64 w-64 rounded-full bg-primary/8 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 -right-20 h-56 w-56 rounded-full bg-amber-500/6 blur-2xl" />
 
-          <section className="rounded-[6px] border border-white/10 bg-[#2f3138] p-4 md:p-6">
+            <div className="relative flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between lg:p-8">
+              {/* Left — Title block */}
+              <div className="min-w-0 flex-1 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-primary">
+                    <CalendarClock className="h-3 w-3" /> Planning
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
+                    <Clock className="h-3 w-3" /> Gestion du temps
+                  </span>
+                </div>
+                <h1 className="text-3xl font-bold tracking-tight lg:text-4xl">Planning</h1>
+                <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+                  Pilotez les quarts, timetables et affectations en un flux opérationnel unique.
+                </p>
+              </div>
+
+              {/* Right — Actions + Mini stats */}
+              <div className="flex flex-col items-end gap-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-10 rounded-xl border-amber-400/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/18 hover:text-amber-100"
+                    onClick={() => setHrGuideOpen(true)}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Assistant RH
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-10 rounded-xl border-border/60 bg-background/60 hover:bg-muted/60"
+                    onClick={() => void loadBaseData()}
+                    disabled={loading}
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    Sync
+                  </Button>
+                  <Button className="h-10 rounded-xl" onClick={openCreatePlanningDialog}>
+                    <Plus className="h-4 w-4" />
+                    Timetable
+                  </Button>
+                  <Button variant="secondary" className="h-10 rounded-xl" onClick={openCreateShiftDialog}>
+                    <Plus className="h-4 w-4" />
+                    Shift
+                  </Button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-background/40 px-3 py-1.5">
+                    <CalendarRange className="h-3.5 w-3.5 text-indigo-400" />
+                    <span className="text-xs font-semibold tabular-nums">{plannings.length}</span>
+                    <span className="text-[10px] text-muted-foreground">Timetables</span>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-background/40 px-3 py-1.5">
+                    <Shapes className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-xs font-semibold tabular-nums">{workShifts.length}</span>
+                    <span className="text-[10px] text-muted-foreground">Shifts</span>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-background/40 px-3 py-1.5">
+                    <Users className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-xs font-semibold tabular-nums">{employees.length}</span>
+                    <span className="text-[10px] text-muted-foreground">Employés</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] md:p-6">
 
             {error?.scope === "global" && (
               <div
                 role="alert"
-                className="mt-4 rounded-[4px] border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"
+                className="rounded-xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive ring-1 ring-destructive/10"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-mono text-xs uppercase tracking-[0.08em] text-rose-200/80">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-destructive/60">
                       Code: {error.code}
                     </p>
                     <p className="mt-1">{error.message}</p>
@@ -1446,7 +1524,7 @@ export default function PlanningPage() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 px-2 text-rose-200 hover:bg-rose-500/20 hover:text-rose-100"
+                    className="h-7 rounded-lg px-2 text-destructive hover:bg-destructive/15"
                     onClick={() => setError(null)}
                   >
                     Fermer
@@ -1455,54 +1533,60 @@ export default function PlanningPage() {
               </div>
             )}
 
-            <div className="mt-4 grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-              <div className="flex flex-col items-center gap-10 py-4">
+            <div className="mt-4 grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)] animate-fade-up" style={{ animationDelay: "80ms" }}>
+              {/* ── View Navigation ── */}
+              <nav className="flex flex-row gap-3 xl:flex-col xl:gap-4 xl:py-2">
                 {planningCards.map((card) => {
                   const Icon = card.icon
                   const isActive = activeView === card.key
+                  const accentMap = { timetable: "from-indigo-500 to-violet-600", shift: "from-emerald-500 to-teal-600", schedule: "from-amber-400 to-orange-500" } as const
+                  const ringMap = { timetable: "ring-indigo-500/25", shift: "ring-emerald-500/25", schedule: "ring-amber-400/25" } as const
+                  const iconBgMap = { timetable: "bg-indigo-500/15 text-indigo-400", shift: "bg-emerald-500/15 text-emerald-400", schedule: "bg-amber-500/15 text-amber-400" } as const
                   return (
                     <button
                       key={card.key}
                       type="button"
                       onClick={card.action}
                       className={cn(
-                        "group flex w-[140px] flex-col items-center rounded-[4px] border px-4 py-6 text-center transition-all",
+                        "group relative flex flex-1 flex-col items-center gap-2 overflow-hidden rounded-2xl border px-3 py-4 text-center wow-transition xl:flex-none xl:px-4 xl:py-5",
                         isActive
-                          ? "border-white/30 bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
-                          : "border-white/10 bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.08]"
+                          ? `ring-2 ${ringMap[card.key]} border-border/60 bg-card shadow-lg`
+                          : "border-border/40 bg-background/40 hover:border-border/60 hover:bg-card/60 hover:shadow-md"
                       )}
                     >
-                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-white/60 bg-white/5 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]">
-                        <Icon className="h-7 w-7" strokeWidth={1.5} />
+                      <div className={cn("absolute inset-x-0 top-0 h-1 bg-linear-to-r wow-transition", accentMap[card.key], isActive ? "opacity-100" : "opacity-0 group-hover:opacity-50")} />
+                      <div className={cn("flex h-11 w-11 items-center justify-center rounded-xl wow-transition group-hover:scale-110", iconBgMap[card.key])}>
+                        <Icon className="h-5 w-5" strokeWidth={1.5} />
                       </div>
-                      <div className="text-[15px] text-white">{card.label}</div>
-                      <div className="mt-1 text-[11px] text-white/45">{card.helper}</div>
+                      <div className="text-sm font-semibold">{card.label}</div>
+                      <div className="text-[10px] text-muted-foreground tabular-nums">{card.helper}</div>
                     </button>
                   )
                 })}
-              </div>
+              </nav>
 
               <div className="space-y-6">
                 <section
                   ref={timetableRef}
                   className={cn(
-                    "rounded-[4px] border p-4",
-                    activeView === "timetable" ? "border-[#7f8cff]/50 bg-[#343845]" : "border-white/10 bg-[#31343c]"
+                    "relative overflow-hidden rounded-2xl border p-5 wow-transition md:p-6",
+                    activeView === "timetable" ? "ring-1 ring-indigo-500/20 border-indigo-400/30 bg-indigo-950/10" : "border-border/40 bg-background/30 hover:border-border/60"
                   )}
                 >
-                  <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className={cn("absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-indigo-500 to-violet-600 wow-transition", activeView === "timetable" ? "opacity-100" : "opacity-0")} />
+                  <div className="mb-5 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/5">
-                        <Plus className="h-5 w-5 text-white" />
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/15 ring-1 ring-indigo-400/20">
+                        <CalendarRange className="h-5 w-5 text-indigo-400" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-medium text-white">Timetable</h2>
-                        <p className="text-sm text-white/55">Emplois du temps deja existants</p>
+                        <h2 className="text-base font-bold">Timetable</h2>
+                        <p className="text-xs text-muted-foreground">Emplois du temps existants</p>
                       </div>
                     </div>
                     <Button
                       variant="outline"
-                      className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                      className="h-9 rounded-xl border-border/60 bg-background/60 text-sm hover:bg-muted/60"
                       onClick={openCreatePlanningDialog}
                     >
                       <Plus className="h-4 w-4" />
@@ -1511,36 +1595,50 @@ export default function PlanningPage() {
                   </div>
 
                   {loading ? (
-                    <div className="flex items-center gap-2 text-sm text-white/60">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Chargement des timetables...
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {[1, 2].map((i) => (
+                        <div key={i} className="rounded-xl border border-border/40 bg-background/40 p-5">
+                          <div className="h-5 w-40 skeleton-shimmer rounded-lg" />
+                          <div className="mt-3 h-4 w-24 skeleton-shimmer rounded-lg" />
+                          <div className="mt-4 flex gap-2">
+                            <div className="h-6 w-20 skeleton-shimmer rounded-full" />
+                            <div className="h-6 w-16 skeleton-shimmer rounded-full" />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ) : plannings.length === 0 ? (
-                    <div className="rounded-[4px] border border-dashed border-white/15 px-4 py-6 text-sm text-white/55">
-                      Aucun emploi du temps trouve.
+                    <div className="flex flex-col items-center rounded-2xl border border-dashed border-border/40 px-4 py-14 text-center">
+                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/30 ring-1 ring-border/40">
+                        <CalendarRange className="h-7 w-7 text-muted-foreground/50" />
+                      </div>
+                      <p className="text-sm font-semibold">Aucun emploi du temps</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Créez un timetable pour commencer</p>
                     </div>
                   ) : (
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      {plannings.map((planning) => (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {plannings.map((planning, idx) => (
                         <article
                           key={planning.id}
-                          className="rounded-[4px] border border-white/10 bg-black/10 p-4"
+                          className="group relative overflow-hidden rounded-xl border border-border/60 bg-card/80 p-5 shadow-[0_4px_20px_rgba(0,0,0,0.08)] wow-transition hover:border-border hover:shadow-lg"
+                          style={{ animationDelay: `${idx * 60}ms` }}
                         >
+                          <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-indigo-500 to-violet-500 opacity-60" />
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-base font-medium text-white">{planning.name}</div>
-                              <div className="text-xs uppercase tracking-[0.18em] text-white/40">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-bold">{planning.name}</div>
+                              <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                                 {planning.code || "Sans code"}
                               </div>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-[#7f8cff]/35 bg-[#7f8cff]/12 px-2.5 py-1 text-[11px] text-[#d7dcff]">
+                            <div className="flex shrink-0 items-center gap-1">
+                              <span className="rounded-lg border border-indigo-400/25 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-300 tabular-nums">
                                 {planning.timezone}
                               </span>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 border border-white/15 px-2 text-white/80 hover:bg-white/10 hover:text-white"
+                                className="h-8 rounded-lg border border-border/40 px-2.5 text-xs opacity-0 wow-transition group-hover:opacity-100"
                                 onClick={() => openAssignPlanningDialog(planning)}
                               >
                                 Assigner
@@ -1548,38 +1646,38 @@ export default function PlanningPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-white/70 hover:bg-white/10 hover:text-white"
+                                className="h-8 w-8 rounded-lg opacity-0 wow-transition group-hover:opacity-100"
                                 onClick={() => openEditPlanningDialog(planning)}
                               >
-                                <Edit className="h-4 w-4" />
+                                <Edit className="h-3.5 w-3.5" />
                               </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-rose-200 hover:bg-rose-500/20 hover:text-rose-100"
+                                className="h-8 w-8 rounded-lg text-destructive opacity-0 wow-transition hover:bg-destructive/15 group-hover:opacity-100"
                                 onClick={() => void handleDeletePlanning(planning)}
                                 disabled={deletingPlanningId === planning.id}
                               >
                                 {deletingPlanningId === planning.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
-                                  <Trash2 className="h-4 w-4" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 )}
                               </Button>
                             </div>
                           </div>
 
-                          <p className="mt-3 text-sm text-white/60">
-                            {planning.description || "Aucune description renseignee."}
+                          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                            {planning.description || "Aucune description renseignée."}
                           </p>
 
-                          <div className="mt-4 flex flex-wrap gap-2">
+                          <div className="mt-3 flex flex-wrap gap-1.5">
                             {WEEK_DAYS.flatMap((day) => getPlanningDayEntries(planning, day.key, workShiftsById)).length ? (
                               WEEK_DAYS.flatMap((day) => getPlanningDayEntries(planning, day.key, workShiftsById)).map((slot) => (
                                 <span
                                   key={`${planning.id}-${slot.key}`}
                                   className={cn(
-                                    "rounded-full border px-2.5 py-1 text-[11px]",
+                                    "rounded-full border px-2 py-0.5 text-[10px] font-medium",
                                     getSlotBadgeClass(slot.slotType)
                                   )}
                                 >
@@ -1587,7 +1685,7 @@ export default function PlanningPage() {
                                 </span>
                               ))
                             ) : (
-                              <span className="text-sm text-white/45">Aucun slot defini</span>
+                              <span className="text-xs text-muted-foreground">Aucun slot défini</span>
                             )}
                           </div>
                         </article>
@@ -1600,23 +1698,24 @@ export default function PlanningPage() {
                 <section
                   ref={shiftRef}
                   className={cn(
-                    "rounded-[4px] border p-4",
-                    activeView === "shift" ? "border-[#5cc0a8]/50 bg-[#303f3a]" : "border-white/10 bg-[#31343c]"
+                    "relative overflow-hidden rounded-2xl border p-5 wow-transition md:p-6",
+                    activeView === "shift" ? "ring-1 ring-emerald-500/20 border-emerald-400/30 bg-emerald-950/10" : "border-border/40 bg-background/30 hover:border-border/60"
                   )}
                 >
-                  <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className={cn("absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-emerald-500 to-teal-600 wow-transition", activeView === "shift" ? "opacity-100" : "opacity-0")} />
+                  <div className="mb-5 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-[4px] border border-white/20 bg-white/5">
-                        <Shapes className="h-5 w-5 text-white" />
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-400/20">
+                        <Shapes className="h-5 w-5 text-emerald-400" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-medium text-white">Shift</h2>
-                        <p className="text-sm text-white/55">Quarts de travail deja existants</p>
+                        <h2 className="text-base font-bold">Shifts</h2>
+                        <p className="text-xs text-muted-foreground">Quarts de travail existants</p>
                       </div>
                     </div>
                     <Button
                       variant="outline"
-                      className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                      className="h-9 rounded-xl border-border/60 bg-background/60 text-sm hover:bg-muted/60"
                       onClick={openCreateShiftDialog}
                     >
                       <Plus className="h-4 w-4" />
@@ -1625,44 +1724,59 @@ export default function PlanningPage() {
                   </div>
 
                   {loading ? (
-                    <div className="flex items-center gap-2 text-sm text-white/60">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Chargement des shifts...
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {[1, 2].map((i) => (
+                        <div key={i} className="rounded-xl border border-border/40 bg-background/40 p-5">
+                          <div className="h-5 w-32 skeleton-shimmer rounded-lg" />
+                          <div className="mt-3 h-4 w-48 skeleton-shimmer rounded-lg" />
+                          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            {[1, 2, 3, 4].map((j) => (
+                              <div key={j} className="h-12 skeleton-shimmer rounded-xl" />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ) : workShifts.length === 0 ? (
-                    <div className="rounded-[4px] border border-dashed border-white/15 px-4 py-6 text-sm text-white/55">
-                      Aucun quart de travail trouve.
+                    <div className="flex flex-col items-center rounded-2xl border border-dashed border-border/40 px-4 py-14 text-center">
+                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/30 ring-1 ring-border/40">
+                        <Shapes className="h-7 w-7 text-muted-foreground/50" />
+                      </div>
+                      <p className="text-sm font-semibold">Aucun quart de travail</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Créez un shift pour commencer</p>
                     </div>
                   ) : (
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      {workShifts.map((shift) => (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {workShifts.map((shift, idx) => (
                         <article
                           key={shift.id}
-                          className="rounded-[4px] border border-white/10 bg-black/10 p-4"
+                          className="group relative overflow-hidden rounded-xl border border-border/60 bg-card/80 p-5 shadow-[0_4px_20px_rgba(0,0,0,0.08)] wow-transition hover:border-border hover:shadow-lg"
+                          style={{ animationDelay: `${idx * 60}ms` }}
                         >
+                          <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-emerald-500 to-teal-500 opacity-60" />
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-base font-medium text-white">{shift.name}</div>
-                              <div className="text-xs uppercase tracking-[0.18em] text-white/40">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-bold">{shift.name}</div>
+                              <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                                 {shift.code || "Sans code"}
                               </div>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-[#5cc0a8]/30 bg-[#5cc0a8]/10 px-2.5 py-1 text-[11px] text-[#d3fff3]">
-                                {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
+                            <div className="flex shrink-0 items-center gap-1">
+                              <span className="rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 tabular-nums">
+                                {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
                               </span>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-white/70 hover:bg-white/10 hover:text-white"
+                                className="h-8 w-8 rounded-lg opacity-0 wow-transition group-hover:opacity-100"
                                 onClick={() => openEditShiftDialog(shift)}
                               >
-                                <Edit className="h-4 w-4" />
+                                <Edit className="h-3.5 w-3.5" />
                               </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-rose-200 hover:bg-rose-500/20 hover:text-rose-100"
+                                className="h-8 w-8 rounded-lg text-destructive opacity-0 wow-transition hover:bg-destructive/15 group-hover:opacity-100"
                                 onClick={() => void handleDeleteShift(shift)}
                                 disabled={deletingShiftId === shift.id}
                               >
@@ -1675,22 +1789,26 @@ export default function PlanningPage() {
                             </div>
                           </div>
 
-                          <p className="mt-3 text-sm text-white/60">
-                            {shift.description || "Aucune description renseignee."}
+                          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                            {shift.description || "Aucune description renseignée."}
                           </p>
 
-                          <div className="mt-4 grid gap-2 text-sm text-white/70 sm:grid-cols-2 lg:grid-cols-4">
-                            <div className="rounded-[4px] border border-white/10 bg-white/5 px-3 py-2">
-                              Pause: {formatTime(shift.break_start_time)} - {formatTime(shift.break_end_time)}
+                          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                            <div className="rounded-xl border border-border/40 bg-background/40 px-3 py-2">
+                              <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Pause</span>
+                              <div className="mt-0.5 text-xs font-semibold tabular-nums">{formatTime(shift.break_start_time)} – {formatTime(shift.break_end_time)}</div>
                             </div>
-                            <div className="rounded-[4px] border border-white/10 bg-white/5 px-3 py-2">
-                              Heures supp.: {shift.overtime_minutes} min
+                            <div className="rounded-xl border border-border/40 bg-background/40 px-3 py-2">
+                              <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Heures sup.</span>
+                              <div className="mt-0.5 text-xs font-semibold tabular-nums">{shift.overtime_minutes} min</div>
                             </div>
-                            <div className="rounded-[4px] border border-white/10 bg-white/5 px-3 py-2">
-                              Retard tolere: {shift.late_allowable_minutes ?? 0} min
+                            <div className="rounded-xl border border-border/40 bg-background/40 px-3 py-2">
+                              <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Retard</span>
+                              <div className="mt-0.5 text-xs font-semibold tabular-nums">{shift.late_allowable_minutes ?? 0} min</div>
                             </div>
-                            <div className="rounded-[4px] border border-white/10 bg-white/5 px-3 py-2">
-                              Depart anticipe: {shift.early_leave_allowable_minutes ?? 0} min
+                            <div className="rounded-xl border border-border/40 bg-background/40 px-3 py-2">
+                              <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Départ</span>
+                              <div className="mt-0.5 text-xs font-semibold tabular-nums">{shift.early_leave_allowable_minutes ?? 0} min</div>
                             </div>
                           </div>
                         </article>
@@ -1702,18 +1820,19 @@ export default function PlanningPage() {
                 <section
                   ref={scheduleRef}
                   className={cn(
-                    "rounded-[4px] border p-4",
-                    activeView === "schedule" ? "border-[#f7d37a]/50 bg-[#403a2f]" : "border-white/10 bg-[#31343c]"
+                    "relative overflow-hidden rounded-2xl border p-5 wow-transition md:p-6",
+                    activeView === "schedule" ? "ring-1 ring-amber-400/20 border-amber-400/30 bg-amber-950/10" : "border-border/40 bg-background/30 hover:border-border/60"
                   )}
                 >
-                  <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                  <div className={cn("absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-amber-400 to-orange-500 wow-transition", activeView === "schedule" ? "opacity-100" : "opacity-0")} />
+                  <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-[4px] border border-white/20 bg-white/5">
-                        <CalendarDays className="h-5 w-5 text-white" />
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 ring-1 ring-amber-400/20">
+                        <CalendarDays className="h-5 w-5 text-amber-400" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-medium text-white">Shift Schedule</h2>
-                        <p className="text-sm text-white/55">Calendrier mensuel de l&apos;employe selectionne</p>
+                        <h2 className="text-base font-bold">Shift Schedule</h2>
+                        <p className="text-xs text-muted-foreground">Calendrier mensuel de l&apos;employé sélectionné</p>
                       </div>
                     </div>
 
@@ -1721,86 +1840,132 @@ export default function PlanningPage() {
                       <select
                         value={selectedEmployeeId ?? ""}
                         onChange={(event) => setSelectedEmployeeId(Number(event.target.value))}
-                        className="h-10 rounded-[4px] border border-white/10 bg-black/15 px-3 text-sm text-white outline-none"
+                        className="h-10 rounded-xl border border-border/60 bg-background/60 px-3 text-sm outline-none focus:ring-1 focus:ring-amber-400/30"
                       >
                         {employees.map((employee) => (
-                          <option key={employee.id} value={employee.id} className="bg-[#2f3138]">
+                          <option key={employee.id} value={employee.id} className="bg-card">
                             {(employee.name || employee.employee_no) +
-                              " - " +
+                              " – " +
                               getEmployeeDepartment(employee, departmentsById)}
                           </option>
                         ))}
                       </select>
-                      <Input
-                        type="month"
-                        value={month ?? ""}
-                        onChange={(event) => setMonth(event.target.value)}
-                        className="border-white/10 bg-black/15 text-white"
-                      />
-                      <Button
-                        variant="outline"
-                        className="border-white/15 bg-white/5 text-white hover:bg-white/10"
-                        onClick={() => void loadSchedule()}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                        Afficher
-                      </Button>
+                      <div className="grid grid-cols-[auto_1fr_auto] gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 px-2.5"
+                          onClick={() => shiftMonth(-1)}
+                          aria-label="Mois précédent"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Input
+                          type="month"
+                          value={month ?? ""}
+                          onChange={(event) => setMonth(event.target.value)}
+                          className="h-10 rounded-xl border-border/60 bg-background/60"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 px-2.5"
+                          onClick={() => shiftMonth(1)}
+                          aria-label="Mois suivant"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 hover:bg-muted/60"
+                          onClick={goCurrentMonth}
+                        >
+                          Aujourd&apos;hui
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 hover:bg-muted/60"
+                          onClick={() => void loadSchedule()}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Afficher
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
                   {selectedEmployee && (
-                    <div className="mb-4 grid gap-3 lg:grid-cols-3">
-                      <div className="rounded-[4px] border border-white/10 bg-black/10 p-3">
-                        <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Employe</div>
-                        <div className="mt-1 text-sm font-medium text-white">
+                    <div className="mb-5 grid gap-3 lg:grid-cols-3">
+                      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/80 p-4">
+                        <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-amber-400 to-orange-500 opacity-60" />
+                        <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Employé</div>
+                        <div className="mt-1.5 text-sm font-bold">
                           {selectedEmployee.name || selectedEmployee.employee_no}
                         </div>
-                        <div className="mt-1 text-sm text-white/55">
+                        <div className="mt-1 text-xs text-muted-foreground">
                           {getEmployeeDepartment(selectedEmployee, departmentsById)}
                         </div>
                       </div>
-                      <div className="rounded-[4px] border border-white/10 bg-black/10 p-3">
-                        <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Planning effectif</div>
-                        <div className="mt-1 text-sm font-medium text-white">
+                      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/80 p-4">
+                        <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-sky-400 to-blue-500 opacity-60" />
+                        <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Planning effectif</div>
+                        <div className="mt-1.5 text-sm font-bold">
                           {schedule?.planning?.name ?? "Aucun planning"}
                         </div>
-                        <div className="mt-1 text-sm text-white/55">
+                        <div className="mt-1 text-xs text-muted-foreground">
                           {selectedEmployee.effective_work_shift?.name ?? "Aucun quart principal"}
                         </div>
                       </div>
-                      <div className="rounded-[4px] border border-white/10 bg-black/10 p-3">
-                        <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Resume</div>
-                        <div className="mt-1 text-sm font-medium text-white">
+                      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/80 p-4">
+                        <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-violet-400 to-purple-500 opacity-60" />
+                        <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Résumé</div>
+                        <div className="mt-1.5 text-sm font-bold tabular-nums">
                           {schedule?.summary ? formatMinutes(schedule.summary.planned_minutes) : "--"}
                         </div>
-                        <div className="mt-1 text-sm text-white/55">
-                          {schedule?.summary?.working_days ?? 0} jour(s) travailles
+                        <div className="mt-1 text-xs text-muted-foreground tabular-nums">
+                          {schedule?.summary?.working_days ?? 0} jour(s) travaillés
                         </div>
                       </div>
                     </div>
                   )}
 
                   {loadingSchedule ? (
-                    <div className="flex items-center gap-2 text-sm text-white/60">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Chargement du calendrier...
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-7">
+                        {Array.from({ length: 35 }, (_, i) => (
+                          <div key={i} className="min-h-28 rounded-xl border border-border/40 bg-background/40 p-2.5">
+                            <div className="h-4 w-6 skeleton-shimmer rounded" />
+                            <div className="mt-5 h-6 w-full skeleton-shimmer rounded-lg" />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="rounded-xl border border-border/40 bg-background/40 p-4">
+                        <div className="h-4 w-24 skeleton-shimmer rounded" />
+                        <div className="mt-4 h-20 skeleton-shimmer rounded-xl" />
+                      </div>
                     </div>
                   ) : !schedule?.days.length ? (
-                    <div className="rounded-[4px] border border-dashed border-white/15 px-4 py-6 text-sm text-white/55">
-                      Aucun calendrier disponible pour cet employe.
+                    <div className="flex flex-col items-center rounded-2xl border border-dashed border-border/40 px-4 py-14 text-center">
+                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/30 ring-1 ring-border/40">
+                        <CalendarDays className="h-7 w-7 text-muted-foreground/50" />
+                      </div>
+                      <p className="text-sm font-semibold">Aucun calendrier disponible</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Sélectionnez un employé et un mois</p>
                     </div>
                   ) : (
                     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
                       <div>
-                        <div className="mb-2 grid grid-cols-7 gap-2 text-center text-[11px] uppercase tracking-[0.14em] text-white/40">
+                        <div className="mb-2 hidden grid-cols-7 gap-2 text-center text-[9px] font-semibold uppercase tracking-widest text-muted-foreground md:grid">
                           {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((label) => (
-                            <div key={label} className="rounded-[4px] border border-white/10 bg-black/10 px-2 py-2">
+                            <div key={label} className="rounded-lg border border-border/40 bg-background/40 px-2 py-2">
                               {label}
                             </div>
                           ))}
                         </div>
 
-                        <div className="grid gap-2 md:grid-cols-7">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-7">
                           {monthGrid.map((day, index) =>
                             day ? (
                               <button
@@ -1808,37 +1973,37 @@ export default function PlanningPage() {
                                 type="button"
                                 onClick={() => setSelectedDate(day.date)}
                                 className={cn(
-                                  "min-h-[120px] rounded-[4px] border p-2 text-left transition-colors",
+                                  "group/cell min-h-28 rounded-xl border p-2.5 text-left wow-transition",
                                   selectedDate === day.date
-                                    ? "border-[#f7d37a] bg-[#f7d37a]/12"
+                                    ? "ring-2 ring-amber-400/30 border-amber-400/40 bg-amber-500/8"
                                     : day.is_rest_day
-                                      ? "border-white/10 bg-white/5 hover:bg-white/10"
-                                      : "border-white/10 bg-black/10 hover:bg-white/10"
+                                      ? "border-border/40 bg-muted/20 hover:bg-muted/40"
+                                      : "border-border/40 bg-background/30 hover:bg-muted/30"
                                 )}
                               >
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="text-sm font-semibold text-white">
+                                <div className="flex items-start justify-between gap-1">
+                                  <span className={cn("text-sm font-bold tabular-nums", selectedDate === day.date && "text-amber-400")}>
                                     {new Date(`${day.date}T00:00:00`).getDate()}
                                   </span>
-                                  <span className="text-[10px] text-white/45">{day.day_name.slice(0, 3)}</span>
+                                  <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">{day.day_name.slice(0, 3)}</span>
                                 </div>
 
-                                <div className="mt-3 space-y-1">
+                                <div className="mt-2.5 space-y-1">
                                   {day.shifts.length ? (
                                     day.shifts.slice(0, 2).map((shift) => (
                                       <div
                                         key={`${day.date}-${shift.id}`}
-                                        className="rounded-[4px] bg-[#f7d37a]/12 px-2 py-1 text-[11px] text-[#fbe8b5]"
+                                        className="rounded-lg bg-amber-500/10 px-2 py-1 text-[10px]"
                                       >
-                                        <div className="truncate">{shift.name}</div>
-                                        <div className="text-[10px] text-[#fbe8b5]/75">
-                                          {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
+                                        <div className="truncate font-semibold text-amber-300">{shift.name}</div>
+                                        <div className="text-[9px] text-amber-300/60 tabular-nums">
+                                          {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
                                         </div>
                                       </div>
                                     ))
                                   ) : (
-                                    <div className="pt-5 text-[11px] text-white/45">
-                                      {day.is_rest_day ? "Repos" : "Aucune affectation"}
+                                    <div className="pt-4 text-[10px] text-muted-foreground">
+                                      {day.is_rest_day ? "Repos" : "—"}
                                     </div>
                                   )}
                                 </div>
@@ -1846,55 +2011,56 @@ export default function PlanningPage() {
                             ) : (
                               <div
                                 key={`empty-${index}`}
-                                className="min-h-[120px] rounded-[4px] border border-dashed border-white/10 bg-black/10"
+                                className="min-h-28 rounded-xl border border-dashed border-border/30 bg-background/20"
                               />
                             )
                           )}
                         </div>
                       </div>
 
-                      <aside className="rounded-[4px] border border-white/10 bg-black/10 p-4">
-                        <div className="text-[11px] uppercase tracking-[0.18em] text-white/40">Jour selectionne</div>
+                      <aside className="relative overflow-hidden rounded-xl border border-border/60 bg-card/80 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
+                        <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-amber-400 to-orange-500 opacity-50" />
+                        <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Jour sélectionné</div>
                         {selectedDay ? (
                           <div className="mt-3 space-y-4">
                             <div>
-                              <div className="text-base font-medium text-white">{selectedDay.date}</div>
-                              <div className="text-sm text-white/55">{selectedDay.day_name}</div>
+                              <div className="text-base font-bold tabular-nums">{selectedDay.date}</div>
+                              <div className="text-xs text-muted-foreground">{selectedDay.day_name}</div>
                             </div>
 
-                            <div className="rounded-[4px] border border-white/10 bg-white/5 p-3">
-                              <div className="text-[11px] uppercase tracking-[0.16em] text-white/40">Heures</div>
-                              <div className="mt-1 text-sm text-white">
+                            <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                              <div className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Heures</div>
+                              <div className="mt-1 text-sm font-bold tabular-nums">
                                 {formatMinutes(selectedDay.planned_minutes)}
                               </div>
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-[11px] uppercase tracking-[0.16em] text-white/40">Shifts</div>
+                              <div className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Shifts</div>
                               {selectedDay.shifts.length ? (
                                 selectedDay.shifts.map((shift) => (
                                   <div
                                     key={`${selectedDay.date}-${shift.id}-detail`}
-                                    className="rounded-[4px] border border-white/10 bg-white/5 p-3"
+                                    className="rounded-xl border border-border/40 bg-background/40 p-3"
                                   >
-                                    <div className="font-medium text-white">{shift.name}</div>
-                                    <div className="mt-1 text-sm text-white/60">
-                                      {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
+                                    <div className="text-sm font-bold">{shift.name}</div>
+                                    <div className="mt-1 text-xs text-muted-foreground tabular-nums">
+                                      {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
                                     </div>
-                                    <div className="mt-1 text-sm text-white/45">
-                                      Net: {formatMinutes(shift.net_minutes)}
+                                    <div className="mt-1 text-xs text-muted-foreground">
+                                      Net : {formatMinutes(shift.net_minutes)}
                                     </div>
                                   </div>
                                 ))
                               ) : (
-                                <div className="rounded-[4px] border border-dashed border-white/10 px-3 py-4 text-sm text-white/45">
+                                <div className="rounded-xl border border-dashed border-border/40 px-3 py-4 text-xs text-muted-foreground">
                                   Aucun shift ce jour.
                                 </div>
                               )}
                             </div>
                           </div>
                         ) : (
-                          <div className="mt-3 text-sm text-white/45">Selectionnez un jour dans le calendrier.</div>
+                          <div className="mt-3 text-xs text-muted-foreground">Sélectionnez un jour dans le calendrier.</div>
                         )}
                       </aside>
                     </div>
@@ -1905,13 +2071,13 @@ export default function PlanningPage() {
           </section>
 
           <Dialog open={assignPlanningOpen} onOpenChange={closeAssignPlanningDialog}>
-            <DialogContent className="max-w-2xl rounded-[4px] border-white/10 bg-[#2f3138] text-white">
+            <DialogContent className="max-w-2xl rounded-2xl border-border/60 bg-card text-foreground">
               <DialogHeader>
-                <DialogTitle>
+                <DialogTitle className="text-lg font-bold">
                   Assigner le planning {assignPlanningTarget ? `"${assignPlanningTarget.name}"` : ""}
                 </DialogTitle>
-                <DialogDescription className="text-white/55">
-                  Choisissez des departements entiers ou des personnes, puis confirmez.
+                <DialogDescription className="text-muted-foreground">
+                  Choisissez des départements entiers ou des personnes, puis confirmez.
                 </DialogDescription>
               </DialogHeader>
 
@@ -1920,9 +2086,9 @@ export default function PlanningPage() {
                 (error.code === "ASSIGN_PLANNING_FAILED" || error.code === "GUIDE_ASSIGN_PREPARE_FAILED") ? (
                   <div
                     role="alert"
-                    className="rounded-[4px] border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"
+                    className="rounded-xl border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive"
                   >
-                    <p className="font-mono text-xs uppercase tracking-[0.08em] text-rose-200/80">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-destructive/70">
                       Code: {error.code}
                     </p>
                     <p className="mt-1">{error.message}</p>
@@ -1934,7 +2100,7 @@ export default function PlanningPage() {
                     <Button
                       type="button"
                       variant={assignMode === "employees" ? "default" : "outline"}
-                      className={assignMode === "employees" ? "" : "border-white/15 bg-white/5 text-white hover:bg-white/10"}
+                      className={cn("h-9 rounded-xl", assignMode !== "employees" && "border-border/60 bg-background/60")}
                       onClick={() => setAssignMode("employees")}
                     >
                       Personnes
@@ -1942,17 +2108,17 @@ export default function PlanningPage() {
                     <Button
                       type="button"
                       variant={assignMode === "departments" ? "default" : "outline"}
-                      className={assignMode === "departments" ? "" : "border-white/15 bg-white/5 text-white hover:bg-white/10"}
+                      className={cn("h-9 rounded-xl", assignMode !== "departments" && "border-border/60 bg-background/60")}
                       onClick={() => setAssignMode("departments")}
                     >
-                      Departements
+                      Départements
                     </Button>
                   </div>
                   <div className="flex gap-2">
                     <Button
                       type="button"
                       variant="outline"
-                      className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                      className="h-9 rounded-xl border-border/60 bg-background/60"
                       onClick={() => {
                         if (assignMode === "departments") {
                           setSelectedAssignDepartmentIds(filteredAssignDepartments.map((department) => department.id))
@@ -1961,12 +2127,12 @@ export default function PlanningPage() {
                         setSelectedAssignEmployeeIds(filteredAssignEmployees.map((employee) => employee.id))
                       }}
                     >
-                      Tout selectionner
+                      Tout sélectionner
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
-                      className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                      className="h-9 rounded-xl border-border/60 bg-background/60"
                       onClick={() => {
                         if (assignMode === "departments") {
                           setSelectedAssignDepartmentIds([])
@@ -1980,39 +2146,39 @@ export default function PlanningPage() {
                   </div>
                 </div>
 
-                <div className="rounded-[4px] border border-white/10 bg-black/10 p-3">
+                <div className="rounded-xl border border-border/60 bg-background/40 p-3">
                   <Input
                     value={assignSearch}
                     onChange={(event) => setAssignSearch(event.target.value)}
                     placeholder={
                       assignMode === "departments"
-                        ? "Rechercher un departement..."
+                        ? "Rechercher un département..."
                         : "Rechercher une personne..."
                     }
-                    className="border-white/10 bg-black/20 text-white"
+                    className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
-                  <p className="mt-2 text-xs text-white/55">
+                  <p className="mt-2 text-xs text-muted-foreground tabular-nums">
                     {assignMode === "departments"
-                      ? `${selectedAssignDepartmentIds.length} selectionne(s) / ${filteredAssignDepartments.length} affiche(s)`
-                      : `${selectedAssignEmployeeIds.length} selectionne(s) / ${filteredAssignEmployees.length} affiche(s)`}
+                      ? `${selectedAssignDepartmentIds.length} sélectionné(s) / ${filteredAssignDepartments.length} affiché(s)`
+                      : `${selectedAssignEmployeeIds.length} sélectionné(s) / ${filteredAssignEmployees.length} affiché(s)`}
                   </p>
                 </div>
 
                 {assignMode === "departments" ? (
                   <div className="space-y-3">
-                    <label className="flex items-center gap-2 text-sm text-white/80">
+                    <label className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
                         checked={includeSubDepartments}
                         onChange={(event) => setIncludeSubDepartments(event.target.checked)}
                       />
-                      Inclure les sous-departements
+                      Inclure les sous-départements
                     </label>
-                    <div className="max-h-72 space-y-2 overflow-y-auto rounded-[4px] border border-white/10 bg-black/10 p-3">
+                    <div className="max-h-72 space-y-1.5 overflow-y-auto rounded-xl border border-border/60 bg-background/40 p-3">
                       {filteredAssignDepartments.map((department) => (
                         <label
                           key={`assign-department-${department.id}`}
-                          className="flex cursor-pointer items-center gap-2 rounded-[4px] border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                          className="flex cursor-pointer items-center gap-2 rounded-xl border border-border/40 bg-card/60 px-3 py-2 text-sm wow-transition hover:bg-muted/40"
                         >
                           <input
                             type="checkbox"
@@ -2023,18 +2189,18 @@ export default function PlanningPage() {
                         </label>
                       ))}
                       {departments.length === 0 ? (
-                        <p className="text-sm text-white/45">Aucun departement disponible.</p>
+                        <p className="text-xs text-muted-foreground">Aucun département disponible.</p>
                       ) : filteredAssignDepartments.length === 0 ? (
-                        <p className="text-sm text-white/45">Aucun departement ne correspond a la recherche.</p>
+                        <p className="text-xs text-muted-foreground">Aucun département ne correspond à la recherche.</p>
                       ) : null}
                     </div>
                   </div>
                 ) : (
-                  <div className="max-h-72 space-y-2 overflow-y-auto rounded-[4px] border border-white/10 bg-black/10 p-3">
+                  <div className="max-h-72 space-y-1.5 overflow-y-auto rounded-xl border border-border/60 bg-background/40 p-3">
                     {filteredAssignEmployees.map((employee) => (
                       <label
                         key={`assign-employee-${employee.id}`}
-                        className="flex cursor-pointer items-center gap-2 rounded-[4px] border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                        className="flex cursor-pointer items-center gap-2 rounded-xl border border-border/40 bg-card/60 px-3 py-2 text-sm wow-transition hover:bg-muted/40"
                       >
                         <input
                           type="checkbox"
@@ -2050,9 +2216,9 @@ export default function PlanningPage() {
                       </label>
                     ))}
                     {employees.length === 0 ? (
-                      <p className="text-sm text-white/45">Aucune personne disponible.</p>
+                      <p className="text-xs text-muted-foreground">Aucune personne disponible.</p>
                     ) : filteredAssignEmployees.length === 0 ? (
-                      <p className="text-sm text-white/45">Aucune personne ne correspond a la recherche.</p>
+                      <p className="text-xs text-muted-foreground">Aucune personne ne correspond à la recherche.</p>
                     ) : null}
                   </div>
                 )}
@@ -2062,12 +2228,13 @@ export default function PlanningPage() {
                 <Button
                   variant="outline"
                   onClick={() => closeAssignPlanningDialog(false)}
-                  className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                  className="h-10 rounded-xl border-border/60 bg-background/60"
                   disabled={isAssigningPlanning}
                 >
                   Annuler
                 </Button>
                 <Button
+                  className="h-10 rounded-xl"
                   onClick={() => void handleAssignPlanning()}
                   disabled={
                     isAssigningPlanning ||
@@ -2084,22 +2251,22 @@ export default function PlanningPage() {
           </Dialog>
 
           <Dialog open={createShiftOpen} onOpenChange={closeShiftDialog}>
-            <DialogContent className="max-w-xl rounded-[4px] border-white/10 bg-[#2f3138] text-white">
+            <DialogContent className="max-w-xl rounded-2xl border-border/60 bg-card text-foreground">
               <DialogHeader>
-                <DialogTitle>{editingShift ? "Modifier un quart de travail" : "Creer un quart de travail"}</DialogTitle>
-                <DialogDescription className="text-white/55">
+                <DialogTitle className="text-lg font-bold">{editingShift ? "Modifier un quart de travail" : "Créer un quart de travail"}</DialogTitle>
+                <DialogDescription className="text-muted-foreground">
                   {editingShift
-                    ? "Met a jour ce quart reutilisable pour les equipes et les employes."
-                    : "Ajoute un quart reutilisable pour les equipes et les employes."}
+                    ? "Met à jour ce quart réutilisable pour les équipes et les employés."
+                    : "Ajoute un quart réutilisable pour les équipes et les employés."}
                 </DialogDescription>
               </DialogHeader>
                 <div className="grid gap-3 py-2">
                 {error?.scope === "shift_dialog" && (
                   <div
                     role="alert"
-                    className="rounded-[4px] border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"
+                    className="rounded-xl border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive"
                   >
-                    <p className="font-mono text-xs uppercase tracking-[0.08em] text-rose-200/80">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-destructive/70">
                       Code: {error.code}
                     </p>
                     <p className="mt-1">{error.message}</p>
@@ -2110,24 +2277,24 @@ export default function PlanningPage() {
                     placeholder="Nom du quart"
                     value={newShift.name ?? ""}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, name: event.target.value }))}
-                    className="border-white/10 bg-black/15 text-white"
+                    className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
                   <Input
                     placeholder="Code"
                     value={newShift.code ?? ""}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, code: event.target.value }))}
-                    className="border-white/10 bg-black/15 text-white"
+                    className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
                 </div>
                 <Input
                   placeholder="Description"
                   value={newShift.description ?? ""}
                   onChange={(event) => setNewShift((prev) => ({ ...prev, description: event.target.value }))}
-                  className="border-white/10 bg-black/15 text-white"
+                  className="h-10 rounded-xl border-border/60 bg-background/60"
                 />
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <p className="text-xs text-white/70">Heure de debut de service</p>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Début de service</p>
                     <Input
                       type="text"
                       inputMode="numeric"
@@ -2137,11 +2304,11 @@ export default function PlanningPage() {
                       value={newShift.start_time ?? ""}
                       onChange={(event) => setNewShift((prev) => ({ ...prev, start_time: event.target.value }))}
                       onBlur={() => normalizeShiftTimeField("start_time")}
-                      className="border-white/10 bg-black/15 text-white"
+                      className="h-10 rounded-xl border-border/60 bg-background/60 font-mono tabular-nums"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-white/70">Heure de fin de service</p>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Fin de service</p>
                     <Input
                       type="text"
                       inputMode="numeric"
@@ -2151,13 +2318,13 @@ export default function PlanningPage() {
                       value={newShift.end_time ?? ""}
                       onChange={(event) => setNewShift((prev) => ({ ...prev, end_time: event.target.value }))}
                       onBlur={() => normalizeShiftTimeField("end_time")}
-                      className="border-white/10 bg-black/15 text-white"
+                      className="h-10 rounded-xl border-border/60 bg-background/60 font-mono tabular-nums"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-white/70">Pause</p>
+                    <p className="text-xs font-medium text-muted-foreground">Pause</p>
                     <Switch
                       checked={newShift.break_enabled}
                       onCheckedChange={(checked) =>
@@ -2172,8 +2339,8 @@ export default function PlanningPage() {
                   </div>
                   {newShift.break_enabled ? (
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <p className="text-xs text-white/70">Heure de debut de pause (optionnel)</p>
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">Début pause</p>
                         <Input
                           type="text"
                           inputMode="numeric"
@@ -2185,11 +2352,11 @@ export default function PlanningPage() {
                             setNewShift((prev) => ({ ...prev, break_start_time: event.target.value }))
                           }
                           onBlur={() => normalizeShiftTimeField("break_start_time")}
-                          className="border-white/10 bg-black/15 text-white"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 font-mono tabular-nums"
                         />
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-xs text-white/70">Heure de fin de pause (optionnel)</p>
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">Fin pause</p>
                         <Input
                           type="text"
                           inputMode="numeric"
@@ -2201,7 +2368,7 @@ export default function PlanningPage() {
                             setNewShift((prev) => ({ ...prev, break_end_time: event.target.value }))
                           }
                           onBlur={() => normalizeShiftTimeField("break_end_time")}
-                          className="border-white/10 bg-black/15 text-white"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 font-mono tabular-nums"
                         />
                       </div>
                     </div>
@@ -2209,7 +2376,7 @@ export default function PlanningPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-white/70">Heures supplementaires</p>
+                    <p className="text-xs font-medium text-muted-foreground">Heures supplémentaires</p>
                     <Switch
                       checked={newShift.overtime_enabled}
                       onCheckedChange={(checked) =>
@@ -2228,8 +2395,8 @@ export default function PlanningPage() {
                   </div>
                   {newShift.overtime_enabled ? (
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <p className="text-xs text-white/70">Heure sup de debut (optionnel)</p>
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">Début H.S.</p>
                         <Input
                           type="text"
                           inputMode="numeric"
@@ -2241,11 +2408,11 @@ export default function PlanningPage() {
                           }
                           onBlur={() => normalizeShiftTimeField("overtime_start_time")}
                           placeholder="Ex: 18, 1830, 18:30"
-                          className="border-white/10 bg-black/15 text-white"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 font-mono tabular-nums"
                         />
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-xs text-white/70">Heure sup de fin (optionnel)</p>
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">Fin H.S.</p>
                         <Input
                           type="text"
                           inputMode="numeric"
@@ -2257,15 +2424,15 @@ export default function PlanningPage() {
                           }
                           onBlur={() => normalizeShiftTimeField("overtime_end_time")}
                           placeholder="Ex: 20, 2000, 20:00"
-                          className="border-white/10 bg-black/15 text-white"
+                          className="h-10 rounded-xl border-border/60 bg-background/60 font-mono tabular-nums"
                         />
                       </div>
                     </div>
                   ) : null}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <p className="text-xs text-white/70">Retard tolere (min)</p>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Retard toléré (min)</p>
                     <Input
                       type="number"
                       min="0"
@@ -2274,11 +2441,11 @@ export default function PlanningPage() {
                       onChange={(event) =>
                         setNewShift((prev) => ({ ...prev, late_allowable_minutes: event.target.value }))
                       }
-                      className="border-white/10 bg-black/15 text-white"
+                      className="h-10 rounded-xl border-border/60 bg-background/60 tabular-nums"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-white/70">Marge depart anticipe (min)</p>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Marge départ (min)</p>
                     <Input
                       type="number"
                       min="0"
@@ -2287,7 +2454,7 @@ export default function PlanningPage() {
                       onChange={(event) =>
                         setNewShift((prev) => ({ ...prev, early_leave_allowable_minutes: event.target.value }))
                       }
-                      className="border-white/10 bg-black/15 text-white"
+                      className="h-10 rounded-xl border-border/60 bg-background/60 tabular-nums"
                     />
                   </div>
                 </div>
@@ -2297,35 +2464,35 @@ export default function PlanningPage() {
                   variant="outline"
                   onClick={() => closeShiftDialog(false)}
                   disabled={isSavingShift}
-                  className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                  className="h-10 rounded-xl border-border/60 bg-background/60"
                 >
                   Annuler
                 </Button>
-                <Button onClick={() => void handleSaveShift()} disabled={isSavingShift}>
+                <Button className="h-10 rounded-xl" onClick={() => void handleSaveShift()} disabled={isSavingShift}>
                   {isSavingShift && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {editingShift ? "Mettre a jour" : "Enregistrer"}
+                  {editingShift ? "Mettre à jour" : "Enregistrer"}
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
 
           <Dialog open={createPlanningOpen} onOpenChange={closePlanningDialog}>
-            <DialogContent className="top-[4vh] w-[min(96vw,1320px)] max-w-[min(96vw,1320px)] max-h-[92vh] translate-y-0 overflow-y-auto rounded-[4px] border-white/10 bg-[#2f3138] text-white">
+            <DialogContent className="top-[4vh] w-[min(96vw,1320px)] max-w-[min(96vw,1320px)] max-h-[92vh] translate-y-0 overflow-y-auto rounded-2xl border-border/60 bg-card text-foreground">
               <DialogHeader>
-                <DialogTitle>{editingPlanning ? "Modifier un planning" : "Creer un planning"}</DialogTitle>
-                <DialogDescription className="text-white/55">
+                <DialogTitle className="text-lg font-bold">{editingPlanning ? "Modifier un planning" : "Créer un planning"}</DialogTitle>
+                <DialogDescription className="text-muted-foreground">
                   {editingPlanning
-                    ? "Mets a jour le cycle hebdomadaire de ce timetable."
-                    : "Definis un cycle hebdomadaire qui servira de base aux timetables."}
+                    ? "Mets à jour le cycle hebdomadaire de ce timetable."
+                    : "Définis un cycle hebdomadaire qui servira de base aux timetables."}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-2 py-1">
+              <div className="space-y-3 py-1">
                 {error?.scope === "planning_dialog" && (
                   <div
                     role="alert"
-                    className="rounded-[4px] border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"
+                    className="rounded-xl border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive"
                   >
-                    <p className="font-mono text-xs uppercase tracking-[0.08em] text-rose-200/80">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-destructive/70">
                       Code: {error.code}
                     </p>
                     <p className="mt-1">{error.message}</p>
@@ -2336,13 +2503,13 @@ export default function PlanningPage() {
                     placeholder="Nom du planning"
                     value={newPlanning.name ?? ""}
                     onChange={(event) => setNewPlanning((prev) => ({ ...prev, name: event.target.value }))}
-                    className="border-white/10 bg-black/15 text-white"
+                    className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
                   <Input
                     placeholder="Code"
                     value={newPlanning.code ?? ""}
                     onChange={(event) => setNewPlanning((prev) => ({ ...prev, code: event.target.value }))}
-                    className="border-white/10 bg-black/15 text-white"
+                    className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
@@ -2352,13 +2519,13 @@ export default function PlanningPage() {
                     onChange={(event) =>
                       setNewPlanning((prev) => ({ ...prev, description: event.target.value }))
                     }
-                    className="border-white/10 bg-black/15 text-white"
+                    className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
                   <Input
                     placeholder="Timezone"
                     value={newPlanning.timezone ?? ""}
                     onChange={(event) => setNewPlanning((prev) => ({ ...prev, timezone: event.target.value }))}
-                    className="border-white/10 bg-black/15 text-white"
+                    className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
                 </div>
                 <div className="space-y-3">
@@ -2375,10 +2542,10 @@ export default function PlanningPage() {
                         onDragEnd={() => setDraggedShiftId(null)}
                         onClick={() => setSelectedShiftId((current) => (current === shift.id ? null : shift.id))}
                         className={cn(
-                          "rounded-[4px] border px-3 py-2 text-sm font-medium transition-colors",
+                          "rounded-xl border px-3 py-2 text-sm font-medium wow-transition",
                           selectedShiftId === shift.id
-                            ? "border-[#ff3f61] bg-[#2e3440] text-white"
-                            : "border-white/20 bg-[#2b3039] text-white/90 hover:bg-[#343a45]"
+                            ? "border-primary bg-primary/15 text-primary ring-1 ring-primary/25"
+                            : "border-border/60 bg-background/60 hover:bg-muted/60"
                         )}
                       >
                         {shift.name}
@@ -2387,49 +2554,49 @@ export default function PlanningPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                    <div className="flex items-center gap-2 text-white/75">
+                    <div className="flex items-center gap-2">
                       <Button
                         type="button"
                         variant={planningEditorMode === "builder" ? "default" : "outline"}
                         size="sm"
-                        className={planningEditorMode === "builder" ? "" : "border-white/15 bg-white/5 text-white hover:bg-white/10"}
+                        className={cn("h-8 rounded-xl", planningEditorMode !== "builder" && "border-border/60 bg-background/60")}
                         onClick={() => setPlanningEditorMode("builder")}
                       >
-                        Edition par jour
+                        Édition par jour
                       </Button>
                       <Button
                         type="button"
                         variant={planningEditorMode === "timeline" ? "default" : "outline"}
                         size="sm"
-                        className={planningEditorMode === "timeline" ? "" : "border-white/15 bg-white/5 text-white hover:bg-white/10"}
+                        className={cn("h-8 rounded-xl", planningEditorMode !== "timeline" && "border-border/60 bg-background/60")}
                         onClick={() => setPlanningEditorMode("timeline")}
                       >
-                        Apercu timeline
+                        Aperçu timeline
                       </Button>
                     </div>
-                    <div className="text-white/70">
+                    <div className="text-xs text-muted-foreground tabular-nums">
                       {selectedShiftId
                         ? `${workShiftsById.get(selectedShiftId)?.name ?? "Shift"} : ${formatTime(
                             workShiftsById.get(selectedShiftId)?.start_time
-                          )} - ${formatTime(workShiftsById.get(selectedShiftId)?.end_time)}`
-                        : "Aucun shift selectionne"}
+                          )} – ${formatTime(workShiftsById.get(selectedShiftId)?.end_time)}`
+                        : "Aucun shift sélectionné"}
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                    <div className="flex items-center gap-4 text-white/75">
+                    <div className="flex items-center gap-4">
                       <button
                         type="button"
                         onClick={deleteSelectedShiftFromDays}
                         disabled={!selectedShiftId}
-                        className="text-white/80 transition-colors hover:text-white disabled:opacity-40"
+                        className="text-xs text-muted-foreground wow-transition hover:text-foreground disabled:opacity-40"
                       >
-                        Supprimer le shift selectionne partout
+                        Supprimer le shift sélectionné partout
                       </button>
                       <button
                         type="button"
                         onClick={clearPlanningGrid}
-                        className="text-white/80 transition-colors hover:text-white"
+                        className="text-xs text-muted-foreground wow-transition hover:text-foreground"
                       >
                         Vider la semaine
                       </button>
@@ -2437,9 +2604,9 @@ export default function PlanningPage() {
                   </div>
 
                   {planningEditorMode === "builder" ? (
-                    <div className="rounded-[4px] border border-white/10 bg-[#30343d] p-3">
-                      <div className="mb-2 text-[11px] uppercase tracking-[0.12em] text-white/50">
-                        Edition stable: ajoute/supprime par jour, sans decalage visuel
+                    <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        Édition par jour — ajoute/supprime sans décalage
                       </div>
                       <div className="space-y-1.5">
                         {WEEK_DAYS.map((day) => {
@@ -2456,54 +2623,54 @@ export default function PlanningPage() {
                             .filter((item): item is string => Boolean(item))
                             .join("\n")
                           return (
-                            <div key={`builder-${day.key}`} className="rounded-[4px] border border-white/10 bg-black/10 px-2 py-1.5">
+                            <div key={`builder-${day.key}`} className="rounded-xl border border-border/40 bg-card/60 px-2.5 py-1.5">
                               <div className="flex items-center gap-1.5">
-                                <div className="w-[52px] shrink-0 text-xs font-semibold text-white">{day.label.slice(0, 3)}</div>
+                                <div className="w-11 shrink-0 text-xs font-bold">{day.label.slice(0, 3)}</div>
                                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                                   <div className="relative">
                                     <Button
                                       type="button"
                                       size="sm"
                                       variant="outline"
-                                      className="h-6 border-white/15 bg-white/5 px-1.5 text-[10px] text-white hover:bg-white/10"
+                                      className="h-6 rounded-lg border-border/40 bg-background/60 px-1.5 text-[10px]"
                                       onClick={() => setCopyMenuDay((current) => (current === day.key ? null : day.key))}
                                     >
                                       Dup
                                     </Button>
                                     {copyMenuDay === day.key ? (
-                                      <div className="absolute left-0 top-8 z-20 w-[150px] rounded-[4px] border border-white/15 bg-[#242933] p-1.5 shadow-xl">
+                                      <div className="absolute left-0 top-8 z-20 w-40 rounded-xl border border-border/60 bg-card p-1.5 shadow-xl">
                                         <button
                                           type="button"
                                           onClick={() => copyDayWithPreset(day.key, "next")}
-                                          className="block w-full rounded-[4px] px-2 py-1 text-left text-[11px] text-white/85 hover:bg-white/10"
+                                          className="block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
                                         >
                                           Vers jour suivant
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => copyDayWithPreset(day.key, "weekdays")}
-                                          className="mt-1 block w-full rounded-[4px] px-2 py-1 text-left text-[11px] text-white/85 hover:bg-white/10"
+                                          className="mt-0.5 block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
                                         >
                                           Vers Lun-Ven
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => copyDayWithPreset(day.key, "weekend")}
-                                          className="mt-1 block w-full rounded-[4px] px-2 py-1 text-left text-[11px] text-white/85 hover:bg-white/10"
+                                          className="mt-0.5 block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
                                         >
                                           Vers Week-end
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => copyDayWithPreset(day.key, "all")}
-                                          className="mt-1 block w-full rounded-[4px] px-2 py-1 text-left text-[11px] text-white/85 hover:bg-white/10"
+                                          className="mt-0.5 block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
                                         >
                                           Vers tous les jours
                                         </button>
                                       </div>
                                     ) : null}
                                   </div>
-                                  <div className="flex items-center gap-1 text-[10px] text-white/70">
+                                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                     <span>R</span>
                                     <Switch
                                       checked={slot.isRestDay}
@@ -2514,14 +2681,14 @@ export default function PlanningPage() {
                                     type="button"
                                     size="sm"
                                     variant="outline"
-                                    className="h-6 border-white/15 bg-white/5 px-1.5 text-[10px] text-white hover:bg-white/10"
+                                    className="h-6 rounded-lg border-border/40 bg-background/60 px-1.5 text-[10px]"
                                     disabled={!selectedShiftId || slot.isRestDay}
                                     onClick={() => selectedShiftId && addShiftToDay(day.key, selectedShiftId)}
                                   >
                                     +
                                   </Button>
                                   {slot.isRestDay ? (
-                                    <span className="rounded-[4px] border border-rose-400/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] text-rose-200">
+                                    <span className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-medium text-rose-300">
                                       Repos
                                     </span>
                                   ) : slot.shiftIds.length ? (
@@ -2533,23 +2700,23 @@ export default function PlanningPage() {
                                           key={`builder-chip-${day.key}-${shiftId}`}
                                           type="button"
                                           onClick={() => removeShiftFromDay(day.key, shiftId)}
-                                          className="min-w-0 rounded-[4px] border border-sky-400/35 bg-[#5da2ff]/20 px-1.5 py-0.5 text-[10px] text-sky-100 hover:bg-[#5da2ff]/30"
+                                          className="min-w-0 rounded-lg border border-sky-400/30 bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 wow-transition hover:bg-sky-500/25"
                                           title={`${shift.name} ${formatTime(shift.start_time)}-${formatTime(shift.end_time)} (clic pour retirer)`}
                                         >
-                                          <span className="block max-w-[190px] truncate">
+                                          <span className="block max-w-47.5 truncate">
                                             {shift.name} {formatTime(shift.start_time)}-{formatTime(shift.end_time)}
                                           </span>
                                         </button>
                                       )
                                     })
                                   ) : (
-                                    <span className="text-[10px] text-white/45">Aucun</span>
+                                    <span className="text-[10px] text-muted-foreground">Aucun</span>
                                   )}
                                   {!slot.isRestDay && hiddenShiftIds.length > 0 ? (
                                     <button
                                       type="button"
-                                      className="rounded-[4px] border border-amber-300/30 bg-amber-300/10 px-1.5 py-0.5 text-[10px] text-amber-100 hover:bg-amber-300/20"
-                                      title={hiddenShiftDetails || `${hiddenShiftIds.length} quart(s) supplementaire(s)`}
+                                      className="rounded-lg border border-amber-300/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300 wow-transition hover:bg-amber-500/20"
+                                      title={hiddenShiftDetails || `${hiddenShiftIds.length} quart(s) supplémentaire(s)`}
                                     >
                                       +{hiddenShiftIds.length}
                                     </button>
@@ -2562,21 +2729,21 @@ export default function PlanningPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-[4px] border border-white/10 bg-[#30343d] p-3 overflow-x-hidden">
+                    <div className="rounded-xl border border-border/60 bg-background/40 p-3 overflow-x-auto">
                       <div className="min-w-0">
-                        <div className="mb-2 grid grid-cols-[56px_minmax(0,1fr)] items-center gap-2 text-[11px] text-white/65">
-                          <div className="px-1">Time</div>
+                        <div className="mb-2 grid grid-cols-[56px_minmax(0,1fr)] items-center gap-2 text-[10px] text-muted-foreground">
+                          <div className="px-1 font-semibold uppercase tracking-widest">Time</div>
                           <div>
                             <div className="flex items-center justify-between md:hidden">
                               {HOUR_MARKERS_6H.map((hour) => (
-                                <span key={`mobile-${hour}`} className="text-center text-white/80">
+                                <span key={`mobile-${hour}`} className="text-center tabular-nums">
                                   {String(hour).padStart(2, "0")}:00
                                 </span>
                               ))}
                             </div>
                             <div className="hidden items-center justify-between md:flex">
                               {HOUR_MARKERS_4H.map((hour) => (
-                                <span key={`desktop-${hour}`} className="text-center text-white/80">
+                                <span key={`desktop-${hour}`} className="text-center tabular-nums">
                                   {String(hour).padStart(2, "0")}:00
                                 </span>
                               ))}
@@ -2668,7 +2835,7 @@ export default function PlanningPage() {
 
                             return (
                               <div key={day.key} className="grid grid-cols-[56px_minmax(0,1fr)] items-center gap-2">
-                                <div className="text-sm text-white/90">{day.label.slice(0, 3)}.</div>
+                                <div className="text-xs font-bold">{day.label.slice(0, 3)}.</div>
                                 <div
                                   role="button"
                                   tabIndex={0}
@@ -2686,13 +2853,13 @@ export default function PlanningPage() {
                                     if (shiftId) addShiftToDay(day.key, shiftId)
                                     setDraggedShiftId(null)
                                   }}
-                                  className="relative min-w-0 overflow-hidden rounded-[3px] border border-white/10 bg-[#262b33] px-1 py-1"
+                                  className="relative min-w-0 overflow-hidden rounded-lg border border-border/40 bg-background/30 px-1 py-1"
                                 >
                                   <div className="pointer-events-none absolute inset-0 grid grid-cols-48">
                                     {Array.from({ length: 48 }, (_, tick) => (
                                       <div
                                         key={`${day.key}-tick-${tick}`}
-                                        className={cn("border-r border-white/8", tick === 47 && "border-r-0")}
+                                        className={cn("border-r border-border/20", tick === 47 && "border-r-0")}
                                       />
                                     ))}
                                   </div>
@@ -2710,7 +2877,7 @@ export default function PlanningPage() {
                                             event.stopPropagation()
                                             removeShiftFromDay(block.sourceDayKey, block.shiftId)
                                           }}
-                                          className="absolute h-[18px] overflow-hidden whitespace-nowrap rounded-[3px] border border-sky-400/35 bg-[#5da2ff] px-2 text-[11px] text-white"
+                                          className="absolute h-4.5 overflow-hidden whitespace-nowrap rounded-md border border-sky-400/30 bg-sky-500 px-2 text-[11px] font-medium text-white"
                                           style={{
                                             left: `${block.left}%`,
                                             width: `${block.width}%`,
@@ -2738,13 +2905,13 @@ export default function PlanningPage() {
                   variant="outline"
                   onClick={() => closePlanningDialog(false)}
                   disabled={isSavingPlanning}
-                  className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+                  className="h-10 rounded-xl border-border/60 bg-background/60"
                 >
                   Annuler
                 </Button>
-                <Button onClick={() => void handleSavePlanning()} disabled={isSavingPlanning}>
+                <Button className="h-10 rounded-xl" onClick={() => void handleSavePlanning()} disabled={isSavingPlanning}>
                   {isSavingPlanning && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {editingPlanning ? "Mettre a jour" : "Enregistrer"}
+                  {editingPlanning ? "Mettre à jour" : "Enregistrer"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -2759,6 +2926,74 @@ export default function PlanningPage() {
             isPreparingAssign={isPreparingGuideAssign}
             stats={hrGuideStats}
           />
+
+          <Dialog open={!!pendingShiftDelete} onOpenChange={(open) => !open && setPendingShiftDelete(null)}>
+            <DialogContent className="max-w-lg rounded-2xl border-border/60 bg-card text-foreground">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-bold">Supprimer le quart</DialogTitle>
+                <DialogDescription className="text-muted-foreground">
+                  Voulez-vous vraiment supprimer {pendingShiftDelete ? `"${pendingShiftDelete.name}"` : "ce quart"} ?
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={forceShiftDelete}
+                    onChange={(event) => setForceShiftDelete(event.target.checked)}
+                  />
+                  Forcer la suppression (si lié à des employés/plannings)
+                </label>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPendingShiftDelete(null)} disabled={deletingShiftId !== null}>
+                  Annuler
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => void confirmDeleteShift()}
+                  disabled={!pendingShiftDelete || deletingShiftId !== null}
+                >
+                  {deletingShiftId !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Supprimer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={!!pendingPlanningDelete} onOpenChange={(open) => !open && setPendingPlanningDelete(null)}>
+            <DialogContent className="max-w-lg rounded-2xl border-border/60 bg-card text-foreground">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-bold">Supprimer le planning</DialogTitle>
+                <DialogDescription className="text-muted-foreground">
+                  Voulez-vous vraiment supprimer {pendingPlanningDelete ? `"${pendingPlanningDelete.name}"` : "ce planning"} ?
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={forcePlanningDelete}
+                    onChange={(event) => setForcePlanningDelete(event.target.checked)}
+                  />
+                  Forcer la suppression (si lié à des départements/employés)
+                </label>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPendingPlanningDelete(null)} disabled={deletingPlanningId !== null}>
+                  Annuler
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => void confirmDeletePlanning()}
+                  disabled={!pendingPlanningDelete || deletingPlanningId !== null}
+                >
+                  {deletingPlanningId !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Supprimer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </main>
       </div>
     </div>

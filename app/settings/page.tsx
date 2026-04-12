@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
-import { PageContextBar } from "@/components/dashboard/page-context-bar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+// Card components available but replaced with custom premium panels
+// import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -58,6 +58,7 @@ import {
   updateWorkShift,
 } from "@/lib/api/settings"
 import {
+  AlertTriangle,
   Bell,
   Building,
   CalendarDays,
@@ -66,12 +67,16 @@ import {
   DoorOpen,
   Edit,
   Globe,
+  Loader2,
   Plus,
+  RotateCcw,
+  Save,
   Server,
   Shield,
   Trash2,
   Users,
 } from "lucide-react"
+import { toast } from "sonner"
 
 type AccessGroup = {
   id: string
@@ -91,6 +96,13 @@ type Assignment = {
   targetId: string
 }
 
+type PendingSensitiveAction =
+  | { kind: "department"; id: number; label: string }
+  | { kind: "group"; id: string; label: string }
+  | { kind: "planning"; id: number; label: string }
+  | { kind: "work-shift"; id: number; label: string }
+  | { kind: "assignment"; assignment: Assignment; label: string }
+
 export default function SettingsPage() {
   const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
   const [groups, setGroups] = useState<AccessGroup[]>([])
@@ -105,10 +117,32 @@ export default function SettingsPage() {
   const [planningError, setPlanningError] = useState<string | null>(null)
   const [groupError, setGroupError] = useState<string | null>(null)
   const [workShiftError, setWorkShiftError] = useState<string | null>(null)
+  const [isInitialLoading, setIsInitialLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState("organization")
+  const [isSavingDepartment, setIsSavingDepartment] = useState(false)
+  const [isSavingGroup, setIsSavingGroup] = useState(false)
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false)
+  const [isSavingWorkShift, setIsSavingWorkShift] = useState(false)
+  const [isAssigningPlanning, setIsAssigningPlanning] = useState(false)
+  const [isAssigningWorkShift, setIsAssigningWorkShift] = useState(false)
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false)
+  const [pendingSensitiveAction, setPendingSensitiveAction] = useState<PendingSensitiveAction | null>(null)
+  const [isRunningSensitiveAction, setIsRunningSensitiveAction] = useState(false)
 
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [pushNotifications, setPushNotifications] = useState(false)
   const [syncEnabled, setSyncEnabled] = useState(true)
+  const [securityTimeRestrictionEnabled, setSecurityTimeRestrictionEnabled] = useState(true)
+  const [companyName, setCompanyName] = useState("TechCorp Industries")
+  const [timezone, setTimezone] = useState("Europe/Paris")
+  const [savedPreferences, setSavedPreferences] = useState({
+    emailNotifications: true,
+    pushNotifications: false,
+    syncEnabled: true,
+    securityTimeRestrictionEnabled: true,
+    companyName: "TechCorp Industries",
+    timezone: "Europe/Paris",
+  })
 
   const [depDialogOpen, setDepDialogOpen] = useState(false)
   const [editingDepartment, setEditingDepartment] = useState<DepartmentItem | null>(null)
@@ -201,6 +235,30 @@ export default function SettingsPage() {
     [tenants, tenantId],
   )
 
+  const hasNotificationChanges =
+    emailNotifications !== savedPreferences.emailNotifications ||
+    pushNotifications !== savedPreferences.pushNotifications
+  const hasSecurityChanges =
+    syncEnabled !== savedPreferences.syncEnabled ||
+    securityTimeRestrictionEnabled !== savedPreferences.securityTimeRestrictionEnabled
+  const hasGeneralChanges =
+    companyName !== savedPreferences.companyName || timezone !== savedPreferences.timezone
+
+  const pageSystemStatus: "connected" | "disconnected" | "syncing" =
+    isInitialLoading ||
+    isSavingDepartment ||
+    isSavingGroup ||
+    isSavingSchedule ||
+    isSavingWorkShift ||
+    isAssigningPlanning ||
+    isAssigningWorkShift ||
+    isSavingPreferences ||
+    isRunningSensitiveAction
+      ? "syncing"
+      : departmentError || planningError || groupError || workShiftError
+        ? "disconnected"
+        : "connected"
+
   const resetDepartmentForm = () =>
     setDepForm({
       name: "",
@@ -245,8 +303,14 @@ export default function SettingsPage() {
   })
 
   const submitDepartment = async () => {
-    if (!tenantId || !depForm.name.trim() || !depForm.organizationId) return
+    if (!tenantId || !depForm.name.trim() || !depForm.organizationId) {
+      const message = "Nom et organisation sont obligatoires pour le département."
+      setDepartmentError(message)
+      toast.error(message)
+      return
+    }
     setDepartmentError(null)
+    setIsSavingDepartment(true)
     try {
       const payload = {
         tenant: tenantId,
@@ -268,14 +332,24 @@ export default function SettingsPage() {
       setDepDialogOpen(false)
       setEditingDepartment(null)
       resetDepartmentForm()
+      toast.success(editingDepartment ? "Département modifié" : "Département créé")
     } catch (error) {
       setDepartmentError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du departement.")
+      toast.error("Erreur lors de l'enregistrement du département")
+    } finally {
+      setIsSavingDepartment(false)
     }
   }
 
   const submitGroup = async () => {
-    if (!tenantId || !groupForm.name.trim()) return
+    if (!tenantId || !groupForm.name.trim()) {
+      const message = "Le nom du groupe est obligatoire."
+      setGroupError(message)
+      toast.error(message)
+      return
+    }
     setGroupError(null)
+    setIsSavingGroup(true)
     try {
       const payload = {
         tenant: tenantId,
@@ -311,14 +385,24 @@ export default function SettingsPage() {
       setGroupDialogOpen(false)
       setEditingGroup(null)
       resetGroupForm()
+      toast.success(editingGroup?.backendId ? "Groupe d'accès modifié" : "Groupe d'accès créé")
     } catch (error) {
       setGroupError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du groupe.")
+      toast.error("Erreur lors de l'enregistrement du groupe")
+    } finally {
+      setIsSavingGroup(false)
     }
   }
 
   const submitSchedule = async () => {
-    if (!tenantId || !scheduleForm.name.trim()) return
+    if (!tenantId || !scheduleForm.name.trim()) {
+      const message = "Le nom du planning est obligatoire."
+      setPlanningError(message)
+      toast.error(message)
+      return
+    }
     setPlanningError(null)
+    setIsSavingSchedule(true)
     try {
       const payload = {
         tenant: tenantId,
@@ -340,14 +424,24 @@ export default function SettingsPage() {
       setScheduleDialogOpen(false)
       setEditingSchedule(null)
       resetScheduleForm()
+      toast.success(editingSchedule ? "Planning modifié" : "Planning créé")
     } catch (error) {
       setPlanningError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du planning.")
+      toast.error("Erreur lors de l'enregistrement du planning")
+    } finally {
+      setIsSavingSchedule(false)
     }
   }
 
   const submitWorkShift = async () => {
-    if (!tenantId || !workShiftForm.name.trim()) return
+    if (!tenantId || !workShiftForm.name.trim()) {
+      const message = "Le nom du quart de travail est obligatoire."
+      setWorkShiftError(message)
+      toast.error(message)
+      return
+    }
     setWorkShiftError(null)
+    setIsSavingWorkShift(true)
     try {
       const overtimeMinutesRaw = workShiftForm.overtime_minutes.trim()
       if (overtimeMinutesRaw && Number.isNaN(Number(overtimeMinutesRaw))) {
@@ -399,8 +493,12 @@ export default function SettingsPage() {
       setWorkShiftDialogOpen(false)
       setEditingWorkShift(null)
       resetWorkShiftForm()
+      toast.success(editingWorkShift ? "Quart de travail modifié" : "Quart de travail créé")
     } catch (error) {
       setWorkShiftError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du quart.")
+      toast.error("Erreur lors de l'enregistrement du quart de travail")
+    } finally {
+      setIsSavingWorkShift(false)
     }
   }
 
@@ -409,8 +507,10 @@ export default function SettingsPage() {
     try {
       await deleteDepartmentApi(id)
       setApiDepartments((prev) => prev.filter((department) => department.id !== id))
+      toast.success("Département supprimé")
     } catch (error) {
       setDepartmentError(error instanceof Error ? error.message : "Erreur lors de la suppression du departement.")
+      toast.error("Erreur lors de la suppression du département")
     }
   }
 
@@ -424,8 +524,10 @@ export default function SettingsPage() {
     try {
       await deleteAccessGroup(target.backendId)
       setGroups((prev) => prev.filter((group) => group.id !== id))
+      toast.success("Groupe d'accès supprimé")
     } catch (error) {
       setGroupError(error instanceof Error ? error.message : "Erreur lors de la suppression du groupe.")
+      toast.error("Erreur lors de la suppression du groupe")
     }
   }
 
@@ -442,14 +544,22 @@ export default function SettingsPage() {
       setApiDepartments((prev) =>
         prev.map((department) => (department.planning === id ? { ...department, planning: null } : department)),
       )
+      toast.success("Planning supprimé")
     } catch (error) {
       setPlanningError(error instanceof Error ? error.message : "Erreur lors de la suppression du planning.")
+      toast.error("Erreur lors de la suppression du planning")
     }
   }
 
   const addAssignment = async () => {
-    if (!assignmentForm.planningId || !assignmentForm.targetId) return
+    if (!assignmentForm.planningId || !assignmentForm.targetId) {
+      const message = "Sélectionnez un planning et une cible avant attribution."
+      setPlanningError(message)
+      toast.error(message)
+      return
+    }
     setPlanningError(null)
+    setIsAssigningPlanning(true)
     try {
       if (assignmentForm.targetType === "Departement") {
         const updated = await assignDepartmentPlanning(
@@ -457,6 +567,7 @@ export default function SettingsPage() {
           Number(assignmentForm.planningId),
         )
         setApiDepartments((prev) => prev.map((department) => (department.id === updated.id ? updated : department)))
+        toast.success("Planning attribué avec succès")
         return
       }
       const targetGroup = groups.find((group) => group.id === assignmentForm.targetId)
@@ -464,8 +575,12 @@ export default function SettingsPage() {
       const saved = await updateAccessGroup(targetGroup.backendId, { planning: Number(assignmentForm.planningId) })
       const mapped = mapAccessGroupToUi(saved)
       setGroups((prev) => prev.map((group) => (group.id === mapped.id ? mapped : group)))
+      toast.success("Planning attribué avec succès")
     } catch (error) {
       setPlanningError(error instanceof Error ? error.message : "Erreur lors de l'attribution du planning.")
+      toast.error("Erreur lors de l'attribution du planning")
+    } finally {
+      setIsAssigningPlanning(false)
     }
   }
 
@@ -475,6 +590,7 @@ export default function SettingsPage() {
       if (assignment.targetType === "Departement") {
         const updated = await updateDepartment(Number(assignment.targetId), { planning: null })
         setApiDepartments((prev) => prev.map((department) => (department.id === updated.id ? updated : department)))
+        toast.success("Attribution retirée")
         return
       }
       const targetGroup = groups.find((group) => group.id === assignment.targetId)
@@ -482,8 +598,10 @@ export default function SettingsPage() {
       const saved = await updateAccessGroup(targetGroup.backendId, { planning: null })
       const mapped = mapAccessGroupToUi(saved)
       setGroups((prev) => prev.map((group) => (group.id === mapped.id ? mapped : group)))
+      toast.success("Attribution retirée")
     } catch (error) {
       setPlanningError(error instanceof Error ? error.message : "Erreur lors de la suppression de l'attribution.")
+      toast.error("Erreur lors de la suppression de l'attribution")
     }
   }
 
@@ -497,14 +615,22 @@ export default function SettingsPage() {
           department.work_shift === id ? { ...department, work_shift: null, effective_work_shift: null } : department
         )
       )
+      toast.success("Quart de travail supprimé")
     } catch (error) {
       setWorkShiftError(error instanceof Error ? error.message : "Erreur lors de la suppression du quart.")
+      toast.error("Erreur lors de la suppression du quart de travail")
     }
   }
 
   const submitDepartmentShiftAssignment = async () => {
-    if (!departmentShiftForm.departmentId || !departmentShiftForm.workShiftId) return
+    if (!departmentShiftForm.departmentId || !departmentShiftForm.workShiftId) {
+      const message = "Sélectionnez un département et un quart pour l'attribution."
+      setWorkShiftError(message)
+      toast.error(message)
+      return
+    }
     setWorkShiftError(null)
+    setIsAssigningWorkShift(true)
     try {
       const updatedDepartment = await assignDepartmentWorkShift(
         Number(departmentShiftForm.departmentId),
@@ -514,8 +640,123 @@ export default function SettingsPage() {
         prev.map((item) => (item.id === updatedDepartment.id ? updatedDepartment : item))
       )
       setDepartmentShiftForm((prev) => ({ ...prev, workShiftId: "" }))
+      toast.success("Quart de travail attribué au département")
     } catch (error) {
       setWorkShiftError(error instanceof Error ? error.message : "Erreur d'attribution du quart au departement.")
+      toast.error("Erreur d'attribution du quart au département")
+    } finally {
+      setIsAssigningWorkShift(false)
+    }
+  }
+
+  const savePreferenceSnapshot = (next: typeof savedPreferences) => {
+    setSavedPreferences(next)
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("settings-ui-preferences", JSON.stringify(next))
+    }
+  }
+
+  const saveNotificationSettings = async () => {
+    setIsSavingPreferences(true)
+    try {
+      const next = {
+        ...savedPreferences,
+        emailNotifications,
+        pushNotifications,
+      }
+      savePreferenceSnapshot(next)
+      toast.success("Préférences de notification enregistrées")
+    } finally {
+      setIsSavingPreferences(false)
+    }
+  }
+
+  const saveSecuritySettings = async () => {
+    setIsSavingPreferences(true)
+    try {
+      const next = {
+        ...savedPreferences,
+        syncEnabled,
+        securityTimeRestrictionEnabled,
+      }
+      savePreferenceSnapshot(next)
+      toast.success("Paramètres de sécurité enregistrés")
+    } finally {
+      setIsSavingPreferences(false)
+    }
+  }
+
+  const saveGeneralSettings = async () => {
+    const trimmedName = companyName.trim()
+    const trimmedTimezone = timezone.trim()
+    if (!trimmedName) {
+      toast.error("Le nom d'entreprise est obligatoire.")
+      return
+    }
+    if (!trimmedTimezone || !trimmedTimezone.includes("/")) {
+      toast.error("Le fuseau horaire doit suivre le format Région/Ville.")
+      return
+    }
+
+    setIsSavingPreferences(true)
+    try {
+      const next = {
+        ...savedPreferences,
+        companyName: trimmedName,
+        timezone: trimmedTimezone,
+      }
+      savePreferenceSnapshot(next)
+      setCompanyName(trimmedName)
+      setTimezone(trimmedTimezone)
+      toast.success("Paramètres généraux enregistrés")
+    } finally {
+      setIsSavingPreferences(false)
+    }
+  }
+
+  const resetNotificationSettings = () => {
+    setEmailNotifications(savedPreferences.emailNotifications)
+    setPushNotifications(savedPreferences.pushNotifications)
+    toast.info("Modifications de notifications annulées")
+  }
+
+  const resetSecuritySettings = () => {
+    setSyncEnabled(savedPreferences.syncEnabled)
+    setSecurityTimeRestrictionEnabled(savedPreferences.securityTimeRestrictionEnabled)
+    toast.info("Modifications de sécurité annulées")
+  }
+
+  const resetGeneralSettings = () => {
+    setCompanyName(savedPreferences.companyName)
+    setTimezone(savedPreferences.timezone)
+    toast.info("Modifications générales annulées")
+  }
+
+  const runSensitiveAction = async () => {
+    if (!pendingSensitiveAction) return
+
+    setIsRunningSensitiveAction(true)
+    try {
+      switch (pendingSensitiveAction.kind) {
+        case "department":
+          await removeDepartment(pendingSensitiveAction.id)
+          break
+        case "group":
+          await deleteGroup(pendingSensitiveAction.id)
+          break
+        case "planning":
+          await deleteSchedule(pendingSensitiveAction.id)
+          break
+        case "work-shift":
+          await removeWorkShift(pendingSensitiveAction.id)
+          break
+        case "assignment":
+          await removeAssignment(pendingSensitiveAction.assignment)
+          break
+      }
+      setPendingSensitiveAction(null)
+    } finally {
+      setIsRunningSensitiveAction(false)
     }
   }
 
@@ -532,6 +773,7 @@ export default function SettingsPage() {
   useEffect(() => {
     let active = true
     const loadAccessGroupData = async () => {
+      setIsInitialLoading(true)
       setGroupError(null)
       setDepartmentError(null)
       setPlanningError(null)
@@ -573,6 +815,10 @@ export default function SettingsPage() {
       } catch (error) {
         if (!active) return
         setGroupError(error instanceof Error ? error.message : "Impossible de charger les groupes d'acces.")
+      } finally {
+        if (active) {
+          setIsInitialLoading(false)
+        }
       }
     }
 
@@ -611,60 +857,113 @@ export default function SettingsPage() {
     })
   }, [apiPlannings, apiDepartments, groups])
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const raw = window.localStorage.getItem("settings-ui-preferences")
+    if (!raw) return
+
+    try {
+      const parsed = JSON.parse(raw) as typeof savedPreferences
+      setSavedPreferences(parsed)
+      setEmailNotifications(parsed.emailNotifications)
+      setPushNotifications(parsed.pushNotifications)
+      setSyncEnabled(parsed.syncEnabled)
+      setSecurityTimeRestrictionEnabled(parsed.securityTimeRestrictionEnabled)
+      setCompanyName(parsed.companyName)
+      setTimezone(parsed.timezone)
+    } catch {
+      // Ignore invalid local cache.
+    }
+  }, [])
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="app-shell">
       <AppSidebar />
 
-      <div className="pl-16 lg:pl-64">
-        <Header systemStatus="connected" />
+      <div className="app-shell-content">
+        <Header systemStatus={pageSystemStatus} />
 
-        <main className="p-6">
-          <PageContextBar
-            title="Parametres"
-            description="Configuration globale: organisation, groupes d'acces, horaires, notifications et securite."
-            stats={[
-              { value: tenants.length, label: "Tenants disponibles" },
-              { value: groups.length, label: "Groupes d'acces" },
-              { value: apiReaders.length, label: "Lecteurs references" },
-            ]}
-          />
-
-          <Tabs defaultValue="organization" className="space-y-6">
-            <TabsList className="flex-wrap">
-              <TabsTrigger value="organization">
-                <Users className="mr-2 h-4 w-4" />
-                Organisation
-              </TabsTrigger>
-              <TabsTrigger value="planning">
-                <CalendarDays className="mr-2 h-4 w-4" />
-                Horaires & Plannings
-              </TabsTrigger>
-              <TabsTrigger value="hikcentral">
-                <Server className="mr-2 h-4 w-4" />
-                HikCentral
-              </TabsTrigger>
-              <TabsTrigger value="security">
-                <Shield className="mr-2 h-4 w-4" />
-                Securite
-              </TabsTrigger>
-              <TabsTrigger value="notifications">
-                <Bell className="mr-2 h-4 w-4" />
-                Notifications
-              </TabsTrigger>
-              <TabsTrigger value="general">
-                <Globe className="mr-2 h-4 w-4" />
-                General
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="organization" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Departements</CardTitle>
-                      <CardDescription>Ajout, modification et suppression des departements</CardDescription>
+        <main className="app-page">
+          {/* ── Hero Section ── */}
+          <section className="relative animate-fade-up overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+            <div className="absolute inset-0 bg-linear-to-br from-primary/4 via-transparent to-primary/2" />
+            <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-primary/5 blur-3xl" />
+            <div className="absolute -bottom-16 -left-16 h-32 w-32 rounded-full bg-primary/3 blur-2xl" />
+            <div className="relative p-6 sm:p-8">
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Administration</p>
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Parametres</h1>
+                  <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+                    Configuration globale : organisation, groupes d&apos;acces, horaires, notifications et securite.
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { value: tenants.length, label: "Tenants", icon: Building },
+                    { value: groups.length, label: "Groupes", icon: DoorOpen },
+                    { value: apiReaders.length, label: "Lecteurs", icon: Server },
+                  ].map((stat) => (
+                    <div key={stat.label} className="flex flex-col items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-5 py-3 text-center">
+                      <stat.icon className="mb-0.5 h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="text-xl font-bold tabular-nums text-foreground">{stat.value}</span>
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{stat.label}</span>
                     </div>
+                  ))}
+                </div>
+              </div>
+              {isInitialLoading && (
+                <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Chargement des paramètres...
+                </div>
+              )}
+            </div>
+          </section>
+
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8 animate-fade-up" style={{ animationDelay: "100ms" }}>
+            <div className="rounded-2xl border border-border/60 bg-card/80 p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+              <TabsList className="flex-wrap gap-1 bg-transparent">
+                <TabsTrigger value="organization" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-sm rounded-xl px-4 py-2.5 text-muted-foreground wow-transition press-effect">
+                  <Users className="mr-2 h-4 w-4" />
+                  Organisation
+                </TabsTrigger>
+                <TabsTrigger value="planning" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-sm rounded-xl px-4 py-2.5 text-muted-foreground wow-transition press-effect">
+                  <CalendarDays className="mr-2 h-4 w-4" />
+                  Horaires & Plannings
+                </TabsTrigger>
+                <TabsTrigger value="hikcentral" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-sm rounded-xl px-4 py-2.5 text-muted-foreground wow-transition press-effect">
+                  <Server className="mr-2 h-4 w-4" />
+                  HikCentral
+                </TabsTrigger>
+                <TabsTrigger value="security" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-sm rounded-xl px-4 py-2.5 text-muted-foreground wow-transition press-effect">
+                  <Shield className="mr-2 h-4 w-4" />
+                  Securite
+                </TabsTrigger>
+                <TabsTrigger value="notifications" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-sm rounded-xl px-4 py-2.5 text-muted-foreground wow-transition press-effect">
+                  <Bell className="mr-2 h-4 w-4" />
+                  Notifications
+                </TabsTrigger>
+                <TabsTrigger value="general" className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-sm rounded-xl px-4 py-2.5 text-muted-foreground wow-transition press-effect">
+                  <Globe className="mr-2 h-4 w-4" />
+                  General
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="organization" className="space-y-8">
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-sky-500 to-blue-600 opacity-70" />
+                <div className="flex items-center justify-between gap-4 p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-sky-500/20 to-blue-500/10 ring-1 ring-sky-400/20">
+                      <Building className="h-5 w-5 text-sky-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Departements</h3>
+                      <p className="text-sm text-muted-foreground">Ajout, modification et suppression des departements</p>
+                    </div>
+                  </div>
                     <Dialog open={depDialogOpen} onOpenChange={setDepDialogOpen}>
                       <DialogTrigger asChild>
                         <Button
@@ -678,27 +977,27 @@ export default function SettingsPage() {
                           Nouveau departement
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className="rounded-2xl border-border/60 bg-card">
                         <DialogHeader>
-                          <DialogTitle>{editingDepartment ? "Modifier" : "Creer"} un departement</DialogTitle>
+                          <DialogTitle className="text-foreground">{editingDepartment ? "Modifier" : "Creer"} un departement</DialogTitle>
                           <DialogDescription>Renseignez les informations du departement.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
                           <div className="space-y-2">
-                            <Label>Nom</Label>
-                            <Input value={depForm.name} onChange={(e) => setDepForm((p) => ({ ...p, name: e.target.value }))} />
+                            <Label className="text-xs font-medium text-muted-foreground">Nom</Label>
+                            <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={depForm.name} onChange={(e) => setDepForm((p) => ({ ...p, name: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <Label>Code</Label>
-                            <Input value={depForm.code} onChange={(e) => setDepForm((p) => ({ ...p, code: e.target.value }))} />
+                            <Label className="text-xs font-medium text-muted-foreground">Code</Label>
+                            <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={depForm.code} onChange={(e) => setDepForm((p) => ({ ...p, code: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <Label>Organisation</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Organisation</Label>
                             <Select
                               value={depForm.organizationId}
                               onValueChange={(value) => setDepForm((p) => ({ ...p, organizationId: value }))}
                             >
-                              <SelectTrigger>
+                              <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
                                 <SelectValue placeholder="Selectionner une organisation" />
                               </SelectTrigger>
                               <SelectContent>
@@ -711,12 +1010,12 @@ export default function SettingsPage() {
                             </Select>
                           </div>
                           <div className="space-y-2">
-                            <Label>Parent (optionnel)</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Parent (optionnel)</Label>
                             <Select
                               value={depForm.parentId}
                               onValueChange={(value) => setDepForm((p) => ({ ...p, parentId: value === "__none__" ? "" : value }))}
                             >
-                              <SelectTrigger>
+                              <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
                                 <SelectValue placeholder="Aucun parent" />
                               </SelectTrigger>
                               <SelectContent>
@@ -733,16 +1032,18 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <DialogFooter>
-                          <Button variant="outline" onClick={() => setDepDialogOpen(false)}>Annuler</Button>
-                          <Button onClick={submitDepartment}>Enregistrer</Button>
+                          <Button variant="outline" className="h-10 rounded-xl" onClick={() => setDepDialogOpen(false)}>Annuler</Button>
+                          <Button className="h-10 rounded-xl" onClick={submitDepartment} disabled={isSavingDepartment}>
+                            {isSavingDepartment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Enregistrer
+                          </Button>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
+                <div className="space-y-3 px-6 pb-6">
                   {departmentError && (
-                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                    <div className="rounded-xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-200 ring-1 ring-rose-500/10">
                       {departmentError}
                     </div>
                   )}
@@ -750,11 +1051,13 @@ export default function SettingsPage() {
                     const organization = organizationById.get(dep.organization)
                     const parent = dep.parent ? departmentById.get(dep.parent) : null
                     return (
-                    <div key={dep.id} className="flex items-center justify-between rounded-lg border p-4">
+                    <div key={dep.id} className="group flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4 wow-transition hover:border-border hover:bg-muted/50">
                       <div className="flex items-center gap-3">
-                        <Building className="h-5 w-5 text-primary" />
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 ring-1 ring-sky-400/15 wow-transition group-hover:scale-105">
+                          <Building className="h-4 w-4 text-sky-400" />
+                        </div>
                         <div>
-                          <p className="font-medium">{dep.name}</p>
+                          <p className="font-medium text-foreground">{dep.name}</p>
                           <p className="text-xs text-muted-foreground">
                             Code: {dep.code || "-"} • {organization?.name || `Organisation #${dep.organization}`}
                             {parent ? ` • Parent: ${parent.name}` : ""}
@@ -772,24 +1075,39 @@ export default function SettingsPage() {
                           })
                           setDepDialogOpen(true)
                         }}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void removeDepartment(dep.id)}><Trash2 className="h-4 w-4" /></Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive"
+                          onClick={() =>
+                            setPendingSensitiveAction({ kind: "department", id: dep.id, label: `Supprimer le département ${dep.name}` })
+                          }
+                        ><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
                     )
                   })}
                   {apiDepartments.length === 0 && (
-                    <p className="text-sm text-muted-foreground">Aucun departement configure pour ce tenant.</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Groupes d'acces</CardTitle>
-                      <CardDescription>Ajout, modification et suppression des groupes</CardDescription>
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-10 text-center">
+                      <Building className="mb-3 h-8 w-8 text-muted-foreground/30" />
+                      <p className="text-sm text-muted-foreground">Aucun departement configure pour ce tenant.</p>
                     </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-violet-500 to-purple-600 opacity-70" />
+                <div className="flex items-center justify-between gap-4 p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-violet-500/20 to-purple-500/10 ring-1 ring-violet-400/20">
+                      <DoorOpen className="h-5 w-5 text-violet-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Groupes d'acces</h3>
+                      <p className="text-sm text-muted-foreground">Ajout, modification et suppression des groupes</p>
+                    </div>
+                  </div>
                     <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
                       <DialogTrigger asChild>
                         <Button
@@ -803,18 +1121,18 @@ export default function SettingsPage() {
                           Nouveau groupe
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className="rounded-2xl border-border/60 bg-card">
                         <DialogHeader>
-                          <DialogTitle>{editingGroup ? "Modifier" : "Creer"} un groupe</DialogTitle>
+                          <DialogTitle className="text-foreground">{editingGroup ? "Modifier" : "Creer"} un groupe</DialogTitle>
                           <DialogDescription>Definissez le groupe d'acces: emploi de temps + lecteurs.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
-                          <div className="space-y-2"><Label>Nom</Label><Input value={groupForm.name} onChange={(e) => setGroupForm((p) => ({ ...p, name: e.target.value }))} /></div>
-                          <div className="space-y-2"><Label>Description</Label><Input value={groupForm.description} onChange={(e) => setGroupForm((p) => ({ ...p, description: e.target.value }))} /></div>
+                          <div className="space-y-2"><Label className="text-xs font-medium text-muted-foreground">Nom</Label><Input className="h-10 rounded-xl border-border/60 bg-background/60" value={groupForm.name} onChange={(e) => setGroupForm((p) => ({ ...p, name: e.target.value }))} /></div>
+                          <div className="space-y-2"><Label className="text-xs font-medium text-muted-foreground">Description</Label><Input className="h-10 rounded-xl border-border/60 bg-background/60" value={groupForm.description} onChange={(e) => setGroupForm((p) => ({ ...p, description: e.target.value }))} /></div>
                           <div className="space-y-2">
-                            <Label>Emploi de temps</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Emploi de temps</Label>
                             <Select value={groupForm.planningId} onValueChange={(value) => setGroupForm((p) => ({ ...p, planningId: value === "__none__" ? "" : value }))}>
-                              <SelectTrigger><SelectValue placeholder="Selectionner un planning" /></SelectTrigger>
+                              <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60"><SelectValue placeholder="Selectionner un planning" /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="__none__">Aucun planning</SelectItem>
                                 {apiPlannings.map((planning) => (
@@ -826,8 +1144,8 @@ export default function SettingsPage() {
                             </Select>
                           </div>
                           <div className="space-y-2">
-                            <Label>Lecteurs autorises</Label>
-                            <div className="max-h-44 space-y-2 overflow-auto rounded-md border p-3">
+                            <Label className="text-xs font-medium text-muted-foreground">Lecteurs autorises</Label>
+                            <div className="max-h-44 space-y-2 overflow-auto rounded-xl border border-border/60 bg-background/40 p-3">
                               {apiReaders.length === 0 && (
                                 <p className="text-xs text-muted-foreground">Aucun lecteur disponible.</p>
                               )}
@@ -845,30 +1163,39 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <DialogFooter>
-                          <Button variant="outline" onClick={() => setGroupDialogOpen(false)}>Annuler</Button>
-                          <Button onClick={submitGroup}>Enregistrer</Button>
+                          <Button variant="outline" className="h-10 rounded-xl" onClick={() => setGroupDialogOpen(false)}>Annuler</Button>
+                          <Button className="h-10 rounded-xl" onClick={submitGroup} disabled={isSavingGroup}>
+                            {isSavingGroup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Enregistrer
+                          </Button>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
+                <div className="space-y-3 px-6 pb-6">
                   {activeTenantName && (
-                    <p className="text-xs text-muted-foreground">Tenant actif: {activeTenantName}</p>
+                    <p className="rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground/70">Tenant actif:</span> {activeTenantName}
+                    </p>
                   )}
                   {groupError && (
-                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                    <div className="rounded-xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-200 ring-1 ring-rose-500/10">
                       {groupError}
                     </div>
                   )}
                   {groups.map((group) => (
-                    <div key={group.id} className="flex items-center justify-between rounded-lg border p-4">
-                      <div>
-                        <p className="font-medium">{group.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {group.description || "Sans description"} • {group.deviceCount} lecteurs
-                          {group.planningName ? ` • Planning: ${group.planningName}` : ""}
-                        </p>
+                    <div key={group.id} className="group flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4 wow-transition hover:border-border hover:bg-muted/50">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 ring-1 ring-violet-400/15 wow-transition group-hover:scale-105">
+                          <DoorOpen className="h-4 w-4 text-violet-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{group.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {group.description || "Sans description"} • {group.deviceCount} lecteurs
+                            {group.planningName ? ` • Planning: ${group.planningName}` : ""}
+                          </p>
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="icon" onClick={() => {
@@ -881,22 +1208,34 @@ export default function SettingsPage() {
                           })
                           setGroupDialogOpen(true)
                         }}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void deleteGroup(group.id)}><Trash2 className="h-4 w-4" /></Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive"
+                          onClick={() =>
+                            setPendingSensitiveAction({ kind: "group", id: group.id, label: `Supprimer le groupe ${group.name}` })
+                          }
+                        ><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
                   ))}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </TabsContent>
 
-            <TabsContent value="planning" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Plannings (backend)</CardTitle>
-                      <CardDescription>Creation, edition et suppression des plannings</CardDescription>
+            <TabsContent value="planning" className="space-y-8">
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-violet-500 to-indigo-600 opacity-70" />
+                <div className="flex items-center justify-between gap-4 p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-violet-500/20 to-indigo-500/10 ring-1 ring-violet-400/20">
+                      <CalendarDays className="h-5 w-5 text-violet-400" />
                     </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Plannings (backend)</h3>
+                      <p className="text-sm text-muted-foreground">Creation, edition et suppression des plannings</p>
+                    </div>
+                  </div>
                     <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
                       <DialogTrigger asChild>
                         <Button size="sm" onClick={() => { setEditingSchedule(null); resetScheduleForm() }}>
@@ -904,48 +1243,55 @@ export default function SettingsPage() {
                           Nouveau planning
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className="rounded-2xl border-border/60 bg-card">
                         <DialogHeader>
-                          <DialogTitle>{editingSchedule ? "Modifier" : "Creer"} un planning</DialogTitle>
+                          <DialogTitle className="text-foreground">{editingSchedule ? "Modifier" : "Creer"} un planning</DialogTitle>
                           <DialogDescription>Configurez les metadonnees du planning backend.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
-                          <div className="space-y-2"><Label>Nom</Label><Input value={scheduleForm.name} onChange={(e) => setScheduleForm((p) => ({ ...p, name: e.target.value }))} /></div>
+                          <div className="space-y-2"><Label className="text-xs font-medium text-muted-foreground">Nom</Label><Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.name} onChange={(e) => setScheduleForm((p) => ({ ...p, name: e.target.value }))} /></div>
                           <div className="space-y-2">
-                            <Label>Code (optionnel)</Label>
-                            <Input value={scheduleForm.code} onChange={(e) => setScheduleForm((p) => ({ ...p, code: e.target.value }))} />
+                            <Label className="text-xs font-medium text-muted-foreground">Code (optionnel)</Label>
+                            <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.code} onChange={(e) => setScheduleForm((p) => ({ ...p, code: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <Label>Description</Label>
-                            <Input value={scheduleForm.description} onChange={(e) => setScheduleForm((p) => ({ ...p, description: e.target.value }))} />
+                            <Label className="text-xs font-medium text-muted-foreground">Description</Label>
+                            <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.description} onChange={(e) => setScheduleForm((p) => ({ ...p, description: e.target.value }))} />
                           </div>
                           <div className="space-y-2">
-                            <Label>Timezone</Label>
-                            <Input value={scheduleForm.timezone} onChange={(e) => setScheduleForm((p) => ({ ...p, timezone: e.target.value }))} placeholder="Ex: Africa/Abidjan" />
+                            <Label className="text-xs font-medium text-muted-foreground">Timezone</Label>
+                            <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.timezone} onChange={(e) => setScheduleForm((p) => ({ ...p, timezone: e.target.value }))} placeholder="Ex: Africa/Abidjan" />
                           </div>
                         </div>
                         <DialogFooter>
-                          <Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>Annuler</Button>
-                          <Button onClick={submitSchedule}>Enregistrer</Button>
+                          <Button variant="outline" className="h-10 rounded-xl" onClick={() => setScheduleDialogOpen(false)}>Annuler</Button>
+                          <Button className="h-10 rounded-xl" onClick={submitSchedule} disabled={isSavingSchedule}>
+                            {isSavingSchedule ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Enregistrer
+                          </Button>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
+                <div className="space-y-3 px-6 pb-6">
                   {planningError && (
-                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                    <div className="rounded-xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-200 ring-1 ring-rose-500/10">
                       {planningError}
                     </div>
                   )}
                   {apiPlannings.map((schedule) => (
-                    <div key={schedule.id} className="flex items-center justify-between rounded-lg border p-4">
-                      <div>
-                        <p className="font-medium">{schedule.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Code: {schedule.code || "-"} • TZ: {schedule.timezone || "UTC"}
-                          {schedule.description ? ` • ${schedule.description}` : ""}
-                        </p>
+                    <div key={schedule.id} className="group flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4 wow-transition hover:border-border hover:bg-muted/50">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 ring-1 ring-violet-400/15 wow-transition group-hover:scale-105">
+                          <CalendarDays className="h-4 w-4 text-violet-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{schedule.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Code: {schedule.code || "-"} • TZ: {schedule.timezone || "UTC"}
+                            {schedule.description ? ` • ${schedule.description}` : ""}
+                          </p>
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="icon" onClick={() => {
@@ -958,22 +1304,40 @@ export default function SettingsPage() {
                           })
                           setScheduleDialogOpen(true)
                         }}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void deleteSchedule(schedule.id)}><Trash2 className="h-4 w-4" /></Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive"
+                          onClick={() =>
+                            setPendingSensitiveAction({ kind: "planning", id: schedule.id, label: `Supprimer le planning ${schedule.name}` })
+                          }
+                        ><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
                   ))}
                   {apiPlannings.length === 0 && (
-                    <p className="text-sm text-muted-foreground">Aucun planning configure pour ce tenant.</p>
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-10 text-center">
+                      <CalendarDays className="mb-3 h-8 w-8 text-muted-foreground/30" />
+                      <p className="text-sm text-muted-foreground">Aucun planning configure pour ce tenant.</p>
+                    </div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Attribution des plannings</CardTitle>
-                  <CardDescription>Affectez un planning a un departement ou un groupe</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-amber-400 to-orange-500 opacity-70" />
+                <div className="p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-amber-400/20 to-orange-400/10 ring-1 ring-amber-400/20">
+                      <CheckCircle2 className="h-5 w-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Attribution des plannings</h3>
+                      <p className="text-sm text-muted-foreground">Affectez un planning a un departement ou un groupe</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-4 px-6 pb-6">
                   <div className="grid gap-3 md:grid-cols-4">
                     <Select value={assignmentForm.planningId} onValueChange={(v) => setAssignmentForm((p) => ({ ...p, planningId: v }))}>
                       <SelectTrigger><SelectValue placeholder="Planning" /></SelectTrigger>
@@ -994,7 +1358,10 @@ export default function SettingsPage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button onClick={() => void addAssignment()}>Attribuer</Button>
+                    <Button onClick={() => void addAssignment()} disabled={isAssigningPlanning}>
+                      {isAssigningPlanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Attribuer
+                    </Button>
                   </div>
 
                   <div className="space-y-2">
@@ -1004,32 +1371,47 @@ export default function SettingsPage() {
                         ? departmentById.get(Number(asgn.targetId))
                         : groups.find((g) => g.id === asgn.targetId)
                       return (
-                        <div key={asgn.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
-                          <p>
-                            <span className="font-medium">{schedule?.name ?? "Planning supprime"}</span>
+                        <div key={asgn.id} className="group flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-3 text-sm wow-transition hover:border-border">
+                          <p className="text-muted-foreground">
+                            <span className="font-medium text-foreground">{schedule?.name ?? "Planning supprime"}</span>
                             {" -> "}
                             {asgn.targetType}: {target?.name ?? "Cible supprimee"}
                           </p>
-                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void removeAssignment(asgn)}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() =>
+                              setPendingSensitiveAction({ kind: "assignment", assignment: asgn, label: `Retirer l'attribution ${schedule?.name ?? "planning"}` })
+                            }
+                          >
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       )
                     })}
                     {assignments.length === 0 && (
-                      <p className="text-sm text-muted-foreground">Aucune attribution de planning pour ce tenant.</p>
+                      <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
+                        <CheckCircle2 className="mb-3 h-7 w-7 text-muted-foreground/30" />
+                        <p className="text-sm text-muted-foreground">Aucune attribution de planning pour ce tenant.</p>
+                      </div>
                     )}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
 
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Quarts de travail (backend)</CardTitle>
-                      <CardDescription>Creation et affectation des quarts aux departements</CardDescription>
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-emerald-500 to-teal-600 opacity-70" />
+                <div className="flex items-center justify-between gap-4 p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-emerald-500/20 to-teal-500/10 ring-1 ring-emerald-400/20">
+                      <Clock className="h-5 w-5 text-emerald-400" />
                     </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Quarts de travail (backend)</h3>
+                      <p className="text-sm text-muted-foreground">Creation et affectation des quarts aux departements</p>
+                    </div>
+                  </div>
                     <Dialog open={workShiftDialogOpen} onOpenChange={setWorkShiftDialogOpen}>
                       <DialogTrigger asChild>
                         <Button
@@ -1043,40 +1425,44 @@ export default function SettingsPage() {
                           Nouveau quart
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className="rounded-2xl border-border/60 bg-card">
                         <DialogHeader>
-                          <DialogTitle>{editingWorkShift ? "Modifier" : "Creer"} un quart de travail</DialogTitle>
+                          <DialogTitle className="text-foreground">{editingWorkShift ? "Modifier" : "Creer"} un quart de travail</DialogTitle>
                           <DialogDescription>Ce quart sera disponible pour les employes et departements.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
                           <div className="space-y-2">
-                            <Label>Nom</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Nom</Label>
                             <Input
+                              className="h-10 rounded-xl border-border/60 bg-background/60"
                               value={workShiftForm.name}
                               onChange={(e) => setWorkShiftForm((p) => ({ ...p, name: e.target.value }))}
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label>Code (optionnel)</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Code (optionnel)</Label>
                             <Input
+                              className="h-10 rounded-xl border-border/60 bg-background/60"
                               value={workShiftForm.code}
                               onChange={(e) => setWorkShiftForm((p) => ({ ...p, code: e.target.value }))}
                             />
                           </div>
                           <div className="space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prise de service</p>
-                            <div className="grid grid-cols-2 gap-4">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Prise de service</p>
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <div className="space-y-2">
-                                <Label>Heure de debut</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">Heure de debut</Label>
                                 <Input
+                                  className="h-10 rounded-xl border-border/60 bg-background/60"
                                   type="time"
                                   value={workShiftForm.start_time}
                                   onChange={(e) => setWorkShiftForm((p) => ({ ...p, start_time: e.target.value }))}
                                 />
                               </div>
                               <div className="space-y-2">
-                                <Label>Heure de fin</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">Heure de fin</Label>
                                 <Input
+                                  className="h-10 rounded-xl border-border/60 bg-background/60"
                                   type="time"
                                   value={workShiftForm.end_time}
                                   onChange={(e) => setWorkShiftForm((p) => ({ ...p, end_time: e.target.value }))}
@@ -1085,26 +1471,29 @@ export default function SettingsPage() {
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <Label>Description</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Description</Label>
                             <Input
+                              className="h-10 rounded-xl border-border/60 bg-background/60"
                               value={workShiftForm.description}
                               onChange={(e) => setWorkShiftForm((p) => ({ ...p, description: e.target.value }))}
                             />
                           </div>
                           <div className="space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pause</p>
-                            <div className="grid grid-cols-2 gap-4">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Pause</p>
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <div className="space-y-2">
-                                <Label>Heure de debut</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">Heure de debut</Label>
                                 <Input
+                                  className="h-10 rounded-xl border-border/60 bg-background/60"
                                   type="time"
                                   value={workShiftForm.break_start_time}
                                   onChange={(e) => setWorkShiftForm((p) => ({ ...p, break_start_time: e.target.value }))}
                                 />
                               </div>
                               <div className="space-y-2">
-                                <Label>Heure de fin</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">Heure de fin</Label>
                                 <Input
+                                  className="h-10 rounded-xl border-border/60 bg-background/60"
                                   type="time"
                                   value={workShiftForm.break_end_time}
                                   onChange={(e) => setWorkShiftForm((p) => ({ ...p, break_end_time: e.target.value }))}
@@ -1113,8 +1502,9 @@ export default function SettingsPage() {
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <Label>Heures supplementaires (minutes)</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Heures supplementaires (minutes)</Label>
                             <Input
+                              className="h-10 rounded-xl border-border/60 bg-background/60"
                               type="number"
                               min="0"
                               value={workShiftForm.overtime_minutes}
@@ -1123,13 +1513,14 @@ export default function SettingsPage() {
                             />
                           </div>
                           <div className="space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                               Tolerance
                             </p>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <div className="space-y-2">
-                                <Label>Retard tolere (min)</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">Retard tolere (min)</Label>
                                 <Input
+                                  className="h-10 rounded-xl border-border/60 bg-background/60"
                                   type="number"
                                   min="0"
                                   value={workShiftForm.late_allowable_minutes}
@@ -1140,8 +1531,9 @@ export default function SettingsPage() {
                                 />
                               </div>
                               <div className="space-y-2">
-                                <Label>Marge depart anticipe (min)</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">Marge depart anticipe (min)</Label>
                                 <Input
+                                  className="h-10 rounded-xl border-border/60 bg-background/60"
                                   type="number"
                                   min="0"
                                   value={workShiftForm.early_leave_allowable_minutes}
@@ -1155,26 +1547,32 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <DialogFooter>
-                          <Button variant="outline" onClick={() => setWorkShiftDialogOpen(false)}>Annuler</Button>
-                          <Button onClick={() => void submitWorkShift()}>Enregistrer</Button>
+                          <Button variant="outline" className="h-10 rounded-xl" onClick={() => setWorkShiftDialogOpen(false)}>Annuler</Button>
+                          <Button className="h-10 rounded-xl" onClick={() => void submitWorkShift()} disabled={isSavingWorkShift}>
+                            {isSavingWorkShift ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Enregistrer
+                          </Button>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
+                <div className="space-y-4 px-6 pb-6">
                   {workShiftError && (
-                    <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                    <div className="rounded-xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-200 ring-1 ring-rose-500/10">
                       {workShiftError}
                     </div>
                   )}
 
                   <div className="space-y-3">
                     {apiWorkShifts.map((shift) => (
-                      <div key={shift.id} className="flex items-center justify-between rounded-lg border p-4">
-                        <div>
-                          <p className="font-medium">{shift.name}</p>
-                          <p className="text-xs text-muted-foreground">
+                      <div key={shift.id} className="group flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4 wow-transition hover:border-border hover:bg-muted/50">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-400/15 wow-transition group-hover:scale-105">
+                            <Clock className="h-4 w-4 text-emerald-400" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">{shift.name}</p>
+                            <p className="text-xs text-muted-foreground tabular-nums">
                             {(shift.start_time ?? "--:--")} - {(shift.end_time ?? "--:--")} • {shift.code || "auto"}
                             {shift.description ? ` • ${shift.description}` : ""}
                             {shift.break_start_time && shift.break_end_time
@@ -1186,6 +1584,7 @@ export default function SettingsPage() {
                               ? ` • Depart anticipe tolere: ${shift.early_leave_allowable_minutes} min`
                               : ""}
                           </p>
+                        </div>
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -1218,7 +1617,9 @@ export default function SettingsPage() {
                             variant="ghost"
                             size="icon"
                             className="text-destructive"
-                            onClick={() => void removeWorkShift(shift.id)}
+                            onClick={() =>
+                              setPendingSensitiveAction({ kind: "work-shift", id: shift.id, label: `Supprimer le quart ${shift.name}` })
+                            }
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -1226,12 +1627,15 @@ export default function SettingsPage() {
                       </div>
                     ))}
                     {apiWorkShifts.length === 0 && (
-                      <p className="text-sm text-muted-foreground">Aucun quart configure pour ce tenant.</p>
+                      <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-10 text-center">
+                        <Clock className="mb-3 h-8 w-8 text-muted-foreground/30" />
+                        <p className="text-sm text-muted-foreground">Aucun quart configure pour ce tenant.</p>
+                      </div>
                     )}
                   </div>
 
-                  <div className="rounded-lg border p-4">
-                    <p className="mb-3 text-sm font-medium">Attribuer un quart a un departement</p>
+                  <div className="rounded-xl border border-border/60 bg-background/40 p-5">
+                    <p className="mb-3 text-sm font-semibold text-foreground">Attribuer un quart a un departement</p>
                     <div className="grid gap-3 md:grid-cols-3">
                       <Select
                         value={departmentShiftForm.departmentId}
@@ -1263,89 +1667,225 @@ export default function SettingsPage() {
                           ))}
                         </SelectContent>
                       </Select>
-                      <Button onClick={() => void submitDepartmentShiftAssignment()}>Attribuer</Button>
+                      <Button onClick={() => void submitDepartmentShiftAssignment()} disabled={isAssigningWorkShift}>
+                        {isAssigningWorkShift ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Attribuer
+                      </Button>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     {apiDepartments.map((department) => (
-                      <div key={department.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
-                        <span>{department.name}</span>
-                        <Badge variant="secondary">
+                      <div key={department.id} className="flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-3 text-sm wow-transition hover:border-border">
+                        <span className="text-muted-foreground">{department.name}</span>
+                        <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-300 border border-emerald-400/20">
                           {department.effective_work_shift?.name ?? "Aucun quart"}
                         </Badge>
                       </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </TabsContent>
 
-            <TabsContent value="hikcentral" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Etat de la connexion</CardTitle>
-                      <CardDescription>Connexion au serveur HikCentral Professional</CardDescription>
+            <TabsContent value="hikcentral" className="space-y-8">
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-emerald-500 to-green-600 opacity-70" />
+                <div className="flex items-center justify-between gap-4 p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-emerald-500/20 to-green-500/10 ring-1 ring-emerald-400/20">
+                      <Server className="h-5 w-5 text-emerald-400" />
                     </div>
-                    <Badge className="bg-green-500/10 text-green-500"><CheckCircle2 className="mr-1 h-3 w-3" />Connecte</Badge>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Etat de la connexion</h3>
+                      <p className="text-sm text-muted-foreground">Connexion au serveur HikCentral Professional</p>
+                    </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between rounded-lg border p-4">
-                    <p className="text-sm">Synchronisation active toutes les 5 minutes.</p>
+                  <Badge className="rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-3 py-1.5 text-emerald-500 dark:text-emerald-300">
+                    <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
+                    Connecte
+                  </Badge>
+                </div>
+                <div className="px-6 pb-6">
+                  <div className="flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">Synchronisation active toutes les 5 minutes.</p>
+                    </div>
                     <Switch checked={syncEnabled} onCheckedChange={setSyncEnabled} />
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="security" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Politique d'acces</CardTitle>
-                  <CardDescription>Regles de securite globales</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between rounded-lg border p-4">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <p className="text-sm">Restriction horaire en dehors de 06:00 - 22:00</p>
-                    </div>
-                    <Switch defaultChecked />
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => void saveSecuritySettings()} disabled={!hasSecurityChanges || isSavingPreferences}>
+                      {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                      Sauvegarder
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={resetSecuritySettings} disabled={!hasSecurityChanges || isSavingPreferences}>
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Annuler les changements
+                    </Button>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </TabsContent>
 
-            <TabsContent value="notifications" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Canaux de notification</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between rounded-lg border p-4"><p>Email</p><Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} /></div>
-                  <div className="flex items-center justify-between rounded-lg border p-4"><p>Push mobile</p><Switch checked={pushNotifications} onCheckedChange={setPushNotifications} /></div>
-                </CardContent>
-              </Card>
+            <TabsContent value="security" className="space-y-8">
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-amber-400 to-yellow-500 opacity-70" />
+                <div className="p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-amber-400/20 to-yellow-400/10 ring-1 ring-amber-400/20">
+                      <Shield className="h-5 w-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Politique d'acces</h3>
+                      <p className="text-sm text-muted-foreground">Regles de securite globales</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="px-6 pb-6">
+                  <div className="flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400/10">
+                        <Clock className="h-4 w-4 text-amber-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Restriction horaire</p>
+                        <p className="text-xs text-muted-foreground">Acces bloque en dehors de 06:00 - 22:00</p>
+                      </div>
+                    </div>
+                    <Switch checked={securityTimeRestrictionEnabled} onCheckedChange={setSecurityTimeRestrictionEnabled} />
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => void saveSecuritySettings()} disabled={!hasSecurityChanges || isSavingPreferences}>
+                      {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                      Sauvegarder
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={resetSecuritySettings} disabled={!hasSecurityChanges || isSavingPreferences}>
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Reinitialiser
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </TabsContent>
 
-            <TabsContent value="general" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Informations entreprise</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2"><Label>Nom de l'entreprise</Label><Input defaultValue="TechCorp Industries" /></div>
-                  <div className="space-y-2"><Label>Fuseau horaire</Label><Input defaultValue="Europe/Paris" /></div>
-                </CardContent>
-              </Card>
+            <TabsContent value="notifications" className="space-y-8">
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-rose-500 to-pink-600 opacity-70" />
+                <div className="p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-rose-500/20 to-pink-500/10 ring-1 ring-rose-400/20">
+                      <Bell className="h-5 w-5 text-rose-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Canaux de notification</h3>
+                      <p className="text-sm text-muted-foreground">Configurez vos canaux de notification preferes</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-3 px-6 pb-6">
+                  <div className="flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4 wow-transition hover:border-border">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/10">
+                        <Bell className="h-4 w-4 text-rose-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Email</p>
+                        <p className="text-xs text-muted-foreground">Recevez les alertes par email</p>
+                      </div>
+                    </div>
+                    <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-border/60 bg-background/40 p-4 wow-transition hover:border-border">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/10">
+                        <Bell className="h-4 w-4 text-rose-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Push mobile</p>
+                        <p className="text-xs text-muted-foreground">Notifications push sur mobile</p>
+                      </div>
+                    </div>
+                    <Switch checked={pushNotifications} onCheckedChange={setPushNotifications} />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => void saveNotificationSettings()} disabled={!hasNotificationChanges || isSavingPreferences}>
+                      {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                      Sauvegarder
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={resetNotificationSettings} disabled={!hasNotificationChanges || isSavingPreferences}>
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Reinitialiser
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="general" className="space-y-8">
+              <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-cyan-500 to-blue-600 opacity-70" />
+                <div className="p-6 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-cyan-500/20 to-blue-500/10 ring-1 ring-cyan-400/20">
+                      <Globe className="h-5 w-5 text-cyan-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground">Informations entreprise</h3>
+                      <p className="text-sm text-muted-foreground">Parametres generaux de votre organisation</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-5 px-6 pb-6 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Nom de l'entreprise</Label>
+                    <Input value={companyName} onChange={(event) => setCompanyName(event.target.value)} className="h-10 rounded-xl border-border/60 bg-background/60" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Fuseau horaire</Label>
+                    <Input value={timezone} onChange={(event) => setTimezone(event.target.value)} className="h-10 rounded-xl border-border/60 bg-background/60" />
+                  </div>
+                  <div className="sm:col-span-2 flex flex-wrap items-center gap-2 pt-1">
+                    <Button onClick={() => void saveGeneralSettings()} disabled={!hasGeneralChanges || isSavingPreferences}>
+                      {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                      Sauvegarder
+                    </Button>
+                    <Button variant="outline" onClick={resetGeneralSettings} disabled={!hasGeneralChanges || isSavingPreferences}>
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Reinitialiser
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </TabsContent>
           </Tabs>
+
+          <Dialog open={pendingSensitiveAction !== null} onOpenChange={(open) => !open && setPendingSensitiveAction(null)}>
+            <DialogContent className="max-w-lg rounded-2xl border-border/60 bg-card">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-foreground">
+                  <AlertTriangle className="h-5 w-5 text-amber-400" />
+                  Confirmer l&apos;action sensible
+                </DialogTitle>
+                <DialogDescription>
+                  {pendingSensitiveAction?.label}. Cette action peut impacter la configuration active.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPendingSensitiveAction(null)} disabled={isRunningSensitiveAction}>
+                  Annuler
+                </Button>
+                <Button variant="destructive" onClick={() => void runSensitiveAction()} disabled={!pendingSensitiveAction || isRunningSensitiveAction}>
+                  {isRunningSensitiveAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Confirmer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </main>
       </div>
     </div>
   )
 }
-

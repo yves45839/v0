@@ -27,7 +27,7 @@ function PaginationContent({
   return (
     <ul
       data-slot="pagination-content"
-      className={cn('flex flex-row items-center gap-1', className)}
+      className={cn('flex flex-row items-center gap-1 rounded-2xl border border-border/70 bg-card/90 p-1.5 shadow-[0_12px_24px_rgba(0,0,0,0.14)] backdrop-blur-sm', className)}
       {...props}
     />
   )
@@ -58,6 +58,7 @@ function PaginationLink({
           variant: isActive ? 'outline' : 'ghost',
           size,
         }),
+        isActive && 'border-primary/35 bg-primary/10 text-foreground shadow-[0_10px_22px_rgba(78,155,255,0.12)]',
         className,
       )}
       {...props}
@@ -73,7 +74,7 @@ function PaginationPrevious({
     <PaginationLink
       aria-label="Go to previous page"
       size="default"
-      className={cn('gap-1 px-2.5 sm:pl-2.5', className)}
+      className={cn('gap-1 rounded-xl px-3 sm:pl-3', className)}
       {...props}
     >
       <ChevronLeftIcon />
@@ -90,7 +91,7 @@ function PaginationNext({
     <PaginationLink
       aria-label="Go to next page"
       size="default"
-      className={cn('gap-1 px-2.5 sm:pr-2.5', className)}
+      className={cn('gap-1 rounded-xl px-3 sm:pr-3', className)}
       {...props}
     >
       <span className="hidden sm:block">Next</span>
@@ -107,7 +108,7 @@ function PaginationEllipsis({
     <span
       aria-hidden
       data-slot="pagination-ellipsis"
-      className={cn('flex size-9 items-center justify-center', className)}
+      className={cn('flex size-10 items-center justify-center text-muted-foreground', className)}
       {...props}
     >
       <MoreHorizontalIcon className="size-4" />

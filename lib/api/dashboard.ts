@@ -17,8 +17,28 @@ const DASHBOARD_TENANT = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "HQ-CASA"
 
 export type DashboardSystemStatus = "connected" | "disconnected" | "syncing"
 
+export type DashboardDataSourceStatus = "ok" | "warning" | "error"
+export type DashboardWebhookStatus = "healthy" | "warning" | "offline"
+
+export type DashboardStatusDetails = {
+  updatedAt: string
+  sources: Array<{
+    key: "accessEvents" | "reports" | "employees" | "devices"
+    label: string
+    status: DashboardDataSourceStatus
+    detail: string
+  }>
+  webhook: {
+    status: DashboardWebhookStatus
+    label: string
+    detail: string
+    lastEventAt: string | null
+  }
+}
+
 export type DashboardPayload = {
   systemStatus: DashboardSystemStatus
+  statusDetails: DashboardStatusDetails
   kpiData: DashboardKPIData
   accessEvents: AccessEvent[]
   devices: Device[]
@@ -118,16 +138,33 @@ function buildPriorityActions(params: {
   warningDevicesCount: number
   pendingGatewayPushCount: number
   correctionCount: number
+  apiIssueCount: number
+  webhookIssue: boolean
 }): PriorityAction[] {
+  const healthAction: PriorityAction = params.apiIssueCount > 0
+    ? {
+        id: "critical-api",
+        title: "API hors ligne partielle",
+        description: "Une ou plusieurs sources de donnees ne repondent pas.",
+        priority: "critical",
+        count: params.apiIssueCount,
+        ctaLabel: "Diagnostiquer",
+        ctaHref: "/settings",
+      }
+    : {
+        id: "critical-webhook",
+        title: params.webhookIssue ? "Webhook a verifier" : "Acces refuses recents",
+        description: params.webhookIssue
+          ? "Aucun evenement recent confirme sur le flux webhook."
+          : "Evenements d'acces refuses detectes sur le flux temps reel.",
+        priority: "critical",
+        count: params.webhookIssue ? 1 : params.deniedEventsCount,
+        ctaLabel: "Diagnostiquer",
+        ctaHref: params.webhookIssue ? "/settings" : "/access-logs",
+      }
+
   return [
-    {
-      id: "critical-webhook",
-      title: "Acces refuses recents",
-      description: "Evenements d'acces refuses detectes sur le flux temps reel.",
-      priority: "critical",
-      count: params.deniedEventsCount,
-      ctaLabel: "Diagnostiquer",
-    },
+    healthAction,
     {
       id: "warning-devices",
       title: "Appareils a verifier",
@@ -135,6 +172,7 @@ function buildPriorityActions(params: {
       priority: "warning",
       count: params.warningDevicesCount,
       ctaLabel: "Voir les appareils",
+      ctaHref: "/devices",
     },
     {
       id: "warning-pending-push",
@@ -143,6 +181,7 @@ function buildPriorityActions(params: {
       priority: "warning",
       count: params.pendingGatewayPushCount,
       ctaLabel: "Traiter la file",
+      ctaHref: "/employees",
     },
     {
       id: "info-corrections",
@@ -151,17 +190,31 @@ function buildPriorityActions(params: {
       priority: "info",
       count: params.correctionCount,
       ctaLabel: "Valider",
+      ctaHref: "/reports",
     },
   ]
 }
 
+/** Race a promise against a timeout – rejects if the promise takes too long. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (err) => { clearTimeout(timer); reject(err) },
+    )
+  })
+}
+
+const API_TIMEOUT_MS = 5_000
+
 export async function fetchDashboardData(): Promise<DashboardPayload> {
   const tenantCode = DASHBOARD_TENANT.trim() || undefined
   const [eventsResult, reportResult, employeesResult, devicesResult] = await Promise.allSettled([
-    fetchHikEvents({ tenant: tenantCode, limit: 80 }),
-    fetchAttendanceReport({ tenant: tenantCode, period: "daily" }),
-    fetchEmployeesDetailed(tenantCode),
-    fetchDevices(tenantCode),
+    withTimeout(fetchHikEvents({ tenant: tenantCode, limit: 80 }), API_TIMEOUT_MS),
+    withTimeout(fetchAttendanceReport({ tenant: tenantCode, period: "daily" }), API_TIMEOUT_MS),
+    withTimeout(fetchEmployeesDetailed(tenantCode), API_TIMEOUT_MS),
+    withTimeout(fetchDevices(tenantCode), API_TIMEOUT_MS),
   ])
 
   const settled = [eventsResult, reportResult, employeesResult, devicesResult]
@@ -178,6 +231,71 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
   const report = reportResult.status === "fulfilled" ? reportResult.value : null
   const employees = employeesResult.status === "fulfilled" ? employeesResult.value : []
   const deviceRows = devicesResult.status === "fulfilled" ? devicesResult.value : []
+
+  const sourceStatuses: DashboardStatusDetails["sources"] = [
+    {
+      key: "accessEvents",
+      label: "Flux acces",
+      status: eventsResult.status === "fulfilled" ? "ok" : "error",
+      detail:
+        eventsResult.status === "fulfilled"
+          ? `${events.length} evenements charges`
+          : (eventsResult.reason instanceof Error ? eventsResult.reason.message : "Source indisponible"),
+    },
+    {
+      key: "reports",
+      label: "Rapports",
+      status: reportResult.status === "fulfilled" ? "ok" : "error",
+      detail:
+        reportResult.status === "fulfilled"
+          ? "Rapport journalier charge"
+          : (reportResult.reason instanceof Error ? reportResult.reason.message : "Source indisponible"),
+    },
+    {
+      key: "employees",
+      label: "Employes",
+      status: employeesResult.status === "fulfilled" ? "ok" : "error",
+      detail:
+        employeesResult.status === "fulfilled"
+          ? `${employees.length} employes charges`
+          : (employeesResult.reason instanceof Error ? employeesResult.reason.message : "Source indisponible"),
+    },
+    {
+      key: "devices",
+      label: "Appareils",
+      status: devicesResult.status === "fulfilled" ? "ok" : "error",
+      detail:
+        devicesResult.status === "fulfilled"
+          ? `${deviceRows.length} appareils charges`
+          : (devicesResult.reason instanceof Error ? devicesResult.reason.message : "Source indisponible"),
+    },
+  ]
+
+  const latestEventMs = events.reduce<number | null>((latest, event) => {
+    const eventMs = parseDateMs(event.timestamp)
+    if (eventMs === null) return latest
+    if (latest === null) return eventMs
+    return eventMs > latest ? eventMs : latest
+  }, null)
+  const hasRecentEvent = latestEventMs !== null && Date.now() - latestEventMs <= 30 * 60 * 1000
+  const webhookStatus: DashboardWebhookStatus =
+    eventsResult.status !== "fulfilled"
+      ? "offline"
+      : hasRecentEvent
+        ? "healthy"
+        : "warning"
+  const webhookLabel =
+    webhookStatus === "healthy"
+      ? "Webhook actif"
+      : webhookStatus === "warning"
+        ? "Webhook a verifier"
+        : "Webhook hors ligne"
+  const webhookDetail =
+    webhookStatus === "healthy"
+      ? "Reception des evenements operationnelle"
+      : webhookStatus === "warning"
+        ? "Aucun evenement recent recu. Verifiez la connectivite et les listeners."
+        : "Impossible de contacter la source d'evenements."
 
   const latestEventByDevIndex = new Map<string, number>()
   for (const event of events) {
@@ -241,6 +359,7 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
     return count + (employee.needs_gateway_push ? 1 : 0)
   }, 0)
   const correctionCount = report?.corrections?.length ?? 0
+  const apiIssueCount = sourceStatuses.filter((source) => source.status === "error").length
 
   const kpiData: DashboardKPIData = {
     presentToday: {
@@ -260,10 +379,24 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
     warningDevicesCount: warningOrOfflineDevices,
     pendingGatewayPushCount,
     correctionCount,
+    apiIssueCount,
+    webhookIssue: webhookStatus !== "healthy",
   })
+
+  const statusDetails: DashboardStatusDetails = {
+    updatedAt: new Date().toISOString(),
+    sources: sourceStatuses,
+    webhook: {
+      status: webhookStatus,
+      label: webhookLabel,
+      detail: webhookDetail,
+      lastEventAt: latestEventMs ? new Date(latestEventMs).toISOString() : null,
+    },
+  }
 
   return {
     systemStatus,
+    statusDetails,
     kpiData,
     accessEvents,
     devices,

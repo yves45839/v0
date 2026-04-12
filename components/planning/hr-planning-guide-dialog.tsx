@@ -266,7 +266,7 @@ export function HrPlanningGuideDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          <div className="rounded-[4px] border border-white/10 bg-black/15 p-3">
+          <div className="rounded-lg border border-white/10 bg-black/15 p-3">
             <div className="mb-2 flex items-center justify-between text-xs text-white/70">
               <span>Avancement assistant</span>
               <span>{assistantProgress}%</span>
@@ -279,7 +279,7 @@ export function HrPlanningGuideDialog({
               {completionItems.map((item) => (
                 <div
                   key={item.label}
-                  className={`rounded-[4px] border px-3 py-2 text-sm ${
+                  className={`rounded-lg border px-3 py-2 text-sm ${
                     item.done
                       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
                       : "border-white/10 bg-white/5 text-white/70"
@@ -292,11 +292,11 @@ export function HrPlanningGuideDialog({
             </div>
           </div>
 
-          <div className="rounded-[4px] border border-white/10 bg-black/10 px-3 py-2 text-xs text-white/70">
+          <div className="rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-xs text-white/70">
             Etape {step + 1}/{steps.length}: {currentQuestion}
           </div>
 
-          <div className="rounded-[4px] border border-white/10 bg-[#30343d] p-3">
+          <div className="rounded-lg border border-white/10 bg-[#30343d] p-3">
             {step === 0 && (
               <div className="flex gap-2">
                 <Button
@@ -411,9 +411,9 @@ export function HrPlanningGuideDialog({
             )}
           </div>
 
-          <div className="rounded-[4px] border border-white/10 bg-[#30343d] p-3">
+          <div className="rounded-lg border border-white/10 bg-[#30343d] p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-[0.1em] text-white/65">
+              <p className="text-xs uppercase tracking-widest text-white/65">
                 Configuration creation a partir de zero
               </p>
               <label className="flex items-center gap-2 text-sm text-white/80">
@@ -574,14 +574,14 @@ export function HrPlanningGuideDialog({
             ) : null}
 
             {setupError ? (
-              <div className="mt-3 rounded-[4px] border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
                 {setupError}
               </div>
             ) : null}
           </div>
 
-          <div className="rounded-[4px] border border-emerald-500/30 bg-emerald-500/10 p-3">
-            <p className="mb-2 text-xs uppercase tracking-[0.1em] text-emerald-200/80">Plan recommande</p>
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+            <p className="mb-2 text-xs uppercase tracking-widest text-emerald-200/80">Plan recommande</p>
             <div className="space-y-1.5 text-sm text-emerald-100">
               {recommendations.map((item) => (
                 <div key={item} className="flex items-start gap-2">

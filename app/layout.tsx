@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { ThemeProvider } from '@/components/theme-provider'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
 const ibmPlexSans = IBM_Plex_Sans({
@@ -43,9 +45,15 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${ibmPlexSans.variable} ${ibmPlexMono.variable} font-sans antialiased`} suppressHydrationWarning>
-        {children}
+    <html lang="fr" suppressHydrationWarning>
+      <body
+        className={`${ibmPlexSans.variable} ${ibmPlexMono.variable} overflow-x-hidden font-sans antialiased`}
+        suppressHydrationWarning
+      >
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+          {children}
+          <Toaster richColors closeButton position="bottom-right" />
+        </ThemeProvider>
         <Analytics />
       </body>
     </html>

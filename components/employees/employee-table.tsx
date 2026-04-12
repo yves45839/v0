@@ -37,8 +37,12 @@ import {
   ShieldCheck,
   Loader2,
   Clock,
+  CheckCircle2,
+  Fingerprint,
+  Users,
 } from "lucide-react"
 import type { Employee } from "@/app/employees/page"
+import { useRouter } from "next/navigation"
 
 type EmployeeTableProps = {
   employees: Employee[]
@@ -49,16 +53,18 @@ type EmployeeTableProps = {
   onAssignAccessGroups: (employee: Employee, accessGroupIds: number[]) => Promise<void>
   onAssignWorkShift: (employee: Employee, workShiftIds: number[]) => Promise<void>
   onDragEmployee?: (employee: Employee | null) => void
+  suspendedEmployeeIds: Set<string>
+  onToggleSuspension: (employee: Employee) => void
 }
 
 const departmentColors: Record<string, string> = {
-  Engineering: "bg-blue-500/20 text-blue-400",
-  Marketing: "bg-purple-500/20 text-purple-400",
-  Finance: "bg-green-500/20 text-green-400",
-  HR: "bg-pink-500/20 text-pink-400",
-  Sales: "bg-orange-500/20 text-orange-400",
-  Design: "bg-cyan-500/20 text-cyan-400",
-  IT: "bg-indigo-500/20 text-indigo-400",
+  Engineering: "border-blue-400/20 bg-blue-500/12 text-blue-300",
+  Marketing: "border-fuchsia-400/20 bg-fuchsia-500/12 text-fuchsia-300",
+  Finance: "border-emerald-400/20 bg-emerald-500/12 text-emerald-300",
+  HR: "border-pink-400/20 bg-pink-500/12 text-pink-300",
+  Sales: "border-orange-400/20 bg-orange-500/12 text-orange-300",
+  Design: "border-cyan-400/20 bg-cyan-500/12 text-cyan-300",
+  IT: "border-indigo-400/20 bg-indigo-500/12 text-indigo-300",
 }
 
 export function EmployeeTable({
@@ -70,7 +76,10 @@ export function EmployeeTable({
   onAssignAccessGroups,
   onAssignWorkShift,
   onDragEmployee,
+  suspendedEmployeeIds,
+  onToggleSuspension,
 }: EmployeeTableProps) {
+  const router = useRouter()
   const [groupDialogEmployee, setGroupDialogEmployee] = useState<Employee | null>(null)
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([])
   const [isSavingGroups, setIsSavingGroups] = useState(false)
@@ -147,168 +156,244 @@ export function EmployeeTable({
 
   return (
     <>
-      <Card className="overflow-hidden">
-        <Table>
-          <TableHeader>
+      <Card className="overflow-hidden border-border/70 bg-card/90 p-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+        <div className="overflow-x-auto p-3 sm:p-4">
+        <Table className="min-w-235">
+          <TableHeader className="sticky top-0 z-10">
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[280px]">Profil</TableHead>
-              <TableHead className="w-[120px]">Matricule</TableHead>
-              <TableHead className="w-[140px]">Departement</TableHead>
-              <TableHead className="w-[160px]">Quart</TableHead>
+              <TableHead className="w-72">Profil</TableHead>
+              <TableHead className="w-28">Matricule</TableHead>
+              <TableHead className="w-36">Departement</TableHead>
+              <TableHead className="w-40">Quart</TableHead>
               <TableHead>Groupes d&apos;acces</TableHead>
-              <TableHead className="w-[80px]"></TableHead>
+              <TableHead className="w-16"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {employees.map((employee) => (
-              <TableRow
-                key={employee.id}
-                draggable
-                className="cursor-grab transition-colors hover:bg-accent/50 active:cursor-grabbing"
-                onClick={() => onEmployeeClick(employee)}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move"
-                  event.dataTransfer.setData("text/plain", employee.id)
-                  onDragEmployee?.(employee)
-                }}
-                onDragEnd={() => onDragEmployee?.(null)}
-              >
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10 border border-border">
-                      <AvatarFallback className="bg-secondary text-sm font-medium text-foreground">
-                        {getInitials(employee.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium text-foreground">{employee.name}</p>
-                      <p className="text-sm text-muted-foreground">{employee.position}</p>
+            {employees.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={6} className="px-4 py-20">
+                  <div className="flex flex-col items-center justify-center gap-4 text-center animate-fade-up">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-border/60 bg-background/40 shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
+                      <Users className="h-7 w-7 text-muted-foreground/70" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-base font-semibold text-foreground">Aucun employe dans cette vue</p>
+                      <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
+                        Ajustez la recherche, les filtres ou le perimetre pour afficher des fiches.
+                      </p>
                     </div>
                   </div>
                 </TableCell>
-                <TableCell>
-                  <span className="text-sm text-muted-foreground">{employee.employeeId}</span>
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant="secondary"
-                    className={cn(
-                      "font-medium",
-                      departmentColors[employee.department] || "bg-secondary text-secondary-foreground"
-                    )}
-                  >
-                    {employee.department}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs font-normal">
-                      {employee.workShift}
+              </TableRow>
+            ) : (
+              employees.map((employee, index) => (
+                <TableRow
+                  key={employee.id}
+                  draggable
+                  className="group wow-transition cursor-grab hover:bg-accent/20 active:cursor-grabbing"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Ouvrir la fiche de ${employee.name}`}
+                  style={{ animationDelay: `${Math.min(index * 30, 300)}ms` }}
+                  onClick={() => onEmployeeClick(employee)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      onEmployeeClick(employee)
+                    }
+                  }}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move"
+                    event.dataTransfer.setData("text/plain", employee.id)
+                    onDragEmployee?.(employee)
+                  }}
+                  onDragEnd={() => onDragEmployee?.(null)}
+                >
+                  <TableCell className="py-3.5">
+                    <div className="flex items-start gap-3">
+                      <Avatar className="mt-0.5 h-10 w-10 border border-primary/10 shadow-[0_4px_12px_rgba(0,0,0,0.1)]">
+                        <AvatarFallback className="bg-secondary/80 text-xs font-semibold text-foreground">
+                          {getInitials(employee.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 space-y-1.5">
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-semibold text-foreground">{employee.name}</p>
+                          <p className="truncate text-xs text-muted-foreground/80">{employee.position}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge
+                            variant={employee.syncStatus === "pending" ? "outline" : "secondary"}
+                            className={cn(
+                              "text-[10px] font-medium",
+                              suspendedEmployeeIds.has(employee.id)
+                                ? "border-red-400/25 bg-red-500/8 text-red-200"
+                                : employee.syncStatus === "pending"
+                                ? "border-amber-400/25 bg-amber-500/8 text-amber-300"
+                                : "border-emerald-400/20 bg-emerald-500/8 text-emerald-300"
+                            )}
+                          >
+                            <CheckCircle2 className="h-3 w-3" />
+                            {suspendedEmployeeIds.has(employee.id) ? "Suspendu" : employee.syncStatus === "pending" ? "Sync en attente" : "Synchronise"}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[10px] font-medium",
+                              employee.biometricStatus.hasFacePhoto && employee.biometricStatus.hasFingerprint
+                                ? "border-emerald-400/20 bg-emerald-500/8 text-emerald-300"
+                                : "border-border/50 bg-background/25 text-muted-foreground/80"
+                            )}
+                          >
+                            <Fingerprint className="h-3 w-3" />
+                            {employee.biometricStatus.hasFacePhoto && employee.biometricStatus.hasFingerprint
+                              ? "Biometrie OK"
+                              : "Incomplete"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-3.5">
+                    <span className="rounded-md border border-border/50 bg-background/30 px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {employee.employeeId}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-3.5">
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "text-[11px] font-medium",
+                        departmentColors[employee.department] || "border-border/50 bg-secondary/60 text-secondary-foreground"
+                      )}
+                    >
+                      {employee.department}
                     </Badge>
-                    {employee.workShiftIds.length > 1 && (
-                      <Badge variant="secondary" className="text-xs font-normal">
-                        +{employee.workShiftIds.length - 1}
-                      </Badge>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openWorkShiftDialog(employee)
-                      }}
-                    >
-                      <Clock className="mr-1 h-3.5 w-3.5" />
-                      Affecter
-                    </Button>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {employee.accessGroups.slice(0, 2).map((group) => (
-                      <Badge
-                        key={group}
-                        variant="outline"
-                        className="text-xs font-normal"
-                      >
-                        {group}
-                      </Badge>
-                    ))}
-                    {employee.accessGroups.length > 2 && (
-                      <Badge variant="outline" className="text-xs font-normal">
-                        +{employee.accessGroups.length - 2}
-                      </Badge>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openGroupDialog(employee)
-                      }}
-                    >
-                      <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-                      Affecter
-                    </Button>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span className="sr-only">Actions</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onEditEmployee(employee)
-                        }}
-                      >
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Modifier
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
+                  </TableCell>
+                  <TableCell className="py-3.5">
+                    <div className="flex flex-col items-start gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="outline" className="text-[10px] font-medium">
+                          {employee.workShift}
+                        </Badge>
+                        {employee.workShiftIds.length > 1 && (
+                          <Badge variant="secondary" className="text-[10px] font-medium">
+                            +{employee.workShiftIds.length - 1}
+                          </Badge>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 rounded-md px-2 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation()
                           openWorkShiftDialog(employee)
                         }}
                       >
-                        <Clock className="mr-2 h-4 w-4" />
-                        Quart de travail
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
+                        <Clock className="mr-1 h-3 w-3" />
+                        Affecter
+                      </Button>
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-3.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {employee.accessGroups.slice(0, 2).map((group) => (
+                        <Badge
+                          key={group}
+                          variant="outline"
+                          className="text-[10px] font-medium"
+                        >
+                          {group}
+                        </Badge>
+                      ))}
+                      {employee.accessGroups.length > 2 && (
+                        <Badge variant="outline" className="text-[10px] font-medium">
+                          +{employee.accessGroups.length - 2}
+                        </Badge>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 rounded-md px-2 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation()
                           openGroupDialog(employee)
                         }}
                       >
-                        <ShieldCheck className="mr-2 h-4 w-4" />
-                        Groupes d&apos;acces
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
-                        <FileText className="mr-2 h-4 w-4" />
-                        Voir les logs
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <UserX className="mr-2 h-4 w-4" />
-                        Suspendre
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
+                        <ShieldCheck className="mr-1 h-3 w-3" />
+                        Affecter
+                      </Button>
+                    </div>
+                  </TableCell>
+                  <TableCell className="py-3.5">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 rounded-lg p-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">Actions</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onEditEmployee(employee)
+                          }}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openWorkShiftDialog(employee)
+                          }}
+                        >
+                          <Clock className="mr-2 h-4 w-4" />
+                          Quart de travail
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openGroupDialog(employee)
+                          }}
+                        >
+                          <ShieldCheck className="mr-2 h-4 w-4" />
+                          Groupes d&apos;acces
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation()
+                          router.push(`/access-logs?person=${encodeURIComponent(employee.employeeId)}`)
+                        }}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          Voir les logs
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onToggleSuspension(employee)
+                          }}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <UserX className="mr-2 h-4 w-4" />
+                          {suspendedEmployeeIds.has(employee.id) ? "Reactiver" : "Suspendre"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
+        </div>
       </Card>
 
       <Dialog open={!!groupDialogEmployee} onOpenChange={(open) => !open && closeGroupDialog()}>
@@ -321,7 +406,7 @@ export function EmployeeTable({
 
           <div className="grid max-h-80 gap-3 overflow-y-auto pr-1">
             {accessGroupOptions.map((group) => (
-              <label key={group.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-border p-3">
+              <label key={group.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-border/70 bg-background/40 p-3">
                 <Checkbox
                   checked={selectedGroupSet.has(group.id)}
                   onCheckedChange={() => toggleGroup(group.id)}
@@ -362,7 +447,7 @@ export function EmployeeTable({
             </p>
             <div className="grid max-h-80 gap-3 overflow-y-auto pr-1">
               {workShiftOptions.map((shift) => (
-                <label key={shift.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-border p-3">
+                <label key={shift.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-border/70 bg-background/40 p-3">
                   <Checkbox
                     checked={selectedWorkShiftSet.has(shift.id)}
                     onCheckedChange={() => toggleWorkShift(shift.id)}
