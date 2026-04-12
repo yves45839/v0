@@ -13,7 +13,7 @@ import {
 } from "@/lib/dashboard/mock-data"
 
 const MOCK_STATUS_DETAILS: DashboardStatusDetails = {
-  updatedAt: new Date().toISOString(),
+  updatedAt: "", // sera défini côté client uniquement (évite hydration mismatch)
   sources: [
     { key: "accessEvents", label: "Flux acces", status: "error", detail: "Mode demonstration — API HikCentral non configuree" },
     { key: "reports", label: "Rapports", status: "error", detail: "Mode demonstration — API HikCentral non configuree" },
@@ -46,6 +46,12 @@ export default function DashboardPage() {
     if (loadedRef.current) return
     loadedRef.current = true
     let cancelled = false
+
+    // Définir updatedAt côté client uniquement (évite hydration mismatch)
+    setData(prev => ({
+      ...prev,
+      statusDetails: { ...prev.statusDetails, updatedAt: new Date().toISOString() },
+    }))
 
     async function loadRealData() {
       try {
