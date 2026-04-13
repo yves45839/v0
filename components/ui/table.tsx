@@ -8,7 +8,7 @@ function Table({ className, ...props }: React.ComponentProps<'table'>) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto rounded-2xl border border-border/70 bg-background/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.02),0_12px_24px_rgba(0,0,0,0.12)]"
+      className="relative w-full overflow-x-auto rounded-2xl border border-border/80 bg-card shadow-[0_4px_16px_rgba(0,0,0,0.07)] dark:shadow-[0_12px_28px_rgba(0,0,0,0.36)]"
     >
       <table
         data-slot="table"
@@ -23,7 +23,7 @@ function TableHeader({ className, ...props }: React.ComponentProps<'thead'>) {
   return (
     <thead
       data-slot="table-header"
-      className={cn('bg-muted/34 backdrop-blur-sm [&_tr]:border-b [&_tr]:border-border/70', className)}
+      className={cn('bg-muted/70 dark:bg-muted/50 border-b border-border/80 backdrop-blur-sm [&_tr]:border-b [&_tr]:border-border/60', className)}
       {...props}
     />
   )
@@ -57,7 +57,7 @@ function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
     <tr
       data-slot="table-row"
       className={cn(
-        'hover:bg-muted/40 data-[state=selected]:bg-muted border-b border-border/70 transition-[background-color,border-color] duration-200 row-accent',
+        'hover:bg-accent/60 dark:hover:bg-accent/50 data-[state=selected]:bg-accent border-b border-border/60 transition-[background-color,border-color] duration-200 row-accent',
         className,
       )}
       {...props}
@@ -70,7 +70,7 @@ function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
     <th
       data-slot="table-head"
       className={cn(
-        'text-foreground/90 h-12 px-3 first:pl-4 last:pr-4 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.12em] whitespace-nowrap [&:has([role=checkbox])]:pr-0 *:[[role=checkbox]]:translate-y-0.5',
+        'text-foreground/80 h-12 px-3 first:pl-4 last:pr-4 text-left align-middle text-[10px] font-bold uppercase tracking-[0.14em] whitespace-nowrap [&:has([role=checkbox])]:pr-0 *:[[role=checkbox]]:translate-y-0.5',
         className,
       )}
       {...props}

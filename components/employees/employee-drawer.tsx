@@ -19,6 +19,9 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Fingerprint,
+  ScanFace,
+  Plus,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Employee } from "@/app/employees/page"
@@ -28,6 +31,9 @@ type EmployeeDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onRequestFacePhotoUpload?: (employee: Employee) => void
+  onRequestCardEnroll?: (employee: Employee) => void
+  onRequestFingerprintEnroll?: (employee: Employee) => void
+  onRequestFaceEnroll?: (employee: Employee) => void
 }
 
 export function EmployeeDrawer({
@@ -35,6 +41,9 @@ export function EmployeeDrawer({
   open,
   onOpenChange,
   onRequestFacePhotoUpload,
+  onRequestCardEnroll,
+  onRequestFingerprintEnroll,
+  onRequestFaceEnroll,
 }: EmployeeDrawerProps) {
   if (!employee) return null
 
@@ -131,9 +140,22 @@ export function EmployeeDrawer({
 
           <TabsContent value="access" className="mt-6 space-y-6">
             <div className="space-y-3">
-              <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Carte d&apos;acces
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  Carte d&apos;acces
+                </h3>
+                {onRequestCardEnroll && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-lg text-[11px]"
+                    onClick={() => { onOpenChange(false); onRequestCardEnroll(employee) }}
+                  >
+                    <Plus className="mr-1 h-3 w-3" />
+                    Enroller
+                  </Button>
+                )}
+              </div>
               <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
                 <CreditCard className="h-4 w-4 text-muted-foreground/70" />
                 <span className="font-mono text-sm tabular-nums text-foreground">{employee.cardNumber}</span>
@@ -162,51 +184,71 @@ export function EmployeeDrawer({
               </h3>
               <div className="grid gap-2">
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/80 p-3">
-                  <span className="text-sm text-foreground">Photo faciale</span>
+                  <div className="flex items-center gap-2">
+                    <ScanFace className="h-4 w-4 text-muted-foreground/70" />
+                    <span className="text-sm text-foreground">Photo faciale</span>
+                  </div>
                   {employee.biometricStatus.hasFacePhoto ? (
-                    <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
-                      <CheckCircle2 className="mr-1 h-3 w-3" />
-                      OK
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                        OK
+                      </Badge>
+                      {onRequestFaceEnroll && (
+                        <Button size="sm" variant="ghost" className="h-7 rounded-lg text-[11px]"
+                          onClick={() => { onOpenChange(false); onRequestFaceEnroll(employee) }}>
+                          <Upload className="mr-1 h-3 w-3" />
+                          Remplacer
+                        </Button>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="bg-destructive/8 text-destructive">
                         <XCircle className="mr-1 h-3 w-3" />
                         Manquante
                       </Badge>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 rounded-lg text-[11px]"
-                        onClick={() => {
-                          if (onRequestFacePhotoUpload) {
-                            onRequestFacePhotoUpload(employee)
-                            return
-                          }
-                          toast.info("Upload photo", {
-                            description: "Utilisez le formulaire d'edition pour ajouter une photo faciale.",
-                          })
-                        }}
-                      >
-                        <Upload className="mr-1 h-3 w-3" />
-                        Upload
-                      </Button>
+                      {onRequestFaceEnroll ? (
+                        <Button size="sm" variant="outline" className="h-7 rounded-lg text-[11px]"
+                          onClick={() => { onOpenChange(false); onRequestFaceEnroll(employee) }}>
+                          <ScanFace className="mr-1 h-3 w-3" />
+                          Enroller
+                        </Button>
+                      ) : onRequestFacePhotoUpload ? (
+                        <Button size="sm" variant="outline" className="h-7 rounded-lg text-[11px]"
+                          onClick={() => { onRequestFacePhotoUpload(employee) }}>
+                          <Upload className="mr-1 h-3 w-3" />
+                          Upload
+                        </Button>
+                      ) : null}
                     </div>
                   )}
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/80 p-3">
-                  <span className="text-sm text-foreground">Empreinte digitale</span>
-                  {employee.biometricStatus.hasFingerprint ? (
-                    <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
-                      <CheckCircle2 className="mr-1 h-3 w-3" />
-                      OK
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="bg-destructive/8 text-destructive">
-                      <XCircle className="mr-1 h-3 w-3" />
-                      Manquante
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Fingerprint className="h-4 w-4 text-muted-foreground/70" />
+                    <span className="text-sm text-foreground">Empreinte digitale</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {employee.biometricStatus.hasFingerprint ? (
+                      <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                        {employee.fingerprints.length} doigt{employee.fingerprints.length > 1 ? "s" : ""}
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-destructive/8 text-destructive">
+                        <XCircle className="mr-1 h-3 w-3" />
+                        Manquante
+                      </Badge>
+                    )}
+                    {onRequestFingerprintEnroll && (
+                      <Button size="sm" variant="outline" className="h-7 rounded-lg text-[11px]"
+                        onClick={() => { onOpenChange(false); onRequestFingerprintEnroll(employee) }}>
+                        <Fingerprint className="mr-1 h-3 w-3" />
+                        Enroller
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

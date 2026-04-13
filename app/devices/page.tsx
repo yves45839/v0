@@ -59,6 +59,7 @@ import {
   ShieldCheck,
 } from "lucide-react"
 import { toast } from "sonner"
+import { AddDeviceByIpDialog } from "@/components/devices/add-device-by-ip-dialog"
 
 type Device = {
   id: string
@@ -236,6 +237,7 @@ export default function DevicesPage() {
   const [verifyingDeviceId, setVerifyingDeviceId] = useState<string | null>(null)
   const [pendingDeleteDevice, setPendingDeleteDevice] = useState<Device | null>(null)
   const [pendingRestartDevice, setPendingRestartDevice] = useState<Device | null>(null)
+  const [addByIpOpen, setAddByIpOpen] = useState(false)
 
   const getAccessToken = async (normalizedBaseUrl: string) => {
     const tokenResponse = await fetch(`${normalizedBaseUrl}/api/auth/token/`, {
@@ -586,6 +588,66 @@ export default function DevicesPage() {
     setPendingDeleteDevice(device)
   }
 
+  const handleDiscoverDevice = async (
+    ip: string,
+    port: number,
+    protocol: string,
+    password: string,
+  ) => {
+    const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+    const accessToken = await getAccessToken(normalizedBaseUrl)
+    const response = await fetch(`${normalizedBaseUrl}/api/hikgateway/discover-device/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ ip_address: ip, port, protocol, device_password: password }),
+    })
+    if (!response.ok) {
+      throw new Error(`Découverte échouée (${response.status})`)
+    }
+    const data = await response.json()
+    return {
+      model: String(data.model ?? data.devType ?? "Appareil Hikvision"),
+      serialNumber: String(data.serial_number ?? data.sn ?? ""),
+      firmwareVersion: String(data.firmware ?? data.version ?? "N/A"),
+      deviceType: String(data.device_type ?? "door_controller"),
+      macAddress: String(data.mac_address ?? "-"),
+    }
+  }
+
+  const handleRegisterDeviceByIp = async (payload: {
+    ipAddress: string
+    port: number
+    serialNumber: string
+    name: string
+    deviceType: string
+    tenantCode: string
+    ehomeKey: string
+    devicePassword: string
+  }) => {
+    const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
+    const accessToken = await getAccessToken(normalizedBaseUrl)
+    const response = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        tenant_code: payload.tenantCode,
+        sn: payload.serialNumber,
+        ehome_key: payload.ehomeKey,
+        dev_name: payload.name,
+        dev_type: payload.deviceType,
+        device_username: "admin",
+        device_password: payload.devicePassword,
+        ip_address: payload.ipAddress,
+        port: payload.port,
+      }),
+    })
+    if (![200, 201, 409].includes(response.status)) {
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err?.detail ?? err?.message ?? `Erreur enregistrement (${response.status})`)
+    }
+    await refreshDevices()
+  }
+
   const confirmDeleteDevice = async () => {
     const device = pendingDeleteDevice
     if (!device) return
@@ -902,6 +964,10 @@ export default function DevicesPage() {
                   <Button variant="outline" size="sm" className="wow-transition border-white/10 bg-white/6 text-white hover:bg-white/10" onClick={() => void refreshDevices()} disabled={isLoadingDevices}>
                     {isLoadingDevices ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-2 h-3.5 w-3.5" />}
                     {isLoadingDevices ? "Synchronisation..." : "Synchroniser"}
+                  </Button>
+                  <Button variant="outline" size="sm" className="wow-transition border-white/10 bg-white/6 text-white hover:bg-white/10" onClick={() => setAddByIpOpen(true)}>
+                    <Wifi className="mr-2 h-3.5 w-3.5" />
+                    Ajouter par IP
                   </Button>
                   <Button size="sm" className="wow-transition" onClick={() => setAddDeviceOpen(true)}>
                     <Plus className="mr-2 h-3.5 w-3.5" />
@@ -1723,6 +1789,16 @@ export default function DevicesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Add Device by IP */}
+          <AddDeviceByIpDialog
+            open={addByIpOpen}
+            onOpenChange={setAddByIpOpen}
+            tenants={tenants}
+            defaultTenantCode={tenantCode}
+            onDiscover={handleDiscoverDevice}
+            onRegister={handleRegisterDeviceByIp}
+          />
         </main>
       </div>
     </div>

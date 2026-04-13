@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   LayoutDashboard,
@@ -10,46 +10,25 @@ import {
   BarChart3,
   Settings,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   CalendarDays,
   PanelsTopLeft,
   Building2,
   Server,
+  CreditCard,
+  Bell,
+  Monitor,
+  Layers,
+  UserCheck,
+  Zap,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { useI18n } from "@/lib/i18n/context"
 
 const SIDEBAR_TOGGLE_EVENT = "securepoint:sidebar-toggle"
-
-const navigationGroups = [
-  {
-    title: "Pilotage",
-    icon: PanelsTopLeft,
-    items: [
-      { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
-      { name: "Journaux d'acces", href: "/access-logs", icon: FileText },
-      { name: "Rapports", href: "/reports", icon: BarChart3 },
-    ],
-  },
-  {
-    title: "Ressources RH",
-    icon: Building2,
-    items: [
-      { name: "Employes", href: "/employees", icon: Users },
-      { name: "Planning", href: "/planning", icon: CalendarDays },
-    ],
-  },
-  {
-    title: "Infrastructure",
-    icon: Server,
-    items: [{ name: "Appareils", href: "/devices", icon: Cpu }],
-  },
-  {
-    title: "Administration",
-    icon: Settings,
-    items: [{ name: "Parametres", href: "/settings", icon: Settings }],
-  },
-] as const
 
 type SidebarNavProps = {
   mobile?: boolean
@@ -59,6 +38,63 @@ type SidebarNavProps = {
 }
 
 function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: SidebarNavProps) {
+  const { t } = useI18n()
+
+  const navigationGroups = useMemo(() => [
+    {
+      title: t.nav.pilotage,
+      icon: PanelsTopLeft,
+      items: [
+        { name: t.nav.dashboard,   href: "/",            icon: LayoutDashboard },
+        { name: t.nav.accessLogs,  href: "/access-logs", icon: FileText },
+        { name: t.nav.reports,     href: "/reports",     icon: BarChart3 },
+      ],
+    },
+    {
+      title: t.nav.securite,
+      icon: ShieldAlert,
+      items: [
+        { name: t.nav.zones,       href: "/zones",        icon: Layers },
+        { name: t.nav.alerts,      href: "/alerts",       icon: Bell },
+        { name: t.nav.surveillance,href: "/surveillance", icon: Monitor },
+      ],
+    },
+    {
+      title: t.nav.ressourcesRH,
+      icon: Building2,
+      items: [
+        { name: t.nav.employees, href: "/employees", icon: Users },
+        { name: t.nav.planning,  href: "/planning",  icon: CalendarDays },
+      ],
+    },
+    {
+      title: t.nav.accueilConformite,
+      icon: ShieldCheck,
+      items: [
+        { name: t.nav.visitors, href: "/visitors", icon: UserCheck },
+        { name: t.nav.audit,    href: "/audit",    icon: ShieldCheck },
+      ],
+    },
+    {
+      title: t.nav.infrastructure,
+      icon: Server,
+      items: [
+        { name: t.nav.devices,       href: "/devices",       icon: Cpu },
+        { name: t.nav.integrations,  href: "/integrations",  icon: Zap },
+      ],
+    },
+    {
+      title: t.nav.administration,
+      icon: Settings,
+      items: [{ name: t.nav.settings, href: "/settings", icon: Settings }],
+    },
+    {
+      title: t.nav.facturation,
+      icon: CreditCard,
+      items: [{ name: t.nav.billing, href: "/billing", icon: CreditCard }],
+    },
+  ], [t])
+
   return (
     <>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-linear-to-b from-primary/22 via-primary/8 to-transparent" />
@@ -153,9 +189,9 @@ function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: Sideba
         >
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <div className="pulse-soft h-1.5 w-1.5 rounded-full bg-success" />
-            <span>Gateway connectee</span>
+            <span>{t.nav.gatewayConnected}</span>
           </div>
-          <p className="truncate text-[11px] text-muted-foreground/80">Tenant: {tenantCode}</p>
+          <p className="truncate text-[11px] text-muted-foreground/80">{t.nav.tenant}: {tenantCode}</p>
         </div>
       </div>
     </>
@@ -181,6 +217,7 @@ export function AppSidebar() {
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-[88vw] max-w-85 border-r border-sidebar-border/85 bg-sidebar/96 p-0 md:hidden">
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
           <div className="flex h-full flex-col overflow-hidden">
             <SidebarNav mobile pathname={pathname} tenantCode={tenantCode} onNavigate={() => setMobileOpen(false)} />
           </div>

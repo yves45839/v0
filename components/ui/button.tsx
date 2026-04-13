@@ -10,15 +10,15 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'border border-primary/70 bg-linear-to-br from-primary via-primary to-primary/85 text-primary-foreground shadow-[0_12px_28px_rgba(78,155,255,0.28)] hover:brightness-110 hover:shadow-[0_16px_34px_rgba(78,155,255,0.36)]',
+          'border border-primary/80 bg-linear-to-br from-primary via-primary to-primary/88 text-primary-foreground shadow-[0_8px_22px_rgba(24,72,200,0.28)] hover:brightness-110 hover:shadow-[0_12px_30px_rgba(24,72,200,0.36)] dark:shadow-[0_8px_22px_rgba(90,168,255,0.26)] dark:hover:shadow-[0_12px_30px_rgba(90,168,255,0.36)]',
         destructive:
-          'border border-destructive/65 bg-linear-to-br from-destructive to-destructive/85 text-white shadow-[0_10px_24px_rgba(227,90,90,0.28)] hover:brightness-110 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60',
+          'border border-destructive/65 bg-linear-to-br from-destructive to-destructive/85 text-white shadow-[0_10px_24px_rgba(185,28,28,0.28)] hover:brightness-110 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:shadow-[0_10px_24px_rgba(242,82,82,0.28)]',
         outline:
-          'border border-border/90 bg-background/55 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_8px_18px_rgba(0,0,0,0.12)] hover:border-primary/45 hover:bg-accent/85 hover:text-accent-foreground dark:bg-input/20 dark:border-input dark:hover:bg-input/50',
+          'border border-border bg-card/80 text-foreground shadow-[0_2px_8px_rgba(0,0,0,0.06)] hover:border-primary/50 hover:bg-accent hover:text-accent-foreground dark:border-border dark:bg-card/60 dark:text-foreground dark:hover:border-primary/60 dark:hover:bg-accent/80',
         secondary:
-          'border border-border/70 bg-secondary/92 text-secondary-foreground shadow-[0_10px_20px_rgba(0,0,0,0.16)] hover:bg-secondary',
+          'border border-border/80 bg-secondary text-secondary-foreground shadow-[0_6px_16px_rgba(0,0,0,0.10)] hover:bg-secondary/80 dark:hover:bg-secondary/70',
         ghost:
-          'border border-transparent text-muted-foreground hover:bg-accent/80 hover:text-accent-foreground dark:hover:bg-accent/50',
+          'border border-transparent text-foreground/80 hover:bg-accent hover:text-accent-foreground dark:text-foreground/70 dark:hover:bg-accent/60 dark:hover:text-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {

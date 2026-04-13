@@ -18,14 +18,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Search, Plus, Bell, Wifi, WifiOff, Radio, PanelLeft, Sun, Moon, Settings, User, LogOut, FileText, Users, Cpu, BellOff } from "lucide-react"
+import { Search, Plus, Bell, Wifi, WifiOff, Radio, PanelLeft, Sun, Moon, Settings, User, LogOut, FileText, Users, Cpu, BellOff, Languages } from "lucide-react"
 import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import Link from "next/link"
+import { useI18n } from "@/lib/i18n/context"
 
 interface HeaderProps {
-  systemStatus: "connected" | "disconnected" | "syncing"
+  systemStatus?: "connected" | "disconnected" | "syncing"
   statusDetails?: {
     updatedAt: string
     sources: Array<{
@@ -45,17 +46,7 @@ interface HeaderProps {
 
 const SIDEBAR_TOGGLE_EVENT = "securepoint:sidebar-toggle"
 
-const routeMeta = [
-  { href: "/access-logs", title: "Journal d'acces", subtitle: "Evenements, refus et supervision en temps reel" },
-  { href: "/reports", title: "Rapports", subtitle: "Conformite, pointages et exports operationnels" },
-  { href: "/employees", title: "Employes", subtitle: "Profils, affectations et synchronisation passerelle" },
-  { href: "/planning", title: "Planning", subtitle: "Quarts, timetables et organisation RH" },
-  { href: "/devices", title: "Appareils", subtitle: "Infrastructure, etat reseau et administration" },
-  { href: "/settings", title: "Parametres", subtitle: "Configuration tenant, groupes et securite" },
-  { href: "/", title: "Tableau de bord", subtitle: "Pilotage global de la presence et du controle d'acces" },
-] as const
-
-export function Header({ systemStatus, statusDetails }: HeaderProps) {
+export function Header({ systemStatus = "connected", statusDetails }: HeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [now, setNow] = useState(() => new Date())
@@ -65,6 +56,24 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
   const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "HQ-CASA"
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const { locale, toggleLocale, t } = useI18n()
+
+  const routeMeta = useMemo(() => [
+    { href: "/access-logs",  title: t.nav.accessLogs,      subtitle: t.pages.accessLogsSubtitle },
+    { href: "/reports",      title: t.nav.reports,          subtitle: t.pages.reportsSubtitle },
+    { href: "/employees",    title: t.employees.title,      subtitle: t.employees.subtitle },
+    { href: "/planning",     title: t.planning.title,       subtitle: t.planning.subtitle },
+    { href: "/devices",      title: t.devices.title,        subtitle: t.devices.subtitle },
+    { href: "/settings",     title: t.nav.settings,         subtitle: t.pages.settingsSubtitle },
+    { href: "/zones",        title: t.nav.zones,            subtitle: t.pages.zonesSubtitle },
+    { href: "/alerts",       title: t.nav.alerts,           subtitle: t.pages.alertsSubtitle },
+    { href: "/surveillance", title: t.nav.surveillance,     subtitle: t.pages.surveillanceSubtitle },
+    { href: "/visitors",     title: t.nav.visitors,         subtitle: t.pages.visitorsSubtitle },
+    { href: "/audit",        title: t.nav.audit,            subtitle: t.pages.auditSubtitle },
+    { href: "/integrations", title: t.nav.integrations,     subtitle: t.pages.integrationsSubtitle },
+    { href: "/billing",      title: t.nav.billing,          subtitle: t.pages.billingSubtitle },
+    { href: "/",             title: t.nav.dashboard,        subtitle: t.pages.dashboardSubtitle },
+  ], [t])
 
   const routeWithSearch = useCallback(
     (path: string, query: string) => `${path}?search=${encodeURIComponent(query)}`,
@@ -99,14 +108,13 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
     }
     setSearchQuery("")
     setMobileSearchOpen(false)
-    toast.info(`Recherche: "${q}"`, { description: "Redirection vers la section correspondante" })
-  }, [routeWithSearch, searchQuery, router])
+    toast.info(`${t.header.searchRoute}: "${q}"`, { description: t.header.searchRouteDesc })
+  }, [routeWithSearch, searchQuery, router, t])
 
   const handleLogout = useCallback(() => {
-    toast.success("Déconnexion réussie", { description: "À bientôt !" })
-    // In a real app, clear session/token and redirect
+    toast.success(t.header.logoutSuccess, { description: t.header.logoutDesc })
     router.push("/")
-  }, [router])
+  }, [router, t])
 
   useEffect(() => {
     setMounted(true)
@@ -128,7 +136,7 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
       return routeMeta[routeMeta.length - 1]
     }
     return routeMeta.find((item) => item.href !== "/" && pathname.startsWith(item.href)) ?? routeMeta[routeMeta.length - 1]
-  }, [pathname])
+  }, [pathname, routeMeta])
 
   const localTimezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", [])
   const localDateTime = useMemo(
@@ -144,19 +152,19 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
 
   const statusConfig = {
     connected: {
-      label: "API connectee",
+      label: t.header.apiConnected,
       icon: Wifi,
       className: "text-primary bg-primary/12",
       dotColor: "bg-primary",
     },
     disconnected: {
-      label: "API hors ligne",
+      label: t.header.apiOffline,
       icon: WifiOff,
       className: "text-destructive bg-destructive/12",
       dotColor: "bg-destructive",
     },
     syncing: {
-      label: "Synchronisation",
+      label: t.header.apiSyncing,
       icon: Radio,
       className: "text-warning bg-warning/12",
       dotColor: "bg-warning",
@@ -188,7 +196,7 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
 
             <div className="min-w-0">
               <p className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:block">
-                Espace operationnel
+                {t.header.operationalSpace}
               </p>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold tracking-tight text-foreground md:text-[15px]">
@@ -234,12 +242,12 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
             </PopoverTrigger>
             <PopoverContent align="end" className="w-84 border-border/70 bg-card/95 p-0">
               <div className="border-b border-border/70 px-4 py-3">
-                <p className="text-sm font-semibold text-foreground">Etat des sources dashboard</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">Visibilite temps reel des modules critiques</p>
+                <p className="text-sm font-semibold text-foreground">{t.header.sourcesTitle}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t.header.sourcesSubtitle}</p>
               </div>
               <div className="space-y-2 px-4 py-3">
                 {sourceStates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Details indisponibles sur cette page.</p>
+                  <p className="text-xs text-muted-foreground">{t.header.noDetail}</p>
                 ) : (
                   sourceStates.map((source) => (
                     <div key={source.key} className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
@@ -255,7 +263,7 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
                                 : "border-red-500/35 bg-red-500/10 text-red-700 dark:text-red-400"
                           )}
                         >
-                          {source.status === "ok" ? "OK" : source.status === "warning" ? "Partiel" : "Erreur"}
+                          {source.status === "ok" ? t.header.statusOk : source.status === "warning" ? t.header.statusPartial : t.header.statusError}
                         </span>
                       </div>
                       <p className="mt-1 text-[11px] text-muted-foreground">{source.detail}</p>
@@ -265,7 +273,7 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
               </div>
               {updatedAtLabel ? (
                 <div className="border-t border-border/70 px-4 py-2 text-[11px] text-muted-foreground">
-                  Derniere actualisation: {updatedAtLabel}
+                  {t.header.lastUpdated}: {updatedAtLabel}
                 </div>
               ) : null}
             </PopoverContent>
@@ -299,7 +307,7 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
             </PopoverTrigger>
             <PopoverContent align="end" className="w-76 border-border/70 bg-card/95 p-0">
               <div className="border-b border-border/70 px-4 py-3">
-                <p className="text-sm font-semibold text-foreground">Sante webhook</p>
+                <p className="text-sm font-semibold text-foreground">{t.header.webhookHealth}</p>
               </div>
               <div className="px-4 py-3">
                 <p className="text-xs text-muted-foreground">{webhookDetail}</p>
@@ -324,23 +332,23 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button size="sm" className="gap-1.5 shadow-[0_10px_24px_rgba(78,155,255,0.28)]">
                 <Plus className="h-3.5 w-3.5" />
-                <span className="hidden lg:inline">Action rapide</span>
+                <span className="hidden lg:inline">{t.header.quickAction}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52 bg-card/95 border-border/70">
-              <DropdownMenuLabel className="text-xs text-muted-foreground">Actions rapides</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs text-muted-foreground">{t.header.quickActions}</DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-border" />
               <DropdownMenuItem onClick={() => router.push("/employees?action=new-employee")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
-                <Users className="h-4 w-4" /> Ajouter un employé
+                <Users className="h-4 w-4" /> {t.employees.add}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/devices?action=new-device")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
-                <Cpu className="h-4 w-4" /> Ajouter un appareil
+                <Cpu className="h-4 w-4" /> {t.devices.addDevice}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/reports?action=generate-report")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
-                <FileText className="h-4 w-4" /> Générer un rapport
+                <FileText className="h-4 w-4" /> {t.header.generateReport}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/access-logs")} className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
-                <Search className="h-4 w-4" /> Journal d&apos;accès
+                <Search className="h-4 w-4" /> {t.header.accessLog}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -354,44 +362,57 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80 border-border/70 bg-card/95 p-0">
               <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
-                <p className="text-sm font-semibold text-foreground">Notifications</p>
-                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => { setNotificationsOpen(false); toast.info("Toutes les notifications marquées comme lues") }}>
-                  Tout marquer lu
+                <p className="text-sm font-semibold text-foreground">{t.header.notifications}</p>
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => { setNotificationsOpen(false); toast.info(t.header.markAllRead) }}>
+                  {t.header.markAllRead}
                 </Button>
               </div>
               <div className="divide-y divide-border/50">
                 <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/50">
                   <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
                   <div>
-                    <p className="text-xs font-medium text-foreground">Synchronisation terminée</p>
-                    <p className="text-xs text-muted-foreground">Les données HikCentral ont été mises à jour</p>
-                    <p className="mt-1 text-[10px] text-muted-foreground/60">Il y a 5 min</p>
+                  <p className="text-xs font-medium text-foreground">{t.header.notifSyncDone}</p>
+                  <p className="text-xs text-muted-foreground">{t.header.notifSyncDoneDesc}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground/60">{t.header.notif5min}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/50">
                   <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-warning" />
                   <div>
-                    <p className="text-xs font-medium text-foreground">Appareil hors ligne</p>
-                    <p className="text-xs text-muted-foreground">Lecteur Hall B ne répond plus depuis 15 min</p>
-                    <p className="mt-1 text-[10px] text-muted-foreground/60">Il y a 15 min</p>
+                  <p className="text-xs font-medium text-foreground">{t.header.notifDeviceOffline}</p>
+                  <p className="text-xs text-muted-foreground">{t.header.notifDeviceOfflineDesc}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground/60">{t.header.notif15min}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/50">
                   <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-destructive" />
                   <div>
-                    <p className="text-xs font-medium text-foreground">3 accès refusés</p>
-                    <p className="text-xs text-muted-foreground">Badges non reconnus détectés ce matin</p>
-                    <p className="mt-1 text-[10px] text-muted-foreground/60">Il y a 1h</p>
+                  <p className="text-xs font-medium text-foreground">{t.header.notifDenied}</p>
+                  <p className="text-xs text-muted-foreground">{t.header.notifDeniedDesc}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground/60">{t.header.notif1h}</p>
                   </div>
                 </div>
               </div>
               <div className="border-t border-border/70 px-4 py-2">
                 <Button variant="ghost" size="sm" className="h-7 w-full text-xs text-primary" onClick={() => { setNotificationsOpen(false); router.push("/access-logs") }}>
-                  Voir tout le journal
+                  {t.header.viewFullLog}
                 </Button>
               </div>
             </PopoverContent>
           </Popover>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative text-muted-foreground hover:text-foreground"
+            onClick={toggleLocale}
+            title={locale === "fr" ? "Switch to English" : "Passer en français"}
+          >
+            <Languages className="h-4 w-4" />
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[7px] font-bold text-primary-foreground">
+              {locale.toUpperCase()}
+            </span>
+          </Button>
 
           <Button
             variant="ghost"
@@ -427,14 +448,14 @@ export function Header({ systemStatus, statusDetails }: HeaderProps) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-border" />
               <DropdownMenuItem asChild className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
-                <Link href="/settings"><User className="h-4 w-4" /> Profil</Link>
+                <Link href="/settings"><User className="h-4 w-4" /> {t.header.profile}</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild className="gap-2 text-muted-foreground hover:text-foreground focus:text-foreground">
-                <Link href="/settings"><Settings className="h-4 w-4" /> Parametres</Link>
+                <Link href="/settings"><Settings className="h-4 w-4" /> {t.nav.settings}</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-border" />
               <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onClick={handleLogout}>
-                <LogOut className="h-4 w-4" /> Se deconnecter
+                <LogOut className="h-4 w-4" /> {t.header.logout}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

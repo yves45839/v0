@@ -37,18 +37,29 @@ import {
   fetchDepartments,
   fetchDevices,
   fetchEmployeesDetailed,
+  fetchOnlineReaders,
   fetchOrganizations,
   fetchWorkShifts,
   isEmployeeApiEnabled,
+  readCardFromReader,
+  enrollFingerprintFromReader,
+  enrollFaceFromReader,
+  updateEmployee,
   updateEmployeeAccessGroups,
   updateEmployeeDepartment,
   type AccessGroupApiItem,
   type DepartmentApiItem,
   type DeviceApiItem,
   type EmployeeApiItem,
+  type EnrollFaceResponse,
+  type EnrollFingerprintResponse,
+  type GatewayReaderItem,
   type OrganizationApiItem,
   type WorkShiftApiItem,
 } from "@/lib/api/employees"
+import { CardEnrollDialog } from "@/components/employees/card-enroll-dialog"
+import { FingerprintEnrollDialog } from "@/components/employees/fingerprint-enroll-dialog"
+import { FaceEnrollDialog } from "@/components/employees/face-enroll-dialog"
 import {
   Search,
   Download,
@@ -239,6 +250,13 @@ export default function EmployeesPage() {
   const [employeesError, setEmployeesError] = useState<string | null>(null)
   const [suspendedEmployeeIds, setSuspendedEmployeeIds] = useState<Set<string>>(new Set())
 
+  // Biometric enrollment state
+  const [availableReaders, setAvailableReaders] = useState<GatewayReaderItem[]>([])
+  const [cardEnrollOpen, setCardEnrollOpen] = useState(false)
+  const [fingerprintEnrollOpen, setFingerprintEnrollOpen] = useState(false)
+  const [faceEnrollOpen, setFaceEnrollOpen] = useState(false)
+  const [biometricTargetEmployee, setBiometricTargetEmployee] = useState<Employee | null>(null)
+
   const accessGroupById = useMemo(
     () => new Map(accessGroups.map((group) => [group.id, group])),
     [accessGroups]
@@ -264,6 +282,7 @@ export default function EmployeesPage() {
       setOrganizations(DEMO_ORGANIZATIONS_DATA as OrganizationApiItem[])
       setWorkShifts(DEMO_WORK_SHIFTS_DATA as WorkShiftApiItem[])
       setEmployeeList(DEMO_EMPLOYEES_RAW as unknown as Employee[])
+      setAvailableReaders([])
       return
     }
 
@@ -284,11 +303,14 @@ export default function EmployeesPage() {
       const localDepartmentById = new Map(departmentsData.map((department) => [department.id, department]))
       const localWorkShiftById = new Map(workShiftsData.map((workShift) => [workShift.id, workShift]))
 
+      const readersData = await fetchOnlineReaders(EMPLOYEE_TENANT_CODE).catch(() => [] as GatewayReaderItem[])
+
       setAccessGroups(accessGroupsData)
       setDepartments(departmentsData)
       setOrganizations(organizationsData)
       setWorkShifts(workShiftsData)
       setDevices(devicesData)
+      setAvailableReaders(readersData)
       setTenantId(employeesData[0]?.tenant ?? departmentsData[0]?.tenant ?? null)
       setEmployeeList(
         employeesData.map((employee) =>
@@ -748,8 +770,66 @@ export default function EmployeesPage() {
     }
   }
 
-  const handleResetFilters = () => {
-    setSearchQuery("")
+  // ---------- Biometric enrollment handlers ----------
+
+  const openCardEnroll = useCallback((employee: Employee) => {
+    setBiometricTargetEmployee(employee)
+    setCardEnrollOpen(true)
+  }, [])
+
+  const openFingerprintEnroll = useCallback((employee: Employee) => {
+    setBiometricTargetEmployee(employee)
+    setFingerprintEnrollOpen(true)
+  }, [])
+
+  const openFaceEnroll = useCallback((employee: Employee) => {
+    setBiometricTargetEmployee(employee)
+    setFaceEnrollOpen(true)
+  }, [])
+
+  const handleScanCard = useCallback(async (devIndex: string, timeoutSeconds?: number) => {
+    const result = await readCardFromReader(devIndex, { timeoutSeconds })
+    return result.card_no
+  }, [])
+
+  const handleSaveCard = useCallback(async (cardNo: string, cardType: string) => {
+    if (!biometricTargetEmployee?.apiId) return
+    const existing = biometricTargetEmployee.cardNumber !== "Non attribue"
+      ? [{ card_no: biometricTargetEmployee.cardNumber, card_type: "normal" }]
+      : []
+    await updateEmployee(biometricTargetEmployee.apiId, {
+      cards: [...existing, { card_no: cardNo, card_type: cardType }],
+    })
+    void loadEmployeesData()
+  }, [biometricTargetEmployee, loadEmployeesData])
+
+  const handleEnrollFingerprint = useCallback(async (
+    employeeId: number,
+    fingerIndex: number,
+    devIndex: string,
+  ): Promise<EnrollFingerprintResponse> => {
+    const device = devices.find((d) => d.dev_index === devIndex)
+    if (!device) throw new Error("Lecteur introuvable")
+    return enrollFingerprintFromReader(device.id, { employee_id: employeeId, finger_index: fingerIndex })
+  }, [devices])
+
+  const handleEnrollFaceViaReader = useCallback(async (
+    employeeId: number,
+    devIndex: string,
+  ): Promise<EnrollFaceResponse> => {
+    const device = devices.find((d) => d.dev_index === devIndex)
+    if (!device) throw new Error("Lecteur introuvable")
+    return enrollFaceFromReader(device.id, { employee_id: employeeId })
+  }, [devices])
+
+  const handleUploadFacePhoto = useCallback(async (employeeId: number, base64Photo: string) => {
+    await updateEmployee(employeeId, { face: { face_data: base64Photo } })
+    void loadEmployeesData()
+  }, [loadEmployeesData])
+
+  // ---------- End biometric handlers ----------
+
+  const handleResetFilters = () => {    setSearchQuery("")
     setDepartmentFilter("all")
     setAccessGroupFilter("all")
     setSyncStatusFilter("all")
@@ -1119,7 +1199,54 @@ export default function EmployeesPage() {
               setDrawerOpen(false)
               handleEditEmployee(employee)
             }}
+            onRequestCardEnroll={openCardEnroll}
+            onRequestFingerprintEnroll={openFingerprintEnroll}
+            onRequestFaceEnroll={openFaceEnroll}
           />
+
+          {/* Card Enrollment */}
+          {biometricTargetEmployee && (
+            <CardEnrollDialog
+              open={cardEnrollOpen}
+              onOpenChange={setCardEnrollOpen}
+              employeeName={biometricTargetEmployee.name}
+              existingCards={
+                biometricTargetEmployee.cardNumber !== "Non attribue"
+                  ? [{ card_no: biometricTargetEmployee.cardNumber, card_type: "normal" }]
+                  : []
+              }
+              readers={availableReaders}
+              onScan={handleScanCard}
+              onSave={handleSaveCard}
+            />
+          )}
+
+          {/* Fingerprint Enrollment */}
+          {biometricTargetEmployee?.apiId && (
+            <FingerprintEnrollDialog
+              open={fingerprintEnrollOpen}
+              onOpenChange={setFingerprintEnrollOpen}
+              employeeName={biometricTargetEmployee.name}
+              employeeId={biometricTargetEmployee.apiId}
+              existingFingerprints={biometricTargetEmployee.fingerprints}
+              readers={availableReaders}
+              onEnroll={handleEnrollFingerprint}
+            />
+          )}
+
+          {/* Face Enrollment */}
+          {biometricTargetEmployee?.apiId && (
+            <FaceEnrollDialog
+              open={faceEnrollOpen}
+              onOpenChange={setFaceEnrollOpen}
+              employeeName={biometricTargetEmployee.name}
+              employeeId={biometricTargetEmployee.apiId}
+              hasFace={biometricTargetEmployee.biometricStatus.hasFacePhoto}
+              readers={availableReaders}
+              onEnrollViaReader={handleEnrollFaceViaReader}
+              onUploadPhoto={handleUploadFacePhoto}
+            />
+          )}
 
           {/* Add Employee Modal */}
           <AddEmployeeModal

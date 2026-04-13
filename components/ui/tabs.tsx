@@ -26,7 +26,7 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       className={cn(
-        'bg-secondary/82 text-muted-foreground inline-flex h-11 w-fit max-w-full items-center justify-center rounded-2xl border border-border/70 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_10px_22px_rgba(0,0,0,0.12)]',
+        'bg-muted/80 dark:bg-secondary/90 text-muted-foreground inline-flex h-11 w-fit max-w-full items-center justify-center rounded-2xl border border-border/80 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_4px_12px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_20px_rgba(0,0,0,0.20)]',
         className,
       )}
       {...props}
@@ -42,7 +42,7 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-primary/35 data-[state=active]:shadow-[0_10px_22px_rgba(0,0,0,0.22)] focus-visible:border-ring focus-visible:ring-ring/35 text-muted-foreground inline-flex h-[calc(100%-1px)] min-w-0 flex-1 items-center justify-center gap-1 rounded-xl border border-transparent px-3.5 py-2 text-[12px] font-semibold whitespace-nowrap transition-[color,box-shadow,background-color,border-color,transform] focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:border-primary/40 data-[state=active]:shadow-[0_4px_14px_rgba(0,0,0,0.14)] dark:data-[state=active]:shadow-[0_4px_14px_rgba(0,0,0,0.30)] focus-visible:border-ring focus-visible:ring-ring/35 text-muted-foreground inline-flex h-[calc(100%-1px)] min-w-0 flex-1 items-center justify-center gap-1 rounded-xl border border-transparent px-3.5 py-2 text-[12px] font-semibold whitespace-nowrap transition-[color,box-shadow,background-color,border-color,transform] focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 hover:text-foreground hover:bg-card/60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}

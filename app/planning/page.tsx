@@ -14,6 +14,10 @@ import {
   HrPlanningGuideDialog,
   type HrQuickAssignPayload,
 } from "@/components/planning/hr-planning-guide-dialog"
+import {
+  ScheduleWizardDialog,
+  type ScheduleWizardEmployee,
+} from "@/components/planning/schedule-wizard-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,6 +33,7 @@ import { cn } from "@/lib/utils"
 import {
   assignEmployeePlanning,
   assignDepartmentPlanning,
+  assignEmployeeWorkShifts,
   createPlanning,
   createWorkShift,
   deletePlanning,
@@ -526,6 +531,7 @@ export default function PlanningPage() {
   const [includeSubDepartments, setIncludeSubDepartments] = useState(false)
   const [assignSearch, setAssignSearch] = useState("")
   const [isPreparingGuideAssign, setIsPreparingGuideAssign] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   const timetableRef = useRef<HTMLElement | null>(null)
   const shiftRef = useRef<HTMLElement | null>(null)
@@ -1616,6 +1622,14 @@ export default function PlanningPage() {
               {/* Right — Actions + Mini stats */}
               <div className="flex flex-col items-end gap-4">
                 <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-10 rounded-xl border-primary/30 bg-primary/10 text-primary hover:bg-primary/18"
+                    onClick={() => setWizardOpen(true)}
+                  >
+                    <CalendarClock className="h-4 w-4" />
+                    Assistant emploi du temps
+                  </Button>
                   <Button
                     variant="outline"
                     className="h-10 rounded-xl border-amber-400/30 bg-amber-500/10 text-amber-700 dark:text-amber-200 hover:bg-amber-500/18 hover:text-amber-800 dark:hover:text-amber-100"
@@ -3153,6 +3167,55 @@ export default function PlanningPage() {
           </Dialog>
         </main>
       </div>
+
+      {/* Schedule Wizard */}
+      <ScheduleWizardDialog
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        employees={employees.map((emp) => ({
+          id: emp.id,
+          name: emp.name,
+          employeeId: emp.employee_no,
+          department: departmentsById.get(emp.department ?? -1) ?? "Sans département",
+          departmentId: emp.department ?? null,
+        })) satisfies ScheduleWizardEmployee[]}
+        departments={departments}
+        workShifts={workShifts}
+        tenantId={tenantId ?? undefined}
+        onConfirm={async ({ employeeIds, shiftConfig, period, existingShift }) => {
+          let workShiftId: number
+
+          if (shiftConfig.useExisting && existingShift) {
+            workShiftId = existingShift.id
+          } else {
+            // Create a new work shift
+            const newShiftPayload = {
+              tenant: tenantId ?? 0,
+              name: shiftConfig.name,
+              start_time: shiftConfig.startTime || null,
+              end_time: shiftConfig.endTime || null,
+              break_start_time: shiftConfig.breakStart || null,
+              break_end_time: shiftConfig.breakEnd || null,
+            }
+            const created = await createWorkShift(newShiftPayload)
+            workShiftId = created.id
+            setWorkShifts((prev) => [...prev, created])
+          }
+
+          // Assign shift to all selected employees
+          await Promise.all(
+            employeeIds.map((id) =>
+              assignEmployeeWorkShifts(id, [workShiftId], false).catch(() => null)
+            )
+          )
+
+          // Reload data
+          void loadBaseData()
+          toast.success("Planning attribué", {
+            description: `${employeeIds.length} employé(s) affecté(s) au quart sélectionné`,
+          })
+        }}
+      />
     </div>
   )
 }
