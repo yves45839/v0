@@ -192,7 +192,7 @@ export const translations = {
     // Planning
     planning: {
       title: "Planning",
-      subtitle: "Quarts, timetables et organisation RH",
+      subtitle: "Quarts, emplois de temps et organisation RH",
       createSchedule: "Créer un emploi du temps",
       assignSchedule: "Attribuer un planning",
       newScheduleWizard: "Assistant de planning",
@@ -474,7 +474,7 @@ export const translations = {
     // Planning
     planning: {
       title: "Planning",
-      subtitle: "Shifts, timetables and HR organization",
+      subtitle: "Shifts, schedules and HR organization",
       createSchedule: "Create a schedule",
       assignSchedule: "Assign a schedule",
       newScheduleWizard: "Schedule wizard",

@@ -4,6 +4,7 @@ import type {
   Device,
   PriorityAction,
 } from "@/components/dashboard/types"
+import { getActiveTenantCode } from "@/lib/api/auth"
 import { fetchHikEvents, type HikEvent } from "@/lib/api/access-logs"
 import {
   fetchDevices,
@@ -209,7 +210,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 const API_TIMEOUT_MS = 5_000
 
 export async function fetchDashboardData(): Promise<DashboardPayload> {
-  const tenantCode = DASHBOARD_TENANT.trim() || undefined
+  const tenantCode = getActiveTenantCode(DASHBOARD_TENANT).trim() || undefined
   const [eventsResult, reportResult, employeesResult, devicesResult] = await Promise.allSettled([
     withTimeout(fetchHikEvents({ tenant: tenantCode, limit: 80 }), API_TIMEOUT_MS),
     withTimeout(fetchAttendanceReport({ tenant: tenantCode, period: "daily" }), API_TIMEOUT_MS),

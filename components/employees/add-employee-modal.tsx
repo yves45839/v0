@@ -72,6 +72,16 @@ function toFacePreviewUrl(faceData: string): string {
   return `data:image/jpeg;base64,${trimmed}`
 }
 
+function getTodayIsoDate(): string {
+  return new Date().toISOString().split("T")[0]
+}
+
+function addYearsToIsoDate(dateIso: string, years: number): string {
+  const baseDate = new Date(dateIso)
+  baseDate.setFullYear(baseDate.getFullYear() + years)
+  return baseDate.toISOString().split("T")[0]
+}
+
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -141,6 +151,8 @@ export function AddEmployeeModal({
     selectedAccessGroupIds: [] as number[],
     selectedDeviceIds: [] as number[],
     fingerprints: [] as Array<{ fingerIndex: number; template: string }>,
+    validityStart: getTodayIsoDate(),
+    validityEnd: addYearsToIsoDate(getTodayIsoDate(), 10),
     photoFile: null as File | null,
     photoPreview: "",
     faceData: "",
@@ -492,6 +504,15 @@ export function AddEmployeeModal({
         newErrors.fingerprints = "Chaque empreinte doit contenir un template."
       }
     }
+    if (!formData.validityStart) {
+      newErrors.validityStart = "La date de debut de validite est requise."
+    }
+    if (!formData.validityEnd) {
+      newErrors.validityEnd = "La date de fin de validite est requise."
+    }
+    if (formData.validityStart && formData.validityEnd && formData.validityEnd < formData.validityStart) {
+      newErrors.validityEnd = "La date de fin doit etre superieure ou egale a la date de debut."
+    }
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -637,6 +658,11 @@ export function AddEmployeeModal({
       },
       fingerprints: formData.fingerprints,
       hireDate: employeeToEdit?.hireDate ?? new Date().toISOString().split("T")[0],
+      validityStart: formData.validityStart || employeeToEdit?.validityStart || new Date().toISOString().split("T")[0],
+      validityEnd:
+        formData.validityEnd ||
+        employeeToEdit?.validityEnd ||
+        addYearsToIsoDate(formData.validityStart || employeeToEdit?.validityStart || new Date().toISOString().split("T")[0], 10),
       lastAccess: employeeToEdit?.lastAccess ?? "-",
       accessLogs: employeeToEdit?.accessLogs ?? [],
     }
@@ -664,6 +690,8 @@ export function AddEmployeeModal({
       selectedAccessGroupIds: [],
       selectedDeviceIds: [],
       fingerprints: [],
+      validityStart: getTodayIsoDate(),
+      validityEnd: addYearsToIsoDate(getTodayIsoDate(), 10),
       photoFile: null,
       photoPreview: "",
       faceData: "",
@@ -703,6 +731,10 @@ export function AddEmployeeModal({
         selectedAccessGroupIds: employeeToEdit.accessGroupIds,
         selectedDeviceIds: employeeToEdit.deviceIds ?? [],
         fingerprints: employeeToEdit.fingerprints ?? [],
+        validityStart: employeeToEdit.validityStart || employeeToEdit.hireDate || getTodayIsoDate(),
+        validityEnd:
+          employeeToEdit.validityEnd ||
+          addYearsToIsoDate(employeeToEdit.validityStart || employeeToEdit.hireDate || getTodayIsoDate(), 10),
         photoFile: null,
         photoPreview: existingFaceData ? toFacePreviewUrl(existingFaceData) : "",
         faceData: existingFaceData,
@@ -1004,6 +1036,40 @@ export function AddEmployeeModal({
                         />
                         <p className={cn("text-xs", errors.position ? "text-destructive" : "text-muted-foreground")}>
                           {errors.position || "Fonction dans le tableau et la fiche."}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="validityStart" className="flex items-center gap-2">
+                          Debut validite
+                        </Label>
+                        <Input
+                          id="validityStart"
+                          type="date"
+                          aria-invalid={Boolean(errors.validityStart)}
+                          value={formData.validityStart}
+                          onChange={(e) => handleInputChange("validityStart", e.target.value)}
+                          className={cn("h-11 rounded-2xl", errors.validityStart && "border-destructive")}
+                        />
+                        <p className={cn("text-xs", errors.validityStart ? "text-destructive" : "text-muted-foreground")}>
+                          {errors.validityStart || "Par defaut: date de creation."}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="validityEnd" className="flex items-center gap-2">
+                          Fin validite
+                        </Label>
+                        <Input
+                          id="validityEnd"
+                          type="date"
+                          aria-invalid={Boolean(errors.validityEnd)}
+                          value={formData.validityEnd}
+                          onChange={(e) => handleInputChange("validityEnd", e.target.value)}
+                          className={cn("h-11 rounded-2xl", errors.validityEnd && "border-destructive")}
+                        />
+                        <p className={cn("text-xs", errors.validityEnd ? "text-destructive" : "text-muted-foreground")}>
+                          {errors.validityEnd || "Par defaut: +10 ans."}
                         </p>
                       </div>
                     </div>

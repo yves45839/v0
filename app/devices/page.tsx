@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { DEMO_DEVICES_DATA } from "@/lib/mock-data/demo-devices"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
-import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -60,6 +59,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { AddDeviceByIpDialog } from "@/components/devices/add-device-by-ip-dialog"
+import { fetchEmployeeApiToken } from "@/lib/api/employees"
 
 type Device = {
   id: string
@@ -84,8 +84,6 @@ type GatewayDevice = Record<string, unknown>
 type TenantOption = { id: number; code: string; name: string }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-const API_USERNAME = process.env.NEXT_PUBLIC_EMPLOYEE_API_USERNAME ?? "admin"
-const API_PASSWORD = process.env.NEXT_PUBLIC_EMPLOYEE_API_PASSWORD ?? "admin12345"
 const RAW_DEVICE_CONFIG_PATH = process.env.NEXT_PUBLIC_DEVICE_CONFIG_PATH ?? "/doc/index.html#/dashboard"
 const DEVICE_CONFIG_PATH = RAW_DEVICE_CONFIG_PATH.startsWith("/")
   ? RAW_DEVICE_CONFIG_PATH
@@ -239,25 +237,10 @@ export default function DevicesPage() {
   const [pendingRestartDevice, setPendingRestartDevice] = useState<Device | null>(null)
   const [addByIpOpen, setAddByIpOpen] = useState(false)
 
-  const getAccessToken = async (normalizedBaseUrl: string) => {
-    const tokenResponse = await fetch(`${normalizedBaseUrl}/api/auth/token/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: API_USERNAME,
-        password: API_PASSWORD,
-      }),
-    })
-
-    if (!tokenResponse.ok) {
-      throw new Error(`Echec authentification API (${tokenResponse.status})`)
-    }
-
-    const tokenData = await tokenResponse.json()
+  const getAccessToken = async (_normalizedBaseUrl: string) => {
+    const tokenData = await fetchEmployeeApiToken()
     if (!tokenData?.access) {
-      throw new Error("Token d'acces manquant dans la reponse JWT")
+      throw new Error("Session invalide. Merci de vous reconnecter.")
     }
     return String(tokenData.access)
   }
@@ -468,21 +451,6 @@ export default function DevicesPage() {
       ),
     [devices],
   )
-
-  const pageSystemStatus: "connected" | "disconnected" | "syncing" =
-    isLoadingDevices ||
-    isSubmitting ||
-    isUpdatingDevice ||
-    deletingDeviceId !== null ||
-    restartingDeviceId !== null ||
-    configuringDeviceId !== null ||
-    syncingDeviceId !== null ||
-    diagnosingDeviceId !== null ||
-    verifyingDeviceId !== null
-      ? "syncing"
-      : devicesError
-        ? "disconnected"
-        : "connected"
 
   // Filter devices
   const filteredDevices = devices.filter((device) => {
@@ -933,8 +901,6 @@ export default function DevicesPage() {
       <AppSidebar />
 
       <div className="app-shell-content">
-        <Header systemStatus={pageSystemStatus} />
-
         <main className="app-page">
           {/* ── Hero ── */}
           <section className="animate-fade-up relative mb-8 overflow-hidden rounded-3xl border border-border/60 bg-[linear-gradient(135deg,rgba(78,155,255,0.14),rgba(9,16,26,0.98)_38%,rgba(8,13,21,0.99))] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.3)] backdrop-blur-md sm:p-6 lg:p-8 xl:p-10">
@@ -1148,72 +1114,6 @@ export default function DevicesPage() {
               </div>
             </DialogContent>
           </Dialog>
-
-          {/* Stats Rings */}
-          <div className="mb-8 grid gap-3 sm:grid-cols-3 animate-fade-up" style={{ animationDelay: "80ms" }}>
-            <div className="group wow-transition relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:border-emerald-500/30 hover:shadow-[0_8px_30px_rgba(34,197,94,0.08)]">
-              <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-emerald-500/6 blur-2xl transition-transform duration-500 group-hover:scale-150" />
-              <div className="relative flex items-center gap-4">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20 transition-transform duration-300 group-hover:scale-110">
-                  <Wifi className="h-5 w-5 text-emerald-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">En ligne</p>
-                  <p className="mt-0.5 text-2xl font-bold tabular-nums text-foreground">{onlineDevices}</p>
-                </div>
-                {devices.length > 0 && (
-                  <div className="flex h-10 w-10 items-center justify-center">
-                    <svg className="h-10 w-10 -rotate-90" viewBox="0 0 36 36">
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="3" className="text-emerald-500/10" />
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray={`${(onlineDevices / devices.length) * 88} 88`} strokeLinecap="round" className="text-emerald-400 transition-all duration-700" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="group wow-transition relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:border-amber-500/30 hover:shadow-[0_8px_30px_rgba(245,158,11,0.08)]">
-              <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-amber-500/6 blur-2xl transition-transform duration-500 group-hover:scale-150" />
-              <div className="relative flex items-center gap-4">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/10 ring-1 ring-amber-500/20 transition-transform duration-300 group-hover:scale-110">
-                  <AlertTriangle className="h-5 w-5 text-amber-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Alertes</p>
-                  <p className="mt-0.5 text-2xl font-bold tabular-nums text-foreground">{warningDevices}</p>
-                </div>
-                {devices.length > 0 && (
-                  <div className="flex h-10 w-10 items-center justify-center">
-                    <svg className="h-10 w-10 -rotate-90" viewBox="0 0 36 36">
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="3" className="text-amber-500/10" />
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray={`${(warningDevices / devices.length) * 88} 88`} strokeLinecap="round" className="text-amber-400 transition-all duration-700" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="group wow-transition relative overflow-hidden rounded-2xl border border-border/60 bg-card/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:border-red-500/30 hover:shadow-[0_8px_30px_rgba(239,68,68,0.08)]">
-              <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-red-500/6 blur-2xl transition-transform duration-500 group-hover:scale-150" />
-              <div className="relative flex items-center gap-4">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-500/10 ring-1 ring-red-500/20 transition-transform duration-300 group-hover:scale-110">
-                  <WifiOff className="h-5 w-5 text-red-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Hors ligne</p>
-                  <p className="mt-0.5 text-2xl font-bold tabular-nums text-foreground">{offlineDevices}</p>
-                </div>
-                {devices.length > 0 && (
-                  <div className="flex h-10 w-10 items-center justify-center">
-                    <svg className="h-10 w-10 -rotate-90" viewBox="0 0 36 36">
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="3" className="text-red-500/10" />
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray={`${(offlineDevices / devices.length) * 88} 88`} strokeLinecap="round" className="text-red-400 transition-all duration-700" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
 
           {/* Filters */}
           <div className="mb-8 rounded-2xl border border-border/60 bg-card/50 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] backdrop-blur-sm animate-fade-up sm:p-6" style={{ animationDelay: "160ms" }}>

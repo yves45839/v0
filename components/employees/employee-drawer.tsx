@@ -55,6 +55,13 @@ export function EmployeeDrawer({
       .toUpperCase()
   }
 
+  const fallbackValidityStart = employee.validityStart || employee.hireDate
+  const fallbackValidityEnd = employee.validityEnd || (() => {
+    const date = new Date(fallbackValidityStart)
+    date.setFullYear(date.getFullYear() + 10)
+    return date.toISOString().split("T")[0]
+  })()
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
@@ -106,6 +113,12 @@ export function EmployeeDrawer({
                   <Calendar className="h-4 w-4 text-muted-foreground/70" />
                   <span className="text-sm text-foreground">
                     Embauche le {new Date(employee.hireDate).toLocaleDateString("fr-FR")}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
+                  <Calendar className="h-4 w-4 text-muted-foreground/70" />
+                  <span className="text-sm text-foreground">
+                    Validite: {new Date(fallbackValidityStart).toLocaleDateString("fr-FR")} - {new Date(fallbackValidityEnd).toLocaleDateString("fr-FR")}
                   </span>
                 </div>
               </div>

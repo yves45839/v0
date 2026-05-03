@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -37,8 +37,11 @@ import {
   ShieldCheck,
   Loader2,
   Clock,
-  CheckCircle2,
+  Monitor,
+  ScanFace,
+  CreditCard,
   Fingerprint,
+  CalendarCheck,
   Users,
 } from "lucide-react"
 import type { Employee } from "@/app/employees/page"
@@ -86,9 +89,29 @@ export function EmployeeTable({
   const [workShiftDialogEmployee, setWorkShiftDialogEmployee] = useState<Employee | null>(null)
   const [selectedWorkShiftIds, setSelectedWorkShiftIds] = useState<number[]>([])
   const [isSavingWorkShift, setIsSavingWorkShift] = useState(false)
+  const [pageSize, setPageSize] = useState(10)
+  const [currentPage, setCurrentPage] = useState(1)
 
   const selectedGroupSet = useMemo(() => new Set(selectedGroupIds), [selectedGroupIds])
   const selectedWorkShiftSet = useMemo(() => new Set(selectedWorkShiftIds), [selectedWorkShiftIds])
+  const totalEmployees = employees.length
+  const totalPages = Math.max(1, Math.ceil(totalEmployees / pageSize))
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = Math.min(startIndex + pageSize, totalEmployees)
+  const paginatedEmployees = useMemo(
+    () => employees.slice(startIndex, startIndex + pageSize),
+    [employees, pageSize, startIndex]
+  )
+  const canGoPrev = currentPage > 1
+  const canGoNext = currentPage < totalPages
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => Math.min(previousPage, totalPages))
+  }, [totalPages])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [pageSize])
 
   const getInitials = (name: string) => {
     return name
@@ -96,6 +119,15 @@ export function EmployeeTable({
       .map((n) => n[0])
       .join("")
       .toUpperCase()
+  }
+
+  const iconStateClass = (isOk: boolean) =>
+    isOk ? "text-emerald-600 dark:text-emerald-300" : "text-red-600 dark:text-red-300"
+
+  const isEmployeeValidityActive = (employee: Employee): boolean => {
+    const todayIso = new Date().toISOString().split("T")[0]
+    if (!employee.validityStart || !employee.validityEnd) return false
+    return employee.validityStart <= todayIso && todayIso <= employee.validityEnd
   }
 
   const openGroupDialog = (employee: Employee) => {
@@ -170,7 +202,7 @@ export function EmployeeTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {employees.length === 0 ? (
+            {totalEmployees === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={6} className="px-4 py-20">
                   <div className="flex flex-col items-center justify-center gap-4 text-center animate-fade-up">
@@ -187,7 +219,7 @@ export function EmployeeTable({
                 </TableCell>
               </TableRow>
             ) : (
-              employees.map((employee, index) => (
+              paginatedEmployees.map((employee, index) => (
                 <TableRow
                   key={employee.id}
                   draggable
@@ -210,57 +242,54 @@ export function EmployeeTable({
                   }}
                   onDragEnd={() => onDragEmployee?.(null)}
                 >
-                  <TableCell className="py-3.5">
-                    <div className="flex items-start gap-3">
-                      <Avatar className="mt-0.5 h-10 w-10 border border-primary/10 shadow-[0_4px_12px_rgba(0,0,0,0.1)]">
+                  <TableCell className="py-2">
+                    <div className="flex items-start gap-2.5">
+                      <Avatar className="mt-0.5 h-8 w-8 border border-primary/10 shadow-[0_4px_12px_rgba(0,0,0,0.1)]">
                         <AvatarFallback className="bg-secondary/80 text-xs font-semibold text-foreground">
                           {getInitials(employee.name)}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="min-w-0 space-y-1.5">
-                        <div className="min-w-0">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
                           <p className="truncate text-[13px] font-semibold text-foreground">{employee.name}</p>
-                          <p className="truncate text-xs text-muted-foreground/80">{employee.position}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          <Badge
-                            variant={employee.syncStatus === "pending" ? "outline" : "secondary"}
-                            className={cn(
-                              "text-[10px] font-medium",
-                              suspendedEmployeeIds.has(employee.id)
-                                ? "border-red-400/25 bg-red-500/8 text-red-700 dark:text-red-300"
-                                : employee.syncStatus === "pending"
-                                ? "border-amber-400/25 bg-amber-500/8 text-amber-700 dark:text-amber-300"
-                                : "border-emerald-400/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                            )}
-                          >
-                            <CheckCircle2 className="h-3 w-3" />
-                            {suspendedEmployeeIds.has(employee.id) ? "Suspendu" : employee.syncStatus === "pending" ? "Sync en attente" : "Synchronise"}
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[10px] font-medium",
-                              employee.biometricStatus.hasFacePhoto && employee.biometricStatus.hasFingerprint
-                                ? "border-emerald-400/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                                : "border-border/50 bg-background/25 text-muted-foreground/80"
-                            )}
-                          >
-                            <Fingerprint className="h-3 w-3" />
-                            {employee.biometricStatus.hasFacePhoto && employee.biometricStatus.hasFingerprint
-                              ? "Biometrie OK"
-                              : "Incomplete"}
-                          </Badge>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <Monitor
+                              className={cn("h-3.5 w-3.5", iconStateClass(employee.deviceIds.length > 0))}
+                              title="Personne dans le lecteur"
+                            />
+                            <ScanFace
+                              className={cn("h-3.5 w-3.5", iconStateClass(employee.biometricStatus.hasFacePhoto))}
+                              title="Visage present"
+                            />
+                            <CreditCard
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                iconStateClass(employee.cardNumber.trim() !== "" && employee.cardNumber !== "Non attribue")
+                              )}
+                              title="Au moins une carte"
+                            />
+                            <Fingerprint
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                iconStateClass(employee.biometricStatus.hasFingerprint || employee.fingerprints.length > 0)
+                              )}
+                              title="Au moins une empreinte"
+                            />
+                            <CalendarCheck
+                              className={cn("h-3.5 w-3.5", iconStateClass(isEmployeeValidityActive(employee)))}
+                              title="Periode de validite"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="py-3.5">
+                  <TableCell className="py-2.5">
                     <span className="rounded-md border border-border/50 bg-background/30 px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
                       {employee.employeeId}
                     </span>
                   </TableCell>
-                  <TableCell className="py-3.5">
+                  <TableCell className="py-2.5">
                     <Badge
                       variant="secondary"
                       className={cn(
@@ -271,9 +300,9 @@ export function EmployeeTable({
                       {employee.department}
                     </Badge>
                   </TableCell>
-                  <TableCell className="py-3.5">
-                    <div className="flex flex-col items-start gap-1.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
+                  <TableCell className="py-2.5">
+                    <div className="flex flex-col items-start gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         <Badge variant="outline" className="text-[10px] font-medium">
                           {employee.workShift}
                         </Badge>
@@ -286,7 +315,7 @@ export function EmployeeTable({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 rounded-md px-2 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+                        className="h-5 rounded-md px-1.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation()
                           openWorkShiftDialog(employee)
@@ -297,8 +326,8 @@ export function EmployeeTable({
                       </Button>
                     </div>
                   </TableCell>
-                  <TableCell className="py-3.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                  <TableCell className="py-2.5">
+                    <div className="flex flex-wrap items-center gap-1">
                       {employee.accessGroups.slice(0, 2).map((group) => (
                         <Badge
                           key={group}
@@ -316,7 +345,7 @@ export function EmployeeTable({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 rounded-md px-2 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+                        className="h-5 rounded-md px-1.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation()
                           openGroupDialog(employee)
@@ -327,7 +356,7 @@ export function EmployeeTable({
                       </Button>
                     </div>
                   </TableCell>
-                  <TableCell className="py-3.5">
+                  <TableCell className="py-2.5">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                         <Button
@@ -394,6 +423,53 @@ export function EmployeeTable({
           </TableBody>
         </Table>
         </div>
+        {totalEmployees > 0 && (
+          <div className="flex flex-col gap-2 border-t border-border/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              Affichage {startIndex + 1}-{endIndex} sur {totalEmployees}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-xs text-muted-foreground" htmlFor="employee-page-size">
+                Lignes
+              </label>
+              <select
+                id="employee-page-size"
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+                className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={30}>30</option>
+                <option value={50}>50</option>
+              </select>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
+                disabled={!canGoPrev}
+              >
+                Precedent
+              </Button>
+              <span className="min-w-20 text-center text-xs text-muted-foreground">
+                Page {currentPage}/{totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
+                disabled={!canGoNext}
+              >
+                Suivant
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Dialog open={!!groupDialogEmployee} onOpenChange={(open) => !open && closeGroupDialog()}>

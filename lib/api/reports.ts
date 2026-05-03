@@ -1,4 +1,5 @@
 import { fetchEmployeeApiToken } from "@/lib/api/employees"
+import { getActiveTenantCode } from "@/lib/api/auth"
 
 export type AttendanceReportPeriod = "daily" | "weekly" | "monthly"
 
@@ -129,9 +130,10 @@ type FetchAttendanceReportParams = {
   departmentId?: string | number
   devIndex?: string
   source?: string
+  fields?: string[]
 }
 
-export type AttendanceReportExportFormat = "excel" | "pdf"
+export type AttendanceReportExportFormat = "excel" | "pdf" | "csv"
 
 type FetchAttendanceCorrectionsParams = {
   tenant?: string
@@ -157,6 +159,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://lo
 const HIK_EVENTS_TENANT = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? ""
 
 function buildAttendanceReportSearchParams(params: FetchAttendanceReportParams = {}): URLSearchParams {
+  const defaultTenantCode = getActiveTenantCode(HIK_EVENTS_TENANT)
   const search = new URLSearchParams()
   search.set("period", params.period ?? "weekly")
   if (params.date) search.set("date", params.date)
@@ -164,13 +167,14 @@ function buildAttendanceReportSearchParams(params: FetchAttendanceReportParams =
   if (params.endDate) search.set("end_date", params.endDate)
   if (params.personId) search.set("person_id", params.personId)
   if (params.personIds && params.personIds.length > 0) search.set("person_ids", params.personIds.join(","))
+  if (params.fields && params.fields.length > 0) search.set("fields", params.fields.join(","))
   if (params.departmentId !== undefined && params.departmentId !== null && `${params.departmentId}`.trim()) {
     search.set("department_id", String(params.departmentId))
   }
   if (params.devIndex) search.set("dev_index", params.devIndex)
   if (params.source) search.set("source", params.source)
 
-  const tenantCode = params.tenant ?? HIK_EVENTS_TENANT
+  const tenantCode = params.tenant ?? defaultTenantCode
   if (tenantCode) search.set("tenant", tenantCode)
   return search
 }
@@ -246,7 +250,7 @@ export async function downloadAttendanceReport(
   }
 
   const blob = await response.blob()
-  const fallbackExtension = format === "pdf" ? "pdf" : "xlsx"
+  const fallbackExtension = format === "pdf" ? "pdf" : format === "csv" ? "csv" : "xlsx"
   const fallbackName = `attendance-report.${fallbackExtension}`
   const filename = extractFilenameFromContentDisposition(
     response.headers.get("content-disposition"),
@@ -258,7 +262,7 @@ export async function downloadAttendanceReport(
 export async function fetchAttendanceCorrections(
   params: FetchAttendanceCorrectionsParams
 ): Promise<AttendanceCorrectionItem[]> {
-  const tenantCode = params.tenant ?? HIK_EVENTS_TENANT
+  const tenantCode = params.tenant ?? getActiveTenantCode(HIK_EVENTS_TENANT)
   if (!tenantCode) {
     throw new Error("Le tenant est requis pour lire les corrections de pointage.")
   }
@@ -293,7 +297,7 @@ export async function fetchAttendanceCorrections(
 export async function upsertAttendanceCorrection(
   payload: UpsertAttendanceCorrectionPayload
 ): Promise<AttendanceCorrectionItem> {
-  const tenantCode = payload.tenant ?? HIK_EVENTS_TENANT
+  const tenantCode = payload.tenant ?? getActiveTenantCode(HIK_EVENTS_TENANT)
   if (!tenantCode) {
     throw new Error("Le tenant est requis pour enregistrer une correction de pointage.")
   }

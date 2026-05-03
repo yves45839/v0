@@ -2,31 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
-import {
-  LayoutDashboard,
-  Users,
-  FileText,
-  Cpu,
-  BarChart3,
-  Settings,
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  CalendarDays,
-  PanelsTopLeft,
-  Building2,
-  Server,
-  CreditCard,
-  Bell,
-  Monitor,
-  Layers,
-  UserCheck,
-  Zap,
-} from "lucide-react"
+import { LayoutDashboard, Users, Cpu, BarChart3, Shield, CalendarDays, Settings, UserRound, UserCog } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useI18n } from "@/lib/i18n/context"
+import { AUTH_EVENTS, getActiveTenantCode } from "@/lib/api/auth"
 
 const SIDEBAR_TOGGLE_EVENT = "securepoint:sidebar-toggle"
 
@@ -40,60 +21,18 @@ type SidebarNavProps = {
 function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: SidebarNavProps) {
   const { t } = useI18n()
 
-  const navigationGroups = useMemo(() => [
-    {
-      title: t.nav.pilotage,
-      icon: PanelsTopLeft,
-      items: [
-        { name: t.nav.dashboard,   href: "/",            icon: LayoutDashboard },
-        { name: t.nav.accessLogs,  href: "/access-logs", icon: FileText },
-        { name: t.nav.reports,     href: "/reports",     icon: BarChart3 },
-      ],
-    },
-    {
-      title: t.nav.securite,
-      icon: ShieldAlert,
-      items: [
-        { name: t.nav.zones,       href: "/zones",        icon: Layers },
-        { name: t.nav.alerts,      href: "/alerts",       icon: Bell },
-        { name: t.nav.surveillance,href: "/surveillance", icon: Monitor },
-      ],
-    },
-    {
-      title: t.nav.ressourcesRH,
-      icon: Building2,
-      items: [
-        { name: t.nav.employees, href: "/employees", icon: Users },
-        { name: t.nav.planning,  href: "/planning",  icon: CalendarDays },
-      ],
-    },
-    {
-      title: t.nav.accueilConformite,
-      icon: ShieldCheck,
-      items: [
-        { name: t.nav.visitors, href: "/visitors", icon: UserCheck },
-        { name: t.nav.audit,    href: "/audit",    icon: ShieldCheck },
-      ],
-    },
-    {
-      title: t.nav.infrastructure,
-      icon: Server,
-      items: [
-        { name: t.nav.devices,       href: "/devices",       icon: Cpu },
-        { name: t.nav.integrations,  href: "/integrations",  icon: Zap },
-      ],
-    },
-    {
-      title: t.nav.administration,
-      icon: Settings,
-      items: [{ name: t.nav.settings, href: "/settings", icon: Settings }],
-    },
-    {
-      title: t.nav.facturation,
-      icon: CreditCard,
-      items: [{ name: t.nav.billing, href: "/billing", icon: CreditCard }],
-    },
-  ], [t])
+  const navItems = useMemo(
+    () => [
+      { name: "Accueil", href: "/", icon: LayoutDashboard },
+      { name: "Personnes", href: "/employees", icon: Users },
+      { name: "Comptes", href: "/tenant-users", icon: UserCog },
+      { name: "Mon profil", href: "/profile", icon: UserRound },
+      { name: "Plannings", href: "/planning", icon: CalendarDays },
+      { name: "Appareils", href: "/devices", icon: Cpu },
+      { name: t.nav.reports, href: "/reports", icon: BarChart3 },
+    ],
+    [t]
+  )
 
   return (
     <>
@@ -121,61 +60,34 @@ function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: Sideba
       <nav
         className={cn(
           "dense-scrollbar relative flex-1 overflow-y-auto",
-          mobile ? "space-y-5 px-3 py-4" : "space-y-5 px-2 py-3"
+          mobile ? "space-y-1.5 px-3 py-4" : "space-y-1.5 px-2 py-3"
         )}
       >
-        {navigationGroups.map((group) => {
-          const GroupIcon = group.icon
+        {navItems.map((item) => {
+          const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
           return (
-            <div key={group.title} className="space-y-1.5">
-              <div
+            <Link
+              key={item.name}
+              href={item.href}
+              title={item.name}
+              aria-label={item.name}
+              onClick={onNavigate}
+              className={cn(
+                "group wow-transition relative flex h-10 items-center rounded-lg border border-transparent text-[12px] font-semibold tracking-[0.01em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 press-effect",
+                mobile ? "gap-3 px-3" : "justify-center gap-0 px-3 lg:justify-start lg:gap-3",
+                isActive
+                  ? "border-primary/30 bg-linear-to-r from-primary/22 via-primary/10 to-transparent text-sidebar-foreground shadow-[0_10px_24px_rgba(0,0,0,0.18)] before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.75 before:rounded-r-sm before:bg-primary"
+                  : "text-muted-foreground hover:border-primary/20 hover:bg-sidebar-accent/90 hover:text-sidebar-foreground hover:shadow-[0_8px_16px_rgba(0,0,0,0.18)]"
+              )}
+            >
+              <item.icon
                 className={cn(
-                  "items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/90",
-                  mobile ? "flex px-2" : "hidden px-2 lg:flex"
+                  "h-4 w-4 shrink-0 transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground group-hover:text-sidebar-foreground"
                 )}
-              >
-                <GroupIcon className="h-3.5 w-3.5" />
-                <span>{group.title}</span>
-              </div>
-
-              {!mobile ? (
-                <div className="flex justify-center px-1 lg:hidden">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/45 text-muted-foreground">
-                    <GroupIcon className="h-3.5 w-3.5" />
-                  </div>
-                </div>
-              ) : null}
-
-              {group.items.map((item) => {
-                const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    title={item.name}
-                    aria-label={item.name}
-                    onClick={onNavigate}
-                    className={cn(
-                      "group wow-transition relative flex h-10 items-center rounded-lg border border-transparent text-[12px] font-semibold tracking-[0.01em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 press-effect",
-                      mobile
-                        ? "gap-3 px-3"
-                        : "justify-center gap-0 px-3 lg:justify-start lg:gap-3",
-                      isActive
-                        ? "border-primary/30 bg-linear-to-r from-primary/22 via-primary/10 to-transparent text-sidebar-foreground shadow-[0_10px_24px_rgba(0,0,0,0.18)] before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.75 before:rounded-r-sm before:bg-primary"
-                        : "text-muted-foreground hover:border-primary/20 hover:bg-sidebar-accent/90 hover:text-sidebar-foreground hover:shadow-[0_8px_16px_rgba(0,0,0,0.18)]"
-                    )}
-                  >
-                    <item.icon
-                      className={cn(
-                        "h-4 w-4 shrink-0 transition-colors",
-                        isActive ? "text-primary" : "text-muted-foreground group-hover:text-sidebar-foreground"
-                      )}
-                    />
-                    <span className={cn("truncate", mobile ? "block" : "hidden lg:block")}>{item.name}</span>
-                  </Link>
-                )
-              })}
-            </div>
+              />
+              <span className={cn("truncate", mobile ? "block" : "hidden lg:block")}>{item.name}</span>
+            </Link>
           )
         })}
       </nav>
@@ -184,7 +96,7 @@ function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: Sideba
         <div
           className={cn(
             "rounded-lg border border-sidebar-border/70 bg-sidebar-accent/50",
-            mobile ? "space-y-1.5 p-3" : "space-y-1 p-2.5"
+            mobile ? "space-y-2 p-3" : "space-y-1.5 p-2.5"
           )}
         >
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -192,6 +104,15 @@ function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: Sideba
             <span>{t.nav.gatewayConnected}</span>
           </div>
           <p className="truncate text-[11px] text-muted-foreground/80">{t.nav.tenant}: {tenantCode}</p>
+
+          <Link
+            href="/settings"
+            onClick={onNavigate}
+            className="mt-1 inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-sidebar-border/70 bg-background/60 text-[11px] font-semibold text-foreground hover:bg-background/85"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            <span>Parametres</span>
+          </Link>
         </div>
       </div>
     </>
@@ -200,13 +121,25 @@ function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: Sideba
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "TENANT"
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [tenantCode, setTenantCode] = useState<string>(
+    getActiveTenantCode(process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "TENANT")
+  )
 
   useEffect(() => {
     const handleToggle = () => setMobileOpen((current) => !current)
     window.addEventListener(SIDEBAR_TOGGLE_EVENT, handleToggle)
     return () => window.removeEventListener(SIDEBAR_TOGGLE_EVENT, handleToggle)
+  }, [])
+
+  useEffect(() => {
+    const syncTenantCode = () => setTenantCode(getActiveTenantCode(process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "TENANT"))
+    window.addEventListener(AUTH_EVENTS.SESSION_CHANGED, syncTenantCode)
+    window.addEventListener("storage", syncTenantCode)
+    return () => {
+      window.removeEventListener(AUTH_EVENTS.SESSION_CHANGED, syncTenantCode)
+      window.removeEventListener("storage", syncTenantCode)
+    }
   }, [])
 
   return (

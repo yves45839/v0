@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { useTheme } from "next-themes"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { useI18n } from "@/lib/i18n/context"
@@ -122,6 +123,7 @@ export default function SettingsPage() {
   const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
   const searchParams = useSearchParams()
   const { locale, setLocale } = useI18n()
+  const { resolvedTheme, setTheme } = useTheme()
   const [groups, setGroups] = useState<AccessGroup[]>([])
   const [tenantId, setTenantId] = useState<number | null>(null)
   const [tenants, setTenants] = useState<TenantItem[]>([])
@@ -159,6 +161,7 @@ export default function SettingsPage() {
   // Extended preferences
   const [sessionTimeout, setSessionTimeout] = useState("30")
   const [language, setLanguage] = useState<string>(() => locale)
+  const [themePreference, setThemePreference] = useState<"dark" | "light">("dark")
   const [alertOnAccessDenied, setAlertOnAccessDenied] = useState(true)
   const [alertOnIntrusion, setAlertOnIntrusion] = useState(true)
   const [alertOnLateArrival, setAlertOnLateArrival] = useState(false)
@@ -173,6 +176,7 @@ export default function SettingsPage() {
     timezone: "Europe/Paris",
     sessionTimeout: "30",
     language: locale,
+    theme: "dark" as "dark" | "light",
     alertOnAccessDenied: true,
     alertOnIntrusion: true,
     alertOnLateArrival: false,
@@ -286,7 +290,8 @@ export default function SettingsPage() {
   const hasGeneralChanges =
     companyName !== savedPreferences.companyName ||
     timezone !== savedPreferences.timezone ||
-    language !== savedPreferences.language
+    language !== savedPreferences.language ||
+    themePreference !== savedPreferences.theme
 
   const pageSystemStatus: "connected" | "disconnected" | "syncing" =
     isInitialLoading ||
@@ -755,11 +760,13 @@ export default function SettingsPage() {
         companyName: trimmedName,
         timezone: trimmedTimezone,
         language,
+        theme: themePreference,
       }
       savePreferenceSnapshot(next)
       setCompanyName(trimmedName)
       setTimezone(trimmedTimezone)
       setLocale(language as "fr" | "en")
+      setTheme(themePreference)
       toast.success("Paramètres généraux enregistrés")
     } finally {
       setIsSavingPreferences(false)
@@ -787,7 +794,8 @@ export default function SettingsPage() {
   const resetGeneralSettings = () => {
     setCompanyName(savedPreferences.companyName)
     setTimezone(savedPreferences.timezone)
-    setLanguage(locale)
+    setLanguage(savedPreferences.language)
+    setThemePreference(savedPreferences.theme)
     toast.info("Modifications générales annulées")
   }
 
@@ -922,8 +930,9 @@ export default function SettingsPage() {
     if (!raw) return
 
     try {
-      const parsed = JSON.parse(raw) as typeof savedPreferences
-      setSavedPreferences(parsed)
+      const parsed = JSON.parse(raw) as typeof savedPreferences & { theme?: "dark" | "light" }
+      const parsedTheme = parsed.theme === "dark" || parsed.theme === "light" ? parsed.theme : "dark"
+      setSavedPreferences({ ...parsed, theme: parsedTheme })
       setEmailNotifications(parsed.emailNotifications)
       setPushNotifications(parsed.pushNotifications)
       setSyncEnabled(parsed.syncEnabled)
@@ -935,6 +944,8 @@ export default function SettingsPage() {
         setLanguage(parsed.language)
         setLocale(parsed.language)
       }
+      setThemePreference(parsedTheme)
+      setTheme(parsedTheme)
       if (parsed.alertOnAccessDenied !== undefined) setAlertOnAccessDenied(parsed.alertOnAccessDenied)
       if (parsed.alertOnIntrusion !== undefined) setAlertOnIntrusion(parsed.alertOnIntrusion)
       if (parsed.alertOnLateArrival !== undefined) setAlertOnLateArrival(parsed.alertOnLateArrival)
@@ -945,10 +956,16 @@ export default function SettingsPage() {
     }
   }, [])
 
-  // Sync the local language select with the global locale (e.g., changed via header button)
+  // Sync language and theme controls with global providers.
   useEffect(() => {
     setLanguage(locale)
   }, [locale])
+
+  useEffect(() => {
+    if (resolvedTheme === "dark" || resolvedTheme === "light") {
+      setThemePreference(resolvedTheme)
+    }
+  }, [resolvedTheme])
 
   // ── Helpers ──────────────────────────────────────────────────
   const timeToMinutes = (t: string) => {
@@ -2165,12 +2182,12 @@ export default function SettingsPage() {
                           <Globe className="h-5 w-5 text-violet-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Langue &amp; Format</h3>
+                          <h3 className="text-base font-semibold text-foreground">Langue, theme &amp; format</h3>
                           <p className="text-sm text-muted-foreground">Localisation de l&apos;interface</p>
                         </div>
                       </div>
                     </div>
-                    <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2">
+                    <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-3">
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-muted-foreground">Langue de l&apos;interface</Label>
                         <Select value={language} onValueChange={(v) => setLanguage(v)}>
@@ -2180,6 +2197,25 @@ export default function SettingsPage() {
                           <SelectContent>
                             <SelectItem value="fr">Français</SelectItem>
                             <SelectItem value="en">English</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-muted-foreground">Theme de l&apos;interface</Label>
+                        <Select
+                          value={themePreference}
+                          onValueChange={(value) => {
+                            const nextTheme = value as "dark" | "light"
+                            setThemePreference(nextTheme)
+                            setTheme(nextTheme)
+                          }}
+                        >
+                          <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="dark">dark</SelectItem>
+                            <SelectItem value="light">light</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

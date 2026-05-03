@@ -1,3 +1,5 @@
+import { getAccessToken, getSessionTokens } from "@/lib/api/auth"
+
 export type AuthTokens = {
   access: string
   refresh: string
@@ -368,8 +370,8 @@ export type EmployeeScheduleApiResponse = {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-const API_USERNAME = process.env.NEXT_PUBLIC_EMPLOYEE_API_USERNAME ?? "emp-admin"
-const API_PASSWORD = process.env.NEXT_PUBLIC_EMPLOYEE_API_PASSWORD ?? "pass"
+const API_USERNAME = process.env.NEXT_PUBLIC_EMPLOYEE_API_USERNAME ?? ""
+const API_PASSWORD = process.env.NEXT_PUBLIC_EMPLOYEE_API_PASSWORD ?? ""
 const TOKEN_CACHE_TTL_MS = 60_000
 
 let cachedEmployeeTokens: AuthTokens | null = null
@@ -625,11 +627,27 @@ export async function fetchEmployeeApiToken(): Promise<AuthTokens> {
   if (cachedEmployeeTokens && now - cachedEmployeeTokensAt < TOKEN_CACHE_TTL_MS) {
     return cachedEmployeeTokens
   }
+
+  const sessionTokens = getSessionTokens()
+  if (sessionTokens) {
+    const access = (await getAccessToken()) ?? sessionTokens.access
+    const tokens: AuthTokens = {
+      access,
+      refresh: sessionTokens.refresh,
+    }
+    cachedEmployeeTokens = tokens
+    cachedEmployeeTokensAt = Date.now()
+    return tokens
+  }
+
   if (employeeTokenRequestInFlight) {
     return employeeTokenRequestInFlight
   }
 
   employeeTokenRequestInFlight = (async () => {
+    if (!API_USERNAME || !API_PASSWORD) {
+      throw new Error("No authenticated user session found and fallback API credentials are not configured.")
+    }
     const response = await fetch(`${API_BASE_URL}/api/auth/token/`, {
       method: "POST",
       headers: {
@@ -660,7 +678,7 @@ export async function fetchEmployeeApiToken(): Promise<AuthTokens> {
 
 async function employeeApiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const tokens = await fetchEmployeeApiToken()
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -669,6 +687,21 @@ async function employeeApiRequest<T>(path: string, init?: RequestInit): Promise<
     },
     cache: "no-store",
   })
+
+  if (response.status === 401 && getSessionTokens()) {
+    const refreshedAccess = await getAccessToken({ forceRefresh: true }).catch(() => null)
+    if (refreshedAccess) {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${refreshedAccess}`,
+          ...(init?.headers ?? {}),
+        },
+        cache: "no-store",
+      })
+    }
+  }
 
   if (!response.ok) {
     const errorBody = await response.text()
@@ -683,13 +716,26 @@ async function employeeApiRequest<T>(path: string, init?: RequestInit): Promise<
 
 async function employeeApiDelete(path: string): Promise<void> {
   const tokens = await fetchEmployeeApiToken()
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${tokens.access}`,
     },
     cache: "no-store",
   })
+
+  if (response.status === 401 && getSessionTokens()) {
+    const refreshedAccess = await getAccessToken({ forceRefresh: true }).catch(() => null)
+    if (refreshedAccess) {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${refreshedAccess}`,
+        },
+        cache: "no-store",
+      })
+    }
+  }
 
   if (!response.ok) {
     const errorBody = await response.text()
@@ -1020,24 +1066,36 @@ export async function updateEmployeeDepartment(
 
 export async function assignEmployeePlanning(
   employeeId: string | number,
-  planningId: number
+  planningId: number,
+  options?: { startDate?: string | null; endDate?: string | null }
 ): Promise<EmployeeApiItem> {
+  const startDate = options?.startDate?.trim()
+  const endDate = options?.endDate?.trim()
   return employeeApiRequest<EmployeeApiItem>(`/api/employees/${employeeId}/assign-planning/`, {
     method: "POST",
-    body: JSON.stringify({ planning: planningId }),
+    body: JSON.stringify({
+      planning: planningId,
+      ...(startDate ? { start_date: startDate } : {}),
+      ...(endDate ? { end_date: endDate } : {}),
+    }),
   })
 }
 
 export async function assignDepartmentPlanning(
   departmentId: string | number,
   planningId: number,
-  includeSubDepartments = false
+  includeSubDepartments = false,
+  options?: { startDate?: string | null; endDate?: string | null }
 ): Promise<DepartmentApiItem> {
+  const startDate = options?.startDate?.trim()
+  const endDate = options?.endDate?.trim()
   return employeeApiRequest<DepartmentApiItem>(`/api/departments/${departmentId}/assign-planning/`, {
     method: "POST",
     body: JSON.stringify({
       planning: planningId,
       include_sub_departments: includeSubDepartments,
+      ...(startDate ? { start_date: startDate } : {}),
+      ...(endDate ? { end_date: endDate } : {}),
     }),
   })
 }

@@ -8,16 +8,13 @@ import {
   DEMO_WORK_SHIFTS_DATA,
 } from "@/lib/mock-data/demo-employees"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
-import { Header } from "@/components/dashboard/header"
-
 import {
-  HrPlanningGuideDialog,
-  type HrQuickAssignPayload,
-} from "@/components/planning/hr-planning-guide-dialog"
-import {
-  ScheduleWizardDialog,
-  type ScheduleWizardEmployee,
-} from "@/components/planning/schedule-wizard-dialog"
+  PlanningCreationWizardDialog,
+  type PlanningCreationWizardDepartment,
+  type PlanningCreationWizardEmployee,
+  type PlanningCreationWizardPayload,
+  type PlanningWizardCase,
+} from "@/components/planning/planning-creation-wizard-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -33,7 +30,6 @@ import { cn } from "@/lib/utils"
 import {
   assignEmployeePlanning,
   assignDepartmentPlanning,
-  assignEmployeeWorkShifts,
   createPlanning,
   createWorkShift,
   deletePlanning,
@@ -60,13 +56,13 @@ import {
   CalendarRange,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Clock,
   Edit,
   Loader2,
   Plus,
   RefreshCw,
   Shapes,
-  Sparkles,
   Trash2,
   Users,
 } from "lucide-react"
@@ -82,8 +78,62 @@ const WEEK_DAYS = [
   { key: 5, label: "Samedi" },
   { key: 6, label: "Dimanche" },
 ]
-const ASSISTANT_AUTO_SHIFT_NAME = "Quart Standard RH"
-const ASSISTANT_AUTO_PLANNING_NAME = "Planning Standard RH"
+
+const COMMON_TIMEZONES = [
+  "UTC",
+  "Africa/Abidjan",
+  "Africa/Casablanca",
+  "Europe/Paris",
+  "Europe/London",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Asia/Dubai",
+]
+
+function getUtcOffsetLabel(timeZone: string, referenceDate = new Date()) {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "shortOffset",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+    const parts = formatter.formatToParts(referenceDate)
+    const tzPart = parts.find((part) => part.type === "timeZoneName")?.value ?? ""
+    const normalized = tzPart.replace(/\s+/g, "").toUpperCase()
+
+    if (normalized === "GMT" || normalized === "UTC") {
+      return "+00:00"
+    }
+
+    const match = normalized.match(/(?:GMT|UTC)?([+-]\d{1,2})(?::?(\d{2}))?/)
+    if (!match) {
+      return "+00:00"
+    }
+
+    const hoursRaw = Number.parseInt(match[1] ?? "0", 10)
+    const sign = hoursRaw < 0 ? "-" : "+"
+    const hours = String(Math.abs(hoursRaw)).padStart(2, "0")
+    const minutes = String(Number.parseInt(match[2] ?? "0", 10)).padStart(2, "0")
+    return `${sign}${hours}:${minutes}`
+  } catch {
+    return "+00:00"
+  }
+}
+
+function utcOffsetToMinutes(offset: string) {
+  const match = offset.match(/^([+-])(\d{2}):(\d{2})$/)
+  if (!match) {
+    return 0
+  }
+  const sign = match[1] === "-" ? -1 : 1
+  const hours = Number.parseInt(match[2] ?? "0", 10)
+  const minutes = Number.parseInt(match[3] ?? "0", 10)
+  return sign * (hours * 60 + minutes)
+}
 
 type PlanningView = "timetable" | "shift" | "schedule"
 
@@ -99,9 +149,35 @@ type PlanningSlotChip = {
   timeRange: string | null
 }
 
+type WizardShiftBinding = {
+  input: PlanningWizardCase
+  workShift: WorkShiftApiItem
+  scope: "weekday" | "weekend"
+}
+
+const WEEKDAY_DAY_KEYS = [0, 1, 2, 3, 4]
+const WEEKEND_DAY_KEYS = [5, 6]
+
 function getCurrentMonthValue() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function getDefaultAssignDateRange() {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const end = new Date(start.getFullYear() + 10, start.getMonth(), start.getDate())
+  return {
+    startDate: toDateInputValue(start),
+    endDate: toDateInputValue(end),
+  }
 }
 
 function buildDefaultWeek(): Record<number, WeeklySlotForm> {
@@ -114,6 +190,20 @@ function buildDefaultWeek(): Record<number, WeeklySlotForm> {
     5: { shiftIds: [], isRestDay: false },
     6: { shiftIds: [], isRestDay: false },
   }
+}
+
+function normalizeWeekDayIndex(value: number) {
+  return ((value % 7) + 7) % 7
+}
+
+function resolveRecurringEntryDay(entry: PlanningEntryApiItem): number | null {
+  if (entry.day_of_week != null) {
+    return normalizeWeekDayIndex(entry.day_of_week)
+  }
+  if (entry.sequence_index != null) {
+    return normalizeWeekDayIndex(entry.sequence_index)
+  }
+  return null
 }
 
 function buildDefaultShiftForm() {
@@ -200,10 +290,6 @@ function buildDefaultPlanningForm() {
   }
 }
 
-function pickLatestPlanning(planningList: PlanningApiItem[]) {
-  return [...planningList].sort((left, right) => right.id - left.id)[0] ?? null
-}
-
 function pickPrimaryShift(shiftList: WorkShiftApiItem[]) {
   return (
     [...shiftList].sort(
@@ -243,7 +329,7 @@ function buildPlanningEntriesFromDailySlots(
         end_date: null,
         work_shift: shiftId,
         is_rest_day: false,
-        label: workShiftsById.get(shiftId)?.name ?? WEEK_DAYS[day]?.label ?? "Shift",
+        label: workShiftsById.get(shiftId)?.name ?? WEEK_DAYS[day]?.label ?? "Quart",
         metadata: {},
       })
     })
@@ -252,31 +338,85 @@ function buildPlanningEntriesFromDailySlots(
   return entries
 }
 
-function buildDailySlotsFromPlanning(planning: PlanningApiItem): Record<number, WeeklySlotForm> {
+function buildDailySlotsFromPlanning(
+  planning: PlanningApiItem,
+  workShiftsById: Map<number, WorkShiftApiItem>
+): Record<number, WeeklySlotForm> {
   const next = buildDefaultWeek()
+  let hasWeeklyEntries = false
   const recurringEntries = (planning.entries ?? []).filter(
     (entry) =>
-      entry.day_of_week !== null &&
-      entry.sequence_index == null &&
       entry.start_date == null &&
-      entry.end_date == null
+      entry.end_date == null &&
+      (entry.day_of_week != null || entry.sequence_index != null)
   )
 
   for (const entry of recurringEntries) {
-    const day = entry.day_of_week
+    const day = resolveRecurringEntryDay(entry)
     if (day == null || !(day in next)) {
       continue
     }
-    if (entry.is_rest_day || !entry.work_shift) {
+    if (entry.is_rest_day) {
       next[day] = { shiftIds: [], isRestDay: true }
+      hasWeeklyEntries = true
       continue
     }
-    if (next[day].isRestDay || next[day].shiftIds.includes(entry.work_shift)) {
+    const shiftId = entry.work_shift ?? null
+    if (!shiftId || !workShiftsById.has(shiftId)) {
+      continue
+    }
+    if (next[day].isRestDay || next[day].shiftIds.includes(shiftId)) {
       continue
     }
     next[day] = {
       ...next[day],
-      shiftIds: [...next[day].shiftIds, entry.work_shift],
+      shiftIds: [...next[day].shiftIds, shiftId],
+    }
+    hasWeeklyEntries = true
+  }
+
+  if (hasWeeklyEntries) {
+    return next
+  }
+
+  const shifts = [...workShiftsById.values()]
+  const resolveSlotShiftId = (slot: PlanningApiItem["daily_slots"][number]) => {
+    const start = slot.start_time ?? ""
+    const end = slot.end_time ?? ""
+    const label = (slot.label ?? "").trim().toLowerCase()
+    const byTime = shifts.filter((shift) => shift.start_time === start && shift.end_time === end)
+    if (byTime.length === 0) {
+      return null
+    }
+    if (!label) {
+      return byTime[0]?.id ?? null
+    }
+    const strictLabelMatch = byTime.find((shift) => shift.name.trim().toLowerCase() === label)
+    if (strictLabelMatch) {
+      return strictLabelMatch.id
+    }
+    return byTime[0]?.id ?? null
+  }
+
+  for (const slot of planning.daily_slots ?? []) {
+    const day = slot.day_of_week
+    if (!(day in next)) {
+      continue
+    }
+    if (slot.slot_type === "rest") {
+      next[day] = { shiftIds: [], isRestDay: true }
+      continue
+    }
+    if (next[day].isRestDay) {
+      continue
+    }
+    const matchedShiftId = resolveSlotShiftId(slot)
+    if (!matchedShiftId || next[day].shiftIds.includes(matchedShiftId)) {
+      continue
+    }
+    next[day] = {
+      ...next[day],
+      shiftIds: [...next[day].shiftIds, matchedShiftId],
     }
   }
 
@@ -306,6 +446,142 @@ function buildNonWeeklyEntries(planning: PlanningApiItem | null): PlanningEntryA
       label: entry.label ?? "",
       metadata: entry.metadata ?? {},
     }))
+}
+
+function buildWizardPlanningCode(name: string) {
+  const baseCode =
+    name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "PLANNING"
+  return `${baseCode}-${Date.now().toString().slice(-5)}`
+}
+
+function createRestEntry(day: number): PlanningEntryApiItem {
+  return {
+    day_of_week: day,
+    sequence_index: null,
+    start_date: null,
+    end_date: null,
+    work_shift: null,
+    is_rest_day: true,
+    label: "Repos",
+    metadata: {},
+  }
+}
+
+function createShiftEntry(
+  day: number,
+  shiftBinding: WizardShiftBinding,
+  rotating: boolean
+): PlanningEntryApiItem {
+  return {
+    day_of_week: day,
+    sequence_index: null,
+    start_date: null,
+    end_date: null,
+    work_shift: shiftBinding.workShift.id,
+    is_rest_day: false,
+    label: shiftBinding.input.name,
+    metadata: {
+      source: "planning_wizard",
+      scope: shiftBinding.scope,
+      rotating,
+    },
+  }
+}
+
+function applyCaseBindingsToDays(
+  entriesByDay: Record<number, PlanningEntryApiItem[]>,
+  caseBindings: WizardShiftBinding[],
+  targetDays: number[],
+  rotating: boolean,
+  rotationStartOffset = 0
+) {
+  if (caseBindings.length === 0) {
+    return
+  }
+
+  if (rotating) {
+    targetDays.forEach((day, index) => {
+      const binding = caseBindings[(rotationStartOffset + index) % caseBindings.length]
+      entriesByDay[day].push(createShiftEntry(day, binding, true))
+    })
+    return
+  }
+
+  caseBindings.forEach((binding) => {
+    binding.input.days
+      .filter((day) => targetDays.includes(day))
+      .forEach((day) => entriesByDay[day].push(createShiftEntry(day, binding, false)))
+  })
+}
+
+function buildEntriesFromWizardConfig(
+  payload: PlanningCreationWizardPayload,
+  weekdayCaseBindings: WizardShiftBinding[],
+  weekendCaseBindings: WizardShiftBinding[]
+) {
+  const entriesByDay: Record<number, PlanningEntryApiItem[]> = {
+    0: [],
+    1: [],
+    2: [],
+    3: [],
+    4: [],
+    5: [],
+    6: [],
+  }
+
+  if (payload.hasWeekdayProgram) {
+    applyCaseBindingsToDays(
+      entriesByDay,
+      weekdayCaseBindings,
+      WEEKDAY_DAY_KEYS,
+      payload.weekdayRotationEnabled
+    )
+  }
+
+  if (payload.weekendMode === "different") {
+    applyCaseBindingsToDays(
+      entriesByDay,
+      weekendCaseBindings,
+      WEEKEND_DAY_KEYS,
+      payload.weekendRotationEnabled
+    )
+  } else if (payload.weekendMode === "same_as_week" && payload.hasWeekdayProgram && weekdayCaseBindings.length > 0) {
+    const weekendDaysSelectedInWeekConfig = Array.from(
+      new Set(
+        weekdayCaseBindings.flatMap((binding) =>
+          binding.input.days.filter((day) => WEEKEND_DAY_KEYS.includes(day))
+        )
+      )
+    ).sort((left, right) => left - right)
+
+    if (payload.weekendRotationEnabled) {
+      if (weekendDaysSelectedInWeekConfig.length > 0) {
+        applyCaseBindingsToDays(
+          entriesByDay,
+          weekdayCaseBindings,
+          weekendDaysSelectedInWeekConfig,
+          true,
+          WEEKDAY_DAY_KEYS.length
+        )
+      }
+    } else {
+      applyCaseBindingsToDays(
+        entriesByDay,
+        weekdayCaseBindings,
+        WEEKEND_DAY_KEYS,
+        false
+      )
+    }
+  }
+
+  return WEEK_DAYS.flatMap((day) =>
+    entriesByDay[day.key].length > 0 ? entriesByDay[day.key] : [createRestEntry(day.key)]
+  )
 }
 
 function formatTime(time: string | null | undefined) {
@@ -405,8 +681,7 @@ function getPlanningDayEntries(
   const weeklyEntries = (planning.entries ?? [])
     .filter(
       (entry) =>
-        entry.day_of_week === dayOfWeek &&
-        entry.sequence_index == null &&
+        resolveRecurringEntryDay(entry) === dayOfWeek &&
         entry.start_date == null &&
         entry.end_date == null
     )
@@ -418,7 +693,7 @@ function getPlanningDayEntries(
 
   if (weeklyEntries.length > 0) {
     return weeklyEntries.map((entry): PlanningSlotChip => {
-      if (entry.is_rest_day || !entry.work_shift) {
+      if (entry.is_rest_day) {
         return {
           key: `entry-${entry.id ?? `${dayOfWeek}-rest`}`,
           label: entry.label || "Repos",
@@ -427,10 +702,11 @@ function getPlanningDayEntries(
         }
       }
 
-      const shift = shiftsById.get(entry.work_shift)
+      const workShiftId = entry.work_shift ?? null
+      const shift = workShiftId ? shiftsById.get(workShiftId) : null
       return {
-        key: `entry-${entry.id ?? `${dayOfWeek}-${entry.work_shift}`}`,
-        label: shift?.name ?? entry.label ?? "Shift",
+        key: `entry-${entry.id ?? `${dayOfWeek}-${workShiftId ?? "unknown"}`}`,
+        label: shift?.name ?? entry.label ?? "Quart",
         slotType: "shift" as const,
         timeRange: `${formatTime(shift?.start_time)}-${formatTime(shift?.end_time)}`,
       }
@@ -467,14 +743,15 @@ const PLANNING_ERROR_MESSAGES = {
   SHIFT_UPDATE_FAILED: "Erreur de modification du quart.",
   PLANNING_TENANT_MISSING: "Tenant introuvable pour creer le planning.",
   PLANNING_NAME_REQUIRED: "Le nom du planning est obligatoire.",
-  PLANNING_ENTRIES_REQUIRED: "Ajoute au moins un shift ou un jour de repos dans le timetable.",
+  PLANNING_ENTRIES_REQUIRED: "Ajoute au moins un quart ou un jour de repos dans l'emploi de temps.",
   PLANNING_CREATE_FAILED: "Erreur de creation du planning.",
   PLANNING_UPDATE_FAILED: "Erreur de modification du planning.",
-  SHIFT_DELETE_FAILED: "Erreur de suppression du shift.",
+  SHIFT_DELETE_FAILED: "Erreur de suppression du quart.",
   ASSIGN_PLANNING_FAILED: "Erreur d'assignation du planning.",
-  GUIDE_ASSIGN_PREPARE_FAILED: "Impossible de preparer l'attribution rapide depuis l'assistant RH.",
-  PLANNING_DELETE_FAILED: "Erreur de suppression du timetable.",
-  GUIDE_ASSIGN_REQUIRES_PLANNING: "Creez d'abord un planning, puis relancez l'attribution.",
+  ASSIGN_DATE_RANGE_INVALID: "La date de fin doit etre superieure ou egale a la date de debut.",
+  PLANNING_DELETE_FAILED: "Erreur de suppression de l'emploi de temps.",
+  WIZARD_TENANT_MISSING: "Tenant introuvable pour creer le planning depuis le wizard.",
+  WIZARD_CREATE_FAILED: "Erreur lors de la creation du planning depuis le wizard.",
 } as const
 
 type PlanningErrorCode = keyof typeof PLANNING_ERROR_MESSAGES
@@ -495,7 +772,7 @@ function getErrorDetail(error: unknown) {
 
 export default function PlanningPage() {
   const searchParams = useSearchParams()
-  const [activeView, setActiveView] = useState<PlanningView>("timetable")
+  const [activeView, setActiveView] = useState<PlanningView | null>("schedule")
   const [employees, setEmployees] = useState<EmployeeApiItem[]>([])
   const [departments, setDepartments] = useState<DepartmentApiItem[]>([])
   const [departmentsById, setDepartmentsById] = useState<Map<number, string>>(new Map())
@@ -509,6 +786,7 @@ export default function PlanningPage() {
   const [loading, setLoading] = useState(true)
   const [loadingSchedule, setLoadingSchedule] = useState(false)
   const [error, setError] = useState<PlanningUiError | null>(null)
+  const [showScrollCue, setShowScrollCue] = useState(true)
   const [createShiftOpen, setCreateShiftOpen] = useState(false)
   const [createPlanningOpen, setCreatePlanningOpen] = useState(false)
   const [isSavingShift, setIsSavingShift] = useState(false)
@@ -524,14 +802,17 @@ export default function PlanningPage() {
   const [isAssigningPlanning, setIsAssigningPlanning] = useState(false)
   const [assignPlanningOpen, setAssignPlanningOpen] = useState(false)
   const [assignPlanningTarget, setAssignPlanningTarget] = useState<PlanningApiItem | null>(null)
-  const [hrGuideOpen, setHrGuideOpen] = useState(false)
+  const [planningPreviewTarget, setPlanningPreviewTarget] = useState<PlanningApiItem | null>(null)
   const [assignMode, setAssignMode] = useState<"departments" | "employees">("employees")
   const [selectedAssignEmployeeIds, setSelectedAssignEmployeeIds] = useState<number[]>([])
   const [selectedAssignDepartmentIds, setSelectedAssignDepartmentIds] = useState<number[]>([])
+  const [assignStartDate, setAssignStartDate] = useState(() => getDefaultAssignDateRange().startDate)
+  const [assignEndDate, setAssignEndDate] = useState(() => getDefaultAssignDateRange().endDate)
   const [includeSubDepartments, setIncludeSubDepartments] = useState(false)
   const [assignSearch, setAssignSearch] = useState("")
-  const [isPreparingGuideAssign, setIsPreparingGuideAssign] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [isCreatingWizardPlanning, setIsCreatingWizardPlanning] = useState(false)
+  const [planningListPage, setPlanningListPage] = useState(1)
 
   const timetableRef = useRef<HTMLElement | null>(null)
   const shiftRef = useRef<HTMLElement | null>(null)
@@ -544,6 +825,7 @@ export default function PlanningPage() {
   const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null)
   const [planningEditorMode, setPlanningEditorMode] = useState<"builder" | "timeline">("builder")
   const [copyMenuDay, setCopyMenuDay] = useState<number | null>(null)
+  const [copySelectionDays, setCopySelectionDays] = useState<number[]>([])
   const raiseError = useCallback(
     (
       code: PlanningErrorCode,
@@ -598,51 +880,214 @@ export default function PlanningPage() {
   const planningCards = useMemo(
     () => [
       {
+        key: "schedule" as const,
+        label: "Calendrier des quarts",
+        helper: "Calendrier mensuel",
+        icon: CalendarRange,
+        action: () => focusView("schedule"),
+      },
+      {
         key: "timetable" as const,
-        label: "Timetable",
+        label: "Emploi de temps",
         helper: `${plannings.length} existant${plannings.length > 1 ? "s" : ""}`,
         icon: Plus,
         action: () => focusView("timetable"),
       },
       {
         key: "shift" as const,
-        label: "Shift",
+        label: "Quart",
         helper: `${workShifts.length} existant${workShifts.length > 1 ? "s" : ""}`,
         icon: Shapes,
         action: () => focusView("shift"),
-      },
-      {
-        key: "schedule" as const,
-        label: "Shift Schedule",
-        helper: "Calendrier mensuel",
-        icon: CalendarRange,
-        action: () => focusView("schedule"),
       },
     ],
     [focusView, plannings.length, workShifts.length]
   )
 
-  const hrGuideStats = useMemo(() => {
-    const assignedEmployeeCount = employees.filter((employee) => Boolean(employee.effective_planning?.id)).length
-    return {
-      shiftCount: workShifts.length,
-      planningCount: plannings.length,
-      employeeCount: employees.length,
-      assignedEmployeeCount,
+  const timezoneOptions = useMemo(() => {
+    const options = new Set<string>(COMMON_TIMEZONES)
+    const currentTimezone = newPlanning.timezone?.trim()
+    if (currentTimezone) {
+      options.add(currentTimezone)
     }
-  }, [employees, plannings.length, workShifts.length])
 
-  const pageSystemStatus: "connected" | "disconnected" | "syncing" =
-    loading ||
-    loadingSchedule ||
-    isSavingShift ||
-    isSavingPlanning ||
-    isAssigningPlanning ||
-    isPreparingGuideAssign
-      ? "syncing"
-      : error?.scope === "global"
-        ? "disconnected"
-        : "connected"
+    const intlWithSupportedValues = Intl as typeof Intl & {
+      supportedValuesOf?: (key: "timeZone") => string[]
+    }
+    const supportedTimezones = intlWithSupportedValues.supportedValuesOf?.("timeZone") ?? []
+    supportedTimezones.forEach((timezone) => options.add(timezone))
+
+    return Array.from(options)
+      .map((timezone) => {
+        const offset = getUtcOffsetLabel(timezone)
+        return {
+          value: timezone,
+          offset,
+          offsetMinutes: utcOffsetToMinutes(offset),
+          label: `UTC${offset} - ${timezone}`,
+        }
+      })
+      .sort(
+        (left, right) =>
+          left.offsetMinutes - right.offsetMinutes || left.value.localeCompare(right.value)
+      )
+  }, [newPlanning.timezone])
+
+  const planningRecap = useMemo(() => {
+    const assignedByPlanning = new Map<number, number>()
+    employees.forEach((employee) => {
+      const planningId = employee.effective_planning?.id
+      if (!planningId) {
+        return
+      }
+      assignedByPlanning.set(planningId, (assignedByPlanning.get(planningId) ?? 0) + 1)
+    })
+
+    return plannings.map((planning) => {
+      const weekdayModes = WEEKDAY_DAY_KEYS.map((day) =>
+        getPlanningDayEntries(planning, day, workShiftsById).some((entry) => entry.slotType !== "rest")
+      )
+      const weekendModes = WEEKEND_DAY_KEYS.map((day) =>
+        getPlanningDayEntries(planning, day, workShiftsById).some((entry) => entry.slotType !== "rest")
+      )
+      const weekdaysWithProgram = weekdayModes.filter(Boolean).length
+      const weekendWithProgram = weekendModes.filter(Boolean).length
+      const uniqueShiftIds = new Set(
+        (planning.entries ?? [])
+          .map((entry) => entry.work_shift)
+          .filter((workShift): workShift is number => Boolean(workShift))
+      )
+      return {
+        planning,
+        weekdaysWithProgram,
+        weekendWithProgram,
+        shiftCount: uniqueShiftIds.size,
+        assignedEmployees: assignedByPlanning.get(planning.id) ?? 0,
+      }
+    })
+  }, [employees, plannings, workShiftsById])
+
+  const planningPreviewRecap = useMemo(() => {
+    if (!planningPreviewTarget) return null
+    return planningRecap.find((item) => item.planning.id === planningPreviewTarget.id) ?? null
+  }, [planningPreviewTarget, planningRecap])
+  const planningPreviewDayEntries = useMemo(() => {
+    if (!planningPreviewTarget) return []
+
+    const weekly = WEEK_DAYS.map((day) => ({
+      day,
+      entries: getPlanningDayEntries(planningPreviewTarget, day.key, workShiftsById),
+    }))
+    const hasWeekly = weekly.some((item) => item.entries.length > 0)
+    if (hasWeekly) {
+      return weekly
+    }
+
+    const derivedByDay = new Map<number, PlanningSlotChip[]>()
+    WEEK_DAYS.forEach((day) => derivedByDay.set(day.key, []))
+
+    const addDerivedSlot = (
+      dayKey: number,
+      slot: { label: string; timeRange: string | null; slotType: "work" | "shift" | "rest" }
+    ) => {
+      const current = derivedByDay.get(dayKey) ?? []
+      const key = `${slot.slotType}|${slot.label}|${slot.timeRange ?? ""}`
+      if (current.some((item) => item.key === key)) {
+        return
+      }
+      current.push({ key, label: slot.label, timeRange: slot.timeRange, slotType: slot.slotType })
+      derivedByDay.set(dayKey, current)
+    }
+
+    ;(planningPreviewTarget.entries ?? []).forEach((entry, index) => {
+      const shift = entry.work_shift ? workShiftsById.get(entry.work_shift) : null
+      const label = shift?.name ?? entry.label ?? (entry.is_rest_day ? "Repos" : "Quart")
+      const timeRange = shift ? `${formatTime(shift.start_time)}-${formatTime(shift.end_time)}` : null
+      const slotType = entry.is_rest_day ? "rest" : "shift"
+
+      if (entry.day_of_week != null && entry.day_of_week >= 0 && entry.day_of_week <= 6) {
+        addDerivedSlot(entry.day_of_week, { label, timeRange, slotType })
+        return
+      }
+
+      if (entry.start_date) {
+        const parsed = new Date(`${entry.start_date}T00:00:00`)
+        if (!Number.isNaN(parsed.getTime())) {
+          const dayKey = (parsed.getDay() + 6) % 7
+          addDerivedSlot(dayKey, { label, timeRange, slotType })
+          return
+        }
+      }
+
+      if (entry.sequence_index != null) {
+        const normalized = ((entry.sequence_index % 7) + 7) % 7
+        addDerivedSlot(normalized, { label, timeRange, slotType })
+        return
+      }
+
+      const fallbackDay = index % 7
+      addDerivedSlot(fallbackDay, { label, timeRange, slotType })
+    })
+
+    return WEEK_DAYS.map((day) => ({
+      day,
+      entries: derivedByDay.get(day.key) ?? [],
+    }))
+  }, [planningPreviewTarget, workShiftsById])
+  const planningPreviewHasWeeklyEntries = useMemo(
+    () => planningPreviewDayEntries.some((item) => item.entries.length > 0),
+    [planningPreviewDayEntries]
+  )
+  const planningPreviewNonWeeklyEntries = useMemo(() => {
+    if (!planningPreviewTarget) return []
+    return (planningPreviewTarget.entries ?? [])
+      .filter(
+        (entry) =>
+          entry.day_of_week == null ||
+          entry.sequence_index != null ||
+          entry.start_date != null ||
+          entry.end_date != null
+      )
+      .map((entry, index) => {
+        const shift = entry.work_shift ? workShiftsById.get(entry.work_shift) : null
+        const label = shift?.name ?? entry.label ?? (entry.is_rest_day ? "Repos" : "Entree")
+        const timeRange = shift ? `${formatTime(shift.start_time)}-${formatTime(shift.end_time)}` : null
+        return {
+          key: `${entry.id ?? `non-weekly-${index}`}`,
+          label,
+          timeRange,
+          sequenceIndex: entry.sequence_index,
+          startDate: entry.start_date,
+          endDate: entry.end_date,
+          isRestDay: Boolean(entry.is_rest_day),
+        }
+      })
+      .sort((left, right) => {
+        const leftSeq = left.sequenceIndex ?? Number.MAX_SAFE_INTEGER
+        const rightSeq = right.sequenceIndex ?? Number.MAX_SAFE_INTEGER
+        if (leftSeq !== rightSeq) return leftSeq - rightSeq
+        return left.key.localeCompare(right.key)
+      })
+  }, [planningPreviewTarget, workShiftsById])
+
+  const planningListPageSize = 3
+  const planningListTotalPages = Math.max(1, Math.ceil(planningRecap.length / planningListPageSize))
+  const paginatedPlanningRecap = useMemo(() => {
+    const start = (planningListPage - 1) * planningListPageSize
+    return planningRecap.slice(start, start + planningListPageSize)
+  }, [planningListPage, planningRecap])
+
+  useEffect(() => {
+    setPlanningListPage((current) => Math.min(current, planningListTotalPages))
+  }, [planningListTotalPages])
+
+  useEffect(() => {
+    if (!planningPreviewTarget) return
+    const stillExists = plannings.some((planning) => planning.id === planningPreviewTarget.id)
+    if (!stillExists) {
+      setPlanningPreviewTarget(null)
+    }
+  }, [planningPreviewTarget, plannings])
 
   const shiftMonth = useCallback((delta: number) => {
     const base = new Date(`${month}-01T00:00:00`)
@@ -789,6 +1234,15 @@ export default function PlanningPage() {
       focusView(nextView)
     }
   }, [focusView, searchParams])
+
+  useEffect(() => {
+    const onScroll = () => {
+      setShowScrollCue(window.scrollY < 220)
+    }
+    onScroll()
+    window.addEventListener("scroll", onScroll, { passive: true })
+    return () => window.removeEventListener("scroll", onScroll)
+  }, [])
 
   useEffect(() => {
     const requestedMonth = searchParams.get("month")
@@ -946,6 +1400,7 @@ export default function PlanningPage() {
     setSelectedShiftId(null)
     setPlanningEditorMode("builder")
     setCopyMenuDay(null)
+    setCopySelectionDays([])
     setNewPlanning(buildDefaultPlanningForm())
     setCreatePlanningOpen(true)
   }
@@ -956,14 +1411,26 @@ export default function PlanningPage() {
     setSelectedShiftId(null)
     setPlanningEditorMode("builder")
     setCopyMenuDay(null)
+    setCopySelectionDays([])
     setNewPlanning({
       name: planning.name,
       code: planning.code ?? "",
       description: planning.description ?? "",
       timezone: planning.timezone ?? "Africa/Abidjan",
-      dailySlots: buildDailySlotsFromPlanning(planning),
+      dailySlots: buildDailySlotsFromPlanning(planning, workShiftsById),
     })
     setCreatePlanningOpen(true)
+  }
+
+  const openPlanningPreviewDialog = (planning: PlanningApiItem) => {
+    setError(null)
+    setPlanningPreviewTarget(planning)
+  }
+
+  const closePlanningPreviewDialog = (open: boolean) => {
+    if (!open) {
+      setPlanningPreviewTarget(null)
+    }
   }
 
   const closePlanningDialog = (open: boolean) => {
@@ -974,158 +1441,17 @@ export default function PlanningPage() {
       setSelectedShiftId(null)
       setPlanningEditorMode("builder")
       setCopyMenuDay(null)
+      setCopySelectionDays([])
       setNewPlanning(buildDefaultPlanningForm())
     }
   }
-
-  const ensureGuidePlanningReady = useCallback(async (guidePayload: HrQuickAssignPayload) => {
-    const existingPlanning = pickLatestPlanning(plannings)
-    if (!guidePayload.createFromScratch && existingPlanning) {
-      return existingPlanning
-    }
-
-    const resolvedTenantId =
-      tenantId ??
-      employees[0]?.tenant ??
-      departments[0]?.tenant ??
-      workShifts[0]?.tenant ??
-      existingPlanning?.tenant ??
-      null
-    if (!resolvedTenantId) {
-      throw new Error("Aucun tenant disponible pour preparer une attribution automatique.")
-    }
-
-    const serviceStart = normalizeTimeInput(guidePayload.serviceStart || "08:00")
-    const serviceEnd = normalizeTimeInput(guidePayload.serviceEnd || "17:00")
-    if (!isValidTime24h(serviceStart) || !isValidTime24h(serviceEnd)) {
-      throw new Error("Les heures de service sont invalides (format attendu HH:MM).")
-    }
-
-    const breakStart = guidePayload.breakEnabled ? normalizeTimeInput(guidePayload.breakStart || "") : ""
-    const breakEnd = guidePayload.breakEnabled ? normalizeTimeInput(guidePayload.breakEnd || "") : ""
-    if (guidePayload.breakEnabled && (!breakStart || !breakEnd)) {
-      throw new Error("Pause incomplete: renseignez l'heure de debut et l'heure de fin.")
-    }
-    if (
-      guidePayload.breakEnabled &&
-      ((!isValidTime24h(breakStart) && breakStart.length > 0) || (!isValidTime24h(breakEnd) && breakEnd.length > 0))
-    ) {
-      throw new Error("Les heures de pause sont invalides (format attendu HH:MM).")
-    }
-
-    const weekendStart = normalizeTimeInput(guidePayload.weekendStart || "")
-    const weekendEnd = normalizeTimeInput(guidePayload.weekendEnd || "")
-    if (guidePayload.weekendMode === "different") {
-      if (!isValidTime24h(weekendStart) || !isValidTime24h(weekendEnd)) {
-        throw new Error("Les heures week-end sont invalides (format attendu HH:MM).")
-      }
-    }
-
-    const safeLate = Math.max(0, Number(guidePayload.lateAllowableMinutes || 0))
-    const safeEarly = Math.max(0, Number(guidePayload.earlyLeaveAllowableMinutes || 0))
-    const stamp = Date.now().toString().slice(-6)
-
-    const shiftBaseName = guidePayload.shiftName.trim() || ASSISTANT_AUTO_SHIFT_NAME
-    const planningBaseName = guidePayload.planningName.trim() || ASSISTANT_AUTO_PLANNING_NAME
-    const timezoneValue = guidePayload.timezone.trim() || "Africa/Abidjan"
-
-    const weekdayShift = await createWorkShift({
-      tenant: resolvedTenantId,
-      name: `${shiftBaseName} ${stamp}`,
-      code: `AUTO-SHIFT-${stamp}`,
-      description: "Cree automatiquement par l'assistant RH (a partir de zero).",
-      start_time: serviceStart,
-      end_time: serviceEnd,
-      break_start_time: guidePayload.breakEnabled ? breakStart : null,
-      break_end_time: guidePayload.breakEnabled ? breakEnd : null,
-      overtime_minutes: 0,
-      late_allowable_minutes: safeLate,
-      early_leave_allowable_minutes: safeEarly,
-      metadata: {
-        auto_created_by: "hr_assistant",
-        assistant_flow: "from_scratch",
-      },
-    })
-
-    let weekendShiftId: number | null = null
-    if (guidePayload.weekendMode === "same") {
-      weekendShiftId = weekdayShift.id
-    } else if (guidePayload.weekendMode === "different") {
-      const weekendShift = await createWorkShift({
-        tenant: resolvedTenantId,
-        name: `${shiftBaseName} Weekend ${stamp}`,
-        code: `AUTO-SHIFT-WE-${stamp}`,
-        description: "Quart week-end cree automatiquement par l'assistant RH.",
-        start_time: weekendStart,
-        end_time: weekendEnd,
-        break_start_time: guidePayload.breakEnabled ? breakStart : null,
-        break_end_time: guidePayload.breakEnabled ? breakEnd : null,
-        overtime_minutes: 0,
-        late_allowable_minutes: safeLate,
-        early_leave_allowable_minutes: safeEarly,
-        metadata: {
-          auto_created_by: "hr_assistant",
-          assistant_flow: "from_scratch_weekend",
-        },
-      })
-      weekendShiftId = weekendShift.id
-    }
-
-    const entryDays = WEEK_DAYS.map((day): PlanningEntryApiItem => {
-      const isWeekend = day.key >= 5
-      const targetShiftId = isWeekend ? weekendShiftId : weekdayShift.id
-      if (!targetShiftId) {
-        return {
-          day_of_week: day.key,
-          sequence_index: null,
-          start_date: null,
-          end_date: null,
-          work_shift: null,
-          is_rest_day: true,
-          label: "Repos",
-          metadata: {},
-        }
-      }
-      return {
-        day_of_week: day.key,
-        sequence_index: null,
-        start_date: null,
-        end_date: null,
-        work_shift: targetShiftId,
-        is_rest_day: false,
-        label: isWeekend && guidePayload.weekendMode === "different" ? `${shiftBaseName} Weekend` : shiftBaseName,
-        metadata: {
-          source: "hr_assistant_auto",
-        },
-      }
-    })
-
-    const autoPlanning = await createPlanning({
-      tenant: resolvedTenantId,
-      name: `${planningBaseName} ${stamp}`,
-      code: `AUTO-PLN-${stamp}`,
-      description: "Planning genere automatiquement depuis l'assistant RH.",
-      timezone: timezoneValue,
-      entries: entryDays,
-      metadata: {
-        auto_created_by: "hr_assistant",
-        assistant_flow: "from_scratch",
-        scope: guidePayload.scope,
-      },
-    })
-
-    const refreshed = await loadBaseData()
-    if (refreshed?.planningsData?.length) {
-      return refreshed.planningsData.find((planning) => planning.id === autoPlanning.id) ?? autoPlanning
-    }
-    return autoPlanning
-  }, [departments, employees, loadBaseData, plannings, tenantId, workShifts])
 
   const openAssignPlanningDialog = (
     planning: PlanningApiItem,
     mode: "employees" | "departments" = "employees",
     options?: { preselectAll?: boolean }
   ) => {
+    const defaultRange = getDefaultAssignDateRange()
     setError(null)
     setAssignPlanningTarget(planning)
     setAssignMode(mode)
@@ -1138,38 +1464,22 @@ export default function PlanningPage() {
       setSelectedAssignDepartmentIds([])
     }
     setIncludeSubDepartments(false)
+    setAssignStartDate(defaultRange.startDate)
+    setAssignEndDate(defaultRange.endDate)
     setAssignPlanningOpen(true)
-  }
-
-  const openAssignPlanningFromGuide = async (guidePayload: HrQuickAssignPayload) => {
-    setIsPreparingGuideAssign(true)
-    setError(null)
-    try {
-      const readyPlanning = await ensureGuidePlanningReady(guidePayload)
-      if (!readyPlanning) {
-        raiseError("GUIDE_ASSIGN_REQUIRES_PLANNING")
-        return
-      }
-      openAssignPlanningDialog(
-        readyPlanning,
-        guidePayload.scope === "department" ? "departments" : "employees",
-        { preselectAll: true }
-      )
-    } catch (prepareError) {
-      raiseError("GUIDE_ASSIGN_PREPARE_FAILED", getErrorDetail(prepareError))
-    } finally {
-      setIsPreparingGuideAssign(false)
-    }
   }
 
   const closeAssignPlanningDialog = (open: boolean) => {
     setAssignPlanningOpen(open)
     if (!open) {
+      const defaultRange = getDefaultAssignDateRange()
       setAssignPlanningTarget(null)
       setAssignMode("employees")
       setSelectedAssignEmployeeIds([])
       setSelectedAssignDepartmentIds([])
       setIncludeSubDepartments(false)
+      setAssignStartDate(defaultRange.startDate)
+      setAssignEndDate(defaultRange.endDate)
       setAssignSearch("")
     }
   }
@@ -1446,6 +1756,19 @@ export default function PlanningPage() {
   const handleAssignPlanning = async () => {
     if (!assignPlanningTarget) return
     const planningId = assignPlanningTarget.id
+    const startDate = assignStartDate.trim()
+    const endDate = assignEndDate.trim()
+    if (startDate && endDate && endDate < startDate) {
+      raiseError("ASSIGN_DATE_RANGE_INVALID")
+      return
+    }
+    const assignmentPeriod =
+      startDate || endDate
+        ? {
+            startDate: startDate || null,
+            endDate: endDate || null,
+          }
+        : undefined
 
     setIsAssigningPlanning(true)
     setError(null)
@@ -1453,7 +1776,9 @@ export default function PlanningPage() {
       if (assignMode === "employees") {
         if (!selectedAssignEmployeeIds.length) return
         const updatedEmployees = await Promise.all(
-          selectedAssignEmployeeIds.map((employeeId) => assignEmployeePlanning(employeeId, planningId))
+          selectedAssignEmployeeIds.map((employeeId) =>
+            assignEmployeePlanning(employeeId, planningId, assignmentPeriod)
+          )
         )
         const byId = new Map(updatedEmployees.map((employee) => [employee.id, employee]))
         setEmployees((prev) => prev.map((employee) => byId.get(employee.id) ?? employee))
@@ -1464,7 +1789,7 @@ export default function PlanningPage() {
         if (!selectedAssignDepartmentIds.length) return
         await Promise.all(
           selectedAssignDepartmentIds.map((departmentId) =>
-            assignDepartmentPlanning(departmentId, planningId, includeSubDepartments)
+            assignDepartmentPlanning(departmentId, planningId, includeSubDepartments, assignmentPeriod)
           )
         )
         await loadBaseData()
@@ -1574,26 +1899,158 @@ export default function PlanningPage() {
     })
   }
 
-  const copyDayWithPreset = (sourceDay: number, preset: "next" | "weekdays" | "weekend" | "all") => {
-    const allDays = WEEK_DAYS.map((day) => day.key)
-    const targets =
-      preset === "next"
-        ? [((sourceDay + 1) % 7)]
-        : preset === "weekdays"
-          ? [0, 1, 2, 3, 4].filter((day) => day !== sourceDay)
-          : preset === "weekend"
-            ? [5, 6].filter((day) => day !== sourceDay)
-            : allDays.filter((day) => day !== sourceDay)
+  const applyCopyDaySelection = (sourceDay: number) => {
+    const targets = copySelectionDays.filter((day) => day !== sourceDay)
     copyDayToTargets(sourceDay, targets)
     setCopyMenuDay(null)
+    setCopySelectionDays([])
+  }
+
+  const handleCreatePlanningFromWizard = async (payload: PlanningCreationWizardPayload) => {
+    const resolvedTenantId =
+      tenantId ??
+      employees[0]?.tenant ??
+      departments[0]?.tenant ??
+      workShifts[0]?.tenant ??
+      plannings[0]?.tenant ??
+      null
+
+    if (!resolvedTenantId) {
+      raiseError("WIZARD_TENANT_MISSING")
+      toast.error("Impossible de creer le planning: tenant introuvable.")
+      throw new Error("Tenant introuvable")
+    }
+
+    setIsCreatingWizardPlanning(true)
+    setError(null)
+
+    try {
+      const stamp = Date.now().toString().slice(-6)
+      const basePlanningName = payload.planningName.trim()
+      const basePlanningCode = payload.planningCode.trim() || buildWizardPlanningCode(basePlanningName)
+      const overtimeMinutes = payload.overtimeEnabled ? payload.overtimeMinutes : 0
+
+      const createShiftBindings = async (
+        items: PlanningWizardCase[],
+        scope: "weekday" | "weekend"
+      ): Promise<WizardShiftBinding[]> => {
+        if (items.length === 0) {
+          return []
+        }
+
+        return Promise.all(
+          items.map(async (item, index) => {
+            const workShift = await createWorkShift({
+              tenant: resolvedTenantId,
+              name: `${basePlanningName} - ${item.name.trim()} ${scope === "weekday" ? "S" : "WE"}${index + 1}-${stamp}`,
+              code: `WZD-${scope === "weekday" ? "W" : "E"}-${stamp}-${String(index + 1).padStart(2, "0")}`,
+              description: `Cas ${scope === "weekday" ? "semaine" : "week-end"} genere via wizard planning.`,
+              start_time: item.startTime.trim(),
+              end_time: item.endTime.trim(),
+              break_start_time: null,
+              break_end_time: null,
+              overtime_minutes: overtimeMinutes,
+              late_allowable_minutes: payload.lateAllowableMinutes,
+              early_leave_allowable_minutes: payload.earlyLeaveAllowableMinutes,
+              metadata: {
+                source: "planning_wizard",
+                case_scope: scope,
+                case_index: index + 1,
+                pause_counted: payload.pauseCounted,
+                pause_tolerance_minutes: payload.pauseToleranceMinutes,
+                overtime_enabled: payload.overtimeEnabled,
+              },
+            })
+
+            return {
+              input: item,
+              workShift,
+              scope,
+            }
+          })
+        )
+      }
+
+      const weekdayCaseBindings = await createShiftBindings(payload.weekdayCases, "weekday")
+      const weekendCaseBindings =
+        payload.weekendMode === "different"
+          ? await createShiftBindings(payload.weekendCases, "weekend")
+          : []
+
+      const entries = buildEntriesFromWizardConfig(payload, weekdayCaseBindings, weekendCaseBindings)
+
+      const createdPlanning = await createPlanning({
+        tenant: resolvedTenantId,
+        name: basePlanningName,
+        code: basePlanningCode,
+        description: payload.planningDescription.trim(),
+        timezone: payload.timezone.trim() || "Africa/Abidjan",
+        entries,
+        metadata: {
+          source: "planning_wizard",
+          has_weekday_program: payload.hasWeekdayProgram,
+          weekend_mode: payload.weekendMode,
+          rotating_cases: payload.weekdayRotationEnabled || payload.weekendRotationEnabled,
+          weekday_rotation_enabled: payload.weekdayRotationEnabled,
+          weekend_rotation_enabled: payload.weekendRotationEnabled,
+          pause_counted: payload.pauseCounted,
+          pause_tolerance_minutes: payload.pauseToleranceMinutes,
+          overtime_enabled: payload.overtimeEnabled,
+          overtime_minutes: overtimeMinutes,
+        },
+      })
+
+      let assignedCount = 0
+      let failedCount = 0
+      let assignmentLabel = "utilisateur(s)"
+
+      if (payload.assignmentScope === "employees" && payload.assignEmployeeIds.length > 0) {
+        const assignResults = await Promise.allSettled(
+          payload.assignEmployeeIds.map((employeeId) => assignEmployeePlanning(employeeId, createdPlanning.id))
+        )
+        assignedCount = assignResults.filter((result) => result.status === "fulfilled").length
+        failedCount = assignResults.length - assignedCount
+      }
+
+      if (payload.assignmentScope === "departments" && payload.assignDepartmentIds.length > 0) {
+        const assignResults = await Promise.allSettled(
+          payload.assignDepartmentIds.map((departmentId) =>
+            assignDepartmentPlanning(departmentId, createdPlanning.id, payload.includeSubDepartments)
+          )
+        )
+        assignedCount = assignResults.filter((result) => result.status === "fulfilled").length
+        failedCount = assignResults.length - assignedCount
+        assignmentLabel = payload.includeSubDepartments
+          ? "departement(s) et sous-departements"
+          : "departement(s)"
+      }
+
+      if (failedCount > 0) {
+        toast.warning(`${failedCount} affectation(s) ${assignmentLabel} n'ont pas pu etre appliquees.`)
+      }
+
+      await loadBaseData()
+      await loadSchedule()
+
+      toast.success("Planning cree avec succes", {
+        description:
+          assignedCount > 0
+            ? `${assignedCount} ${assignmentLabel} affecte(s) automatiquement.`
+            : "Le planning hebdomadaire est pret.",
+      })
+    } catch (wizardError) {
+      raiseError("WIZARD_CREATE_FAILED", getErrorDetail(wizardError))
+      toast.error("Erreur lors de la creation du planning via le wizard")
+      throw wizardError
+    } finally {
+      setIsCreatingWizardPlanning(false)
+    }
   }
 
   return (
     <div className="app-shell">
       <AppSidebar />
       <div className="app-shell-content">
-        <Header systemStatus={pageSystemStatus} />
-
         <main className="app-page space-y-6">
           {/* ── Premium Hero ── */}
           <section className="animate-fade-up relative isolate overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
@@ -1615,7 +2072,7 @@ export default function PlanningPage() {
                 </div>
                 <h1 className="text-3xl font-bold tracking-tight lg:text-4xl">Planning</h1>
                 <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-                  Pilotez les quarts, timetables et affectations en un flux opérationnel unique.
+                  Pilotez les quarts, emplois de temps et affectations en un flux opérationnel unique.
                 </p>
               </div>
 
@@ -1628,15 +2085,7 @@ export default function PlanningPage() {
                     onClick={() => setWizardOpen(true)}
                   >
                     <CalendarClock className="h-4 w-4" />
-                    Assistant emploi du temps
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-10 rounded-xl border-amber-400/30 bg-amber-500/10 text-amber-700 dark:text-amber-200 hover:bg-amber-500/18 hover:text-amber-800 dark:hover:text-amber-100"
-                    onClick={() => setHrGuideOpen(true)}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    Assistant RH
+                    Nouveau planning
                   </Button>
                   <Button
                     variant="outline"
@@ -1649,23 +2098,23 @@ export default function PlanningPage() {
                   </Button>
                   <Button className="h-10 rounded-xl" onClick={openCreatePlanningDialog}>
                     <Plus className="h-4 w-4" />
-                    Timetable
+                    Emploi de temps
                   </Button>
                   <Button variant="secondary" className="h-10 rounded-xl" onClick={openCreateShiftDialog}>
                     <Plus className="h-4 w-4" />
-                    Shift
+                    Quart
                   </Button>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-background/40 px-3 py-1.5">
                     <CalendarRange className="h-3.5 w-3.5 text-indigo-400" />
                     <span className="text-xs font-semibold tabular-nums">{plannings.length}</span>
-                    <span className="text-[10px] text-muted-foreground">Timetables</span>
+                    <span className="text-[10px] text-muted-foreground">Emplois de temps</span>
                   </div>
                   <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-background/40 px-3 py-1.5">
                     <Shapes className="h-3.5 w-3.5 text-emerald-400" />
                     <span className="text-xs font-semibold tabular-nums">{workShifts.length}</span>
-                    <span className="text-[10px] text-muted-foreground">Shifts</span>
+                    <span className="text-[10px] text-muted-foreground">Quarts</span>
                   </div>
                   <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-background/40 px-3 py-1.5">
                     <Users className="h-3.5 w-3.5 text-amber-400" />
@@ -1675,6 +2124,93 @@ export default function PlanningPage() {
                 </div>
               </div>
             </div>
+          </section>
+
+          <section className="grid gap-4">
+            <article className="rounded-2xl border border-border/60 bg-card/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Liste des plannings</p>
+                  <p className="text-xs text-muted-foreground">Cliquez une ligne pour modifier, ou assignez directement</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 rounded-lg border-border/60 bg-background/60 px-2 text-xs"
+                    onClick={() => setPlanningListPage((current) => Math.max(1, current - 1))}
+                    disabled={planningListPage <= 1}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </Button>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {planningListPage}/{planningListTotalPages}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 rounded-lg border-border/60 bg-background/60 px-2 text-xs"
+                    onClick={() =>
+                      setPlanningListPage((current) => Math.min(planningListTotalPages, current + 1))
+                    }
+                    disabled={planningListPage >= planningListTotalPages}
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              {planningRecap.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border/50 bg-background/40 px-3 py-6 text-center text-sm text-muted-foreground">
+                  Aucun planning a afficher pour le moment.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {paginatedPlanningRecap.map((item) => (
+                    <div
+                      key={`recap-${item.planning.id}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openPlanningPreviewDialog(item.planning)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault()
+                          openPlanningPreviewDialog(item.planning)
+                        }
+                      }}
+                      className="rounded-xl border border-border/60 bg-background/45 px-3 py-2.5 wow-transition hover:border-border hover:bg-background/60"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{item.planning.name}</p>
+                          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                            {item.planning.code || "SANS CODE"}
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 rounded-lg px-3 text-xs"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            openAssignPlanningDialog(item.planning)
+                          }}
+                        >
+                          Assigner
+                        </Button>
+                      </div>
+                      <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-4">
+                        <p>Semaine active: {item.weekdaysWithProgram}/5</p>
+                        <p>Week-end actif: {item.weekendWithProgram}/2</p>
+                        <p>Cas utilises: {item.shiftCount}</p>
+                        <p>Utilisateurs: {item.assignedEmployees}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </article>
           </section>
 
           <section className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] md:p-6">
@@ -1737,11 +2273,16 @@ export default function PlanningPage() {
               </nav>
 
               <div className="space-y-6">
+                {!activeView ? (
+                  <div className="rounded-2xl border border-dashed border-border/50 bg-background/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                    Cliquez sur une carte pour afficher son contenu.
+                  </div>
+                ) : null}
                 <section
                   ref={timetableRef}
                   className={cn(
                     "relative overflow-hidden rounded-2xl border p-5 wow-transition md:p-6",
-                    activeView === "timetable" ? "ring-1 ring-indigo-500/20 border-indigo-400/30 bg-indigo-950/10" : "border-border/40 bg-background/30 hover:border-border/60"
+                    activeView === "timetable" ? "ring-1 ring-indigo-500/20 border-indigo-400/30 bg-indigo-950/10" : "hidden"
                   )}
                 >
                   <div className={cn("absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-indigo-500 to-violet-600 wow-transition", activeView === "timetable" ? "opacity-100" : "opacity-0")} />
@@ -1751,7 +2292,7 @@ export default function PlanningPage() {
                         <CalendarRange className="h-5 w-5 text-indigo-400" />
                       </div>
                       <div>
-                        <h2 className="text-base font-bold">Timetable</h2>
+                        <h2 className="text-base font-bold">Emploi de temps</h2>
                         <p className="text-xs text-muted-foreground">Emplois du temps existants</p>
                       </div>
                     </div>
@@ -1784,7 +2325,7 @@ export default function PlanningPage() {
                         <CalendarRange className="h-7 w-7 text-muted-foreground/50" />
                       </div>
                       <p className="text-sm font-semibold">Aucun emploi du temps</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Créez un timetable pour commencer</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Créez un emploi de temps pour commencer</p>
                     </div>
                   ) : (
                     <div className="grid gap-4 lg:grid-cols-2">
@@ -1870,7 +2411,7 @@ export default function PlanningPage() {
                   ref={shiftRef}
                   className={cn(
                     "relative overflow-hidden rounded-2xl border p-5 wow-transition md:p-6",
-                    activeView === "shift" ? "ring-1 ring-emerald-500/20 border-emerald-400/30 bg-emerald-950/10" : "border-border/40 bg-background/30 hover:border-border/60"
+                    activeView === "shift" ? "ring-1 ring-emerald-500/20 border-emerald-400/30 bg-emerald-950/10" : "hidden"
                   )}
                 >
                   <div className={cn("absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-emerald-500 to-teal-600 wow-transition", activeView === "shift" ? "opacity-100" : "opacity-0")} />
@@ -1880,7 +2421,7 @@ export default function PlanningPage() {
                         <Shapes className="h-5 w-5 text-emerald-400" />
                       </div>
                       <div>
-                        <h2 className="text-base font-bold">Shifts</h2>
+                        <h2 className="text-base font-bold">Quarts</h2>
                         <p className="text-xs text-muted-foreground">Quarts de travail existants</p>
                       </div>
                     </div>
@@ -1914,7 +2455,7 @@ export default function PlanningPage() {
                         <Shapes className="h-7 w-7 text-muted-foreground/50" />
                       </div>
                       <p className="text-sm font-semibold">Aucun quart de travail</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Créez un shift pour commencer</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Créez un quart pour commencer</p>
                     </div>
                   ) : (
                     <div className="grid gap-4 lg:grid-cols-2">
@@ -1992,7 +2533,7 @@ export default function PlanningPage() {
                   ref={scheduleRef}
                   className={cn(
                     "relative overflow-hidden rounded-2xl border p-5 wow-transition md:p-6",
-                    activeView === "schedule" ? "ring-1 ring-amber-400/20 border-amber-400/30 bg-amber-950/10" : "border-border/40 bg-background/30 hover:border-border/60"
+                    activeView === "schedule" ? "ring-1 ring-amber-400/20 border-amber-400/30 bg-amber-950/10" : "hidden"
                   )}
                 >
                   <div className={cn("absolute inset-x-0 top-0 h-0.5 bg-linear-to-r from-amber-400 to-orange-500 wow-transition", activeView === "schedule" ? "opacity-100" : "opacity-0")} />
@@ -2002,7 +2543,7 @@ export default function PlanningPage() {
                         <CalendarDays className="h-5 w-5 text-amber-400" />
                       </div>
                       <div>
-                        <h2 className="text-base font-bold">Shift Schedule</h2>
+                        <h2 className="text-base font-bold">Calendrier des quarts</h2>
                         <p className="text-xs text-muted-foreground">Calendrier mensuel de l&apos;employé sélectionné</p>
                       </div>
                     </div>
@@ -2207,7 +2748,7 @@ export default function PlanningPage() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Shifts</div>
+                              <div className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Quarts</div>
                               {selectedDay.shifts.length ? (
                                 selectedDay.shifts.map((shift) => (
                                   <div
@@ -2225,7 +2766,7 @@ export default function PlanningPage() {
                                 ))
                               ) : (
                                 <div className="rounded-xl border border-dashed border-border/40 px-3 py-4 text-xs text-muted-foreground">
-                                  Aucun shift ce jour.
+                                  Aucun quart ce jour.
                                 </div>
                               )}
                             </div>
@@ -2254,7 +2795,7 @@ export default function PlanningPage() {
 
               <div className="space-y-4 py-2">
                 {error?.scope === "global" &&
-                (error.code === "ASSIGN_PLANNING_FAILED" || error.code === "GUIDE_ASSIGN_PREPARE_FAILED") ? (
+                (error.code === "ASSIGN_PLANNING_FAILED" || error.code === "ASSIGN_DATE_RANGE_INVALID") ? (
                   <div
                     role="alert"
                     className="rounded-xl border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive"
@@ -2315,6 +2856,49 @@ export default function PlanningPage() {
                       Tout vider
                     </Button>
                   </div>
+                </div>
+
+                <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      Plage d'assignation
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-lg px-2 text-xs"
+                      onClick={() => {
+                        setAssignStartDate("")
+                        setAssignEndDate("")
+                      }}
+                    >
+                      Vider la plage
+                    </Button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Date debut</label>
+                      <Input
+                        type="date"
+                        value={assignStartDate}
+                        onChange={(event) => setAssignStartDate(event.target.value)}
+                        className="h-10 rounded-xl border-border/60 bg-background/60"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Date fin</label>
+                      <Input
+                        type="date"
+                        value={assignEndDate}
+                        onChange={(event) => setAssignEndDate(event.target.value)}
+                        className="h-10 rounded-xl border-border/60 bg-background/60"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Laissez vide pour une assignation immediate sans borne.
+                  </p>
                 </div>
 
                 <div className="rounded-xl border border-border/60 bg-background/40 p-3">
@@ -2416,6 +3000,162 @@ export default function PlanningPage() {
                 >
                   {isAssigningPlanning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Attribuer maintenant
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={!!planningPreviewTarget} onOpenChange={closePlanningPreviewDialog}>
+            <DialogContent className="max-w-3xl rounded-2xl border-border/60 bg-card text-foreground">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-bold">
+                  Apercu du planning {planningPreviewTarget ? `"${planningPreviewTarget.name}"` : ""}
+                </DialogTitle>
+                <DialogDescription className="text-foreground/80">
+                  Verifiez les details avant de modifier ou d'assigner.
+                </DialogDescription>
+              </DialogHeader>
+
+              {planningPreviewTarget ? (
+                <div className="space-y-3 py-1">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-xl border border-border/60 bg-background/40 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-widest text-foreground/70">Code</p>
+                      <p className="mt-1 text-sm font-semibold">{planningPreviewTarget.code || "SANS CODE"}</p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-background/40 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-widest text-foreground/70">Fuseau</p>
+                      <p className="mt-1 text-sm font-semibold">{planningPreviewTarget.timezone || "UTC"}</p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-background/40 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-widest text-foreground/70">Semaine active</p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums">
+                        {planningPreviewRecap ? `${planningPreviewRecap.weekdaysWithProgram}/5` : "--"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-background/40 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-widest text-foreground/70">Week-end actif</p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums">
+                        {planningPreviewRecap ? `${planningPreviewRecap.weekendWithProgram}/2` : "--"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border/70 bg-background/55 p-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-foreground/75">
+                      Quarts applicables par jour
+                    </p>
+                    {planningPreviewHasWeeklyEntries ? (
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {planningPreviewDayEntries.map(({ day, entries }) => (
+                          <div key={`preview-day-${day.key}`} className="rounded-lg border border-border/70 bg-card/80 px-2.5 py-2">
+                            <p className="text-xs font-semibold">{day.label}</p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {entries.length ? (
+                                <>
+                                  {entries.slice(0, 2).map((slot) => (
+                                    <span
+                                      key={`preview-slot-${day.key}-${slot.key}`}
+                                      className={cn(
+                                        "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                                        getSlotBadgeClass(slot.slotType),
+                                        slot.slotType === "shift" &&
+                                          "border-sky-400/70 bg-sky-100 text-sky-800 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-100",
+                                        slot.slotType === "work" &&
+                                          "border-emerald-400/70 bg-emerald-100 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-100",
+                                        slot.slotType === "rest" &&
+                                          "border-rose-400/70 bg-rose-100 text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-100"
+                                      )}
+                                    >
+                                      {slot.label} {slot.timeRange ? slot.timeRange : ""}
+                                    </span>
+                                  ))}
+                                  {entries.length > 2 ? (
+                                    <div className="relative inline-flex">
+                                      <button
+                                        type="button"
+                                        className="group rounded-full border border-amber-300/50 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-400/40 dark:bg-amber-500/15 dark:text-amber-200"
+                                        aria-label={`Afficher ${entries.length - 2} quart(s) supplementaire(s)`}
+                                      >
+                                        +{entries.length - 2}
+                                        <span className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden min-w-52 rounded-lg border border-border/70 bg-popover px-2 py-1.5 text-left text-[10px] font-normal text-popover-foreground shadow-xl group-hover:block group-focus-visible:block">
+                                          {entries.map((slot) => (
+                                            <span key={`preview-more-${day.key}-${slot.key}`} className="block leading-5">
+                                              {slot.label}
+                                              {slot.timeRange ? ` ${slot.timeRange}` : ""}
+                                            </span>
+                                          ))}
+                                        </span>
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </>
+                              ) : <span className="text-[11px] text-foreground/70">Aucun quart applicable</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : planningPreviewNonWeeklyEntries.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-foreground/75">
+                          Ce planning fonctionne en cycle/periode. Apercu des entrees:
+                        </p>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {planningPreviewNonWeeklyEntries.slice(0, 12).map((entry) => (
+                            <div key={`preview-non-weekly-${entry.key}`} className="rounded-lg border border-border/70 bg-card/80 px-2.5 py-2">
+                              <p className="text-xs font-semibold">
+                                {entry.label}
+                                {entry.timeRange ? ` ${entry.timeRange}` : ""}
+                              </p>
+                              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-foreground/75">
+                                {entry.sequenceIndex != null ? <span>Sequence: {entry.sequenceIndex + 1}</span> : null}
+                                {entry.startDate ? <span>Debut: {entry.startDate}</span> : null}
+                                {entry.endDate ? <span>Fin: {entry.endDate}</span> : null}
+                                {entry.isRestDay ? <span>Repos</span> : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border/70 bg-card/60 px-3 py-4 text-xs text-foreground/75">
+                        Aucune donnee de cycle disponible pour ce planning.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => closePlanningPreviewDialog(false)}
+                  className="h-10 rounded-xl border-border/60 bg-background/60"
+                >
+                  Fermer
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-10 rounded-xl border-border/60 bg-background/60"
+                  onClick={() => {
+                    if (!planningPreviewTarget) return
+                    const planning = planningPreviewTarget
+                    setPlanningPreviewTarget(null)
+                    openAssignPlanningDialog(planning)
+                  }}
+                >
+                  Assigner
+                </Button>
+                <Button
+                  className="h-10 rounded-xl"
+                  onClick={() => {
+                    if (!planningPreviewTarget) return
+                    const planning = planningPreviewTarget
+                    setPlanningPreviewTarget(null)
+                    openEditPlanningDialog(planning)
+                  }}
+                >
+                  Modifier
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -2653,8 +3393,8 @@ export default function PlanningPage() {
                 <DialogTitle className="text-lg font-bold">{editingPlanning ? "Modifier un planning" : "Créer un planning"}</DialogTitle>
                 <DialogDescription className="text-muted-foreground">
                   {editingPlanning
-                    ? "Mets à jour le cycle hebdomadaire de ce timetable."
-                    : "Définis un cycle hebdomadaire qui servira de base aux timetables."}
+                    ? "Mets à jour le cycle hebdomadaire de cet emploi de temps."
+                    : "Définis un cycle hebdomadaire qui servira de base aux emplois de temps."}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 py-1">
@@ -2692,12 +3432,20 @@ export default function PlanningPage() {
                     }
                     className="h-10 rounded-xl border-border/60 bg-background/60"
                   />
-                  <Input
-                    placeholder="Timezone"
+                  <select
                     value={newPlanning.timezone ?? ""}
                     onChange={(event) => setNewPlanning((prev) => ({ ...prev, timezone: event.target.value }))}
-                    className="h-10 rounded-xl border-border/60 bg-background/60"
-                  />
+                    className="h-10 rounded-xl border border-border/60 bg-background/60 px-3 text-sm"
+                  >
+                    <option value="" disabled>
+                      Sélectionner un fuseau horaire
+                    </option>
+                    {timezoneOptions.map((timezone) => (
+                      <option key={timezone.value} value={timezone.value}>
+                        {timezone.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
@@ -2747,10 +3495,10 @@ export default function PlanningPage() {
                     </div>
                     <div className="text-xs text-muted-foreground tabular-nums">
                       {selectedShiftId
-                        ? `${workShiftsById.get(selectedShiftId)?.name ?? "Shift"} : ${formatTime(
+                        ? `${workShiftsById.get(selectedShiftId)?.name ?? "Quart"} : ${formatTime(
                             workShiftsById.get(selectedShiftId)?.start_time
                           )} – ${formatTime(workShiftsById.get(selectedShiftId)?.end_time)}`
-                        : "Aucun shift sélectionné"}
+                        : "Aucun quart sélectionné"}
                     </div>
                   </div>
 
@@ -2762,7 +3510,7 @@ export default function PlanningPage() {
                         disabled={!selectedShiftId}
                         className="text-xs text-muted-foreground wow-transition hover:text-foreground disabled:opacity-40"
                       >
-                        Supprimer le shift sélectionné partout
+                        Supprimer le quart sélectionné partout
                       </button>
                       <button
                         type="button"
@@ -2797,47 +3545,92 @@ export default function PlanningPage() {
                             <div key={`builder-${day.key}`} className="rounded-xl border border-border/40 bg-card/60 px-2.5 py-1.5">
                               <div className="flex items-center gap-1.5">
                                 <div className="w-11 shrink-0 text-xs font-bold">{day.label.slice(0, 3)}</div>
-                                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-visible">
                                   <div className="relative">
                                     <Button
                                       type="button"
                                       size="sm"
                                       variant="outline"
                                       className="h-6 rounded-lg border-border/40 bg-background/60 px-1.5 text-[10px]"
-                                      onClick={() => setCopyMenuDay((current) => (current === day.key ? null : day.key))}
+                                      onClick={() =>
+                                        setCopyMenuDay((current) => {
+                                          if (current === day.key) {
+                                            setCopySelectionDays([])
+                                            return null
+                                          }
+                                          setCopySelectionDays(WEEK_DAYS.map((item) => item.key).filter((key) => key !== day.key))
+                                          return day.key
+                                        })
+                                      }
                                     >
                                       Dup
                                     </Button>
                                     {copyMenuDay === day.key ? (
-                                      <div className="absolute left-0 top-8 z-20 w-40 rounded-xl border border-border/60 bg-card p-1.5 shadow-xl">
-                                        <button
-                                          type="button"
-                                          onClick={() => copyDayWithPreset(day.key, "next")}
-                                          className="block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
-                                        >
-                                          Vers jour suivant
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => copyDayWithPreset(day.key, "weekdays")}
-                                          className="mt-0.5 block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
-                                        >
-                                          Vers Lun-Ven
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => copyDayWithPreset(day.key, "weekend")}
-                                          className="mt-0.5 block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
-                                        >
-                                          Vers Week-end
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => copyDayWithPreset(day.key, "all")}
-                                          className="mt-0.5 block w-full rounded-lg px-2 py-1 text-left text-[11px] wow-transition hover:bg-muted/60"
-                                        >
-                                          Vers tous les jours
-                                        </button>
+                                      <div className="absolute left-0 top-8 z-20 w-56 rounded-xl border border-border/60 bg-card p-2 shadow-xl">
+                                        <div className="grid grid-cols-2 gap-1">
+                                          {WEEK_DAYS.map((targetDay) => {
+                                            const isSource = targetDay.key === day.key
+                                            const checked = copySelectionDays.includes(targetDay.key)
+                                            return (
+                                              <label
+                                                key={`copy-target-${day.key}-${targetDay.key}`}
+                                                className={cn(
+                                                  "flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px]",
+                                                  isSource ? "opacity-50" : "hover:bg-muted/60"
+                                                )}
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  disabled={isSource}
+                                                  checked={isSource ? false : checked}
+                                                  onChange={(event) => {
+                                                    const isChecked = event.target.checked
+                                                    setCopySelectionDays((prev) => {
+                                                      if (isChecked) {
+                                                        if (prev.includes(targetDay.key)) return prev
+                                                        return [...prev, targetDay.key]
+                                                      }
+                                                      return prev.filter((key) => key !== targetDay.key)
+                                                    })
+                                                  }}
+                                                />
+                                                <span>{targetDay.label.slice(0, 3)}</span>
+                                              </label>
+                                            )
+                                          })}
+                                        </div>
+                                        <div className="mt-2 flex items-center justify-between gap-1.5 border-t border-border/50 pt-2">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setCopySelectionDays(WEEK_DAYS.map((item) => item.key).filter((key) => key !== day.key))
+                                            }
+                                            className="rounded-lg px-1.5 py-1 text-[10px] wow-transition hover:bg-muted/60"
+                                          >
+                                            Tout
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setCopySelectionDays([0, 1, 2, 3, 4].filter((key) => key !== day.key))}
+                                            className="rounded-lg px-1.5 py-1 text-[10px] wow-transition hover:bg-muted/60"
+                                          >
+                                            Lun-Ven
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setCopySelectionDays([5, 6].filter((key) => key !== day.key))}
+                                            className="rounded-lg px-1.5 py-1 text-[10px] wow-transition hover:bg-muted/60"
+                                          >
+                                            Week-end
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => applyCopyDaySelection(day.key)}
+                                            className="rounded-lg bg-primary px-2 py-1 text-[10px] font-semibold text-primary-foreground wow-transition hover:opacity-90"
+                                          >
+                                            Appliquer
+                                          </button>
+                                        </div>
                                       </div>
                                     ) : null}
                                   </div>
@@ -3088,16 +3881,6 @@ export default function PlanningPage() {
             </DialogContent>
           </Dialog>
 
-          <HrPlanningGuideDialog
-            open={hrGuideOpen}
-            onOpenChange={setHrGuideOpen}
-            onOpenCreateShiftDialog={openCreateShiftDialog}
-            onOpenCreatePlanningDialog={openCreatePlanningDialog}
-            onRunQuickAssignFlow={openAssignPlanningFromGuide}
-            isPreparingAssign={isPreparingGuideAssign}
-            stats={hrGuideStats}
-          />
-
           <Dialog open={!!pendingShiftDelete} onOpenChange={(open) => !open && setPendingShiftDelete(null)}>
             <DialogContent className="max-w-lg rounded-2xl border-border/60 bg-card text-foreground">
               <DialogHeader>
@@ -3168,54 +3951,32 @@ export default function PlanningPage() {
         </main>
       </div>
 
-      {/* Schedule Wizard */}
-      <ScheduleWizardDialog
+      {/* Planning Creation Wizard */}
+      <PlanningCreationWizardDialog
         open={wizardOpen}
         onOpenChange={setWizardOpen}
+        isSubmitting={isCreatingWizardPlanning}
         employees={employees.map((emp) => ({
           id: emp.id,
           name: emp.name,
-          employeeId: emp.employee_no,
+          employeeNo: emp.employee_no,
           department: departmentsById.get(emp.department ?? -1) ?? "Sans département",
-          departmentId: emp.department ?? null,
-        })) satisfies ScheduleWizardEmployee[]}
-        departments={departments}
-        workShifts={workShifts}
-        tenantId={tenantId ?? undefined}
-        onConfirm={async ({ employeeIds, shiftConfig, period, existingShift }) => {
-          let workShiftId: number
-
-          if (shiftConfig.useExisting && existingShift) {
-            workShiftId = existingShift.id
-          } else {
-            // Create a new work shift
-            const newShiftPayload = {
-              tenant: tenantId ?? 0,
-              name: shiftConfig.name,
-              start_time: shiftConfig.startTime || null,
-              end_time: shiftConfig.endTime || null,
-              break_start_time: shiftConfig.breakStart || null,
-              break_end_time: shiftConfig.breakEnd || null,
-            }
-            const created = await createWorkShift(newShiftPayload)
-            workShiftId = created.id
-            setWorkShifts((prev) => [...prev, created])
-          }
-
-          // Assign shift to all selected employees
-          await Promise.all(
-            employeeIds.map((id) =>
-              assignEmployeeWorkShifts(id, [workShiftId], false).catch(() => null)
-            )
-          )
-
-          // Reload data
-          void loadBaseData()
-          toast.success("Planning attribué", {
-            description: `${employeeIds.length} employé(s) affecté(s) au quart sélectionné`,
-          })
-        }}
+        })) satisfies PlanningCreationWizardEmployee[]}
+        departments={departments.map((department) => ({
+          id: department.id,
+          name: department.name,
+          code: department.code,
+        })) satisfies PlanningCreationWizardDepartment[]}
+        onSubmit={handleCreatePlanningFromWizard}
       />
+
+      {showScrollCue ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-card/90 text-muted-foreground shadow-lg backdrop-blur-xs animate-bounce">
+            <ChevronDown className="h-5 w-5" />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

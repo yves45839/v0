@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Calendar as DayCalendar } from "@/components/ui/calendar"
 import { Switch } from "@/components/ui/switch"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -93,7 +94,7 @@ type AttendanceDetailRow = {
   employeeName: string
   departmentName: string
   date: string
-  status: "compliant" | "partial" | "missing" | "unexpected_activity" | "rest_day"
+  status: "compliant" | "partial" | "missing" | "unexpected_activity" | "rest"
   statusLabel: string
   arrivalIso: string | null
   departureIso: string | null
@@ -104,9 +105,98 @@ type AttendanceDetailRow = {
 type DetailFocus = "all" | "compliant" | "late" | "missing" | "incident"
 
 const DETAIL_PAGE_SIZE = 20
+const EXPORT_FIELDS_STORAGE_KEY = "reports.attendance.export.fields.v1"
+const EXPORT_VIEWS_STORAGE_KEY = "reports.attendance.export.views.v1"
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"))
 const MINUTE_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"))
+
+type AttendanceExportFieldId =
+  | "tenant"
+  | "person_id"
+  | "employee_name"
+  | "department_name"
+  | "planning_name"
+  | "work_shift_name"
+  | "date"
+  | "status"
+  | "expected_work_period"
+  | "arrival_time"
+  | "departure_time"
+  | "arrival_delta_minutes"
+  | "departure_delta_minutes"
+  | "planned_minutes"
+  | "total_logs"
+  | "checkins"
+  | "checkouts"
+  | "unknown_events"
+  | "expected_checkin_at"
+  | "actual_checkin_at"
+  | "expected_checkout_at"
+  | "actual_checkout_at"
+
+type AttendanceExportFieldDefinition = {
+  id: AttendanceExportFieldId
+  label: string
+  hint: string
+}
+
+type SavedAttendanceExportView = {
+  name: string
+  fieldIds: AttendanceExportFieldId[]
+  updatedAt: string
+}
+
+const ATTENDANCE_EXPORT_FIELDS: AttendanceExportFieldDefinition[] = [
+  { id: "tenant", label: "Tenant", hint: "Code tenant" },
+  { id: "person_id", label: "Person ID", hint: "Identifiant employe" },
+  { id: "employee_name", label: "Employe", hint: "Nom complet" },
+  { id: "department_name", label: "Departement", hint: "Service/departement" },
+  { id: "planning_name", label: "Planning", hint: "Planning associe" },
+  { id: "work_shift_name", label: "Shift", hint: "Shift associe" },
+  { id: "date", label: "Date", hint: "Jour de pointage" },
+  { id: "status", label: "Statut", hint: "Conforme, partiel, manquant..." },
+  { id: "expected_work_period", label: "Pointage attendu", hint: "Oui/Non selon planning" },
+  { id: "arrival_time", label: "Heure arrivee", hint: "Heure reelle d'arrivee" },
+  { id: "departure_time", label: "Heure depart", hint: "Heure reelle de depart" },
+  { id: "arrival_delta_minutes", label: "Ecart arrivee (min)", hint: "Retard en minutes" },
+  { id: "departure_delta_minutes", label: "Ecart depart (min)", hint: "Avance/depassement en minutes" },
+  { id: "planned_minutes", label: "Minutes planifiees", hint: "Duree theorique" },
+  { id: "total_logs", label: "Total logs", hint: "Nombre de logs du jour" },
+  { id: "checkins", label: "Entrees", hint: "Nombre d'entrees" },
+  { id: "checkouts", label: "Sorties", hint: "Nombre de sorties" },
+  { id: "unknown_events", label: "Inconnus", hint: "Evenements non classes" },
+  { id: "expected_checkin_at", label: "Arrivee attendue", hint: "Heure planifiee d'arrivee" },
+  { id: "actual_checkin_at", label: "Arrivee reelle", hint: "Date/heure reelle d'arrivee" },
+  { id: "expected_checkout_at", label: "Depart attendu", hint: "Heure planifiee de depart" },
+  { id: "actual_checkout_at", label: "Depart reel", hint: "Date/heure reelle de depart" },
+]
+
+const DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS: AttendanceExportFieldId[] = [
+  "person_id",
+  "employee_name",
+  "department_name",
+  "date",
+  "arrival_time",
+  "departure_time",
+  "status",
+]
+
+const ATTENDANCE_EXPORT_FIELD_ID_SET = new Set<AttendanceExportFieldId>(
+  ATTENDANCE_EXPORT_FIELDS.map((field) => field.id)
+)
+
+function sanitizeAttendanceExportFieldIds(value: unknown): AttendanceExportFieldId[] {
+  if (!Array.isArray(value)) return [...DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS]
+  const selected: AttendanceExportFieldId[] = []
+  for (const item of value) {
+    const fieldId = String(item || "").trim() as AttendanceExportFieldId
+    if (!ATTENDANCE_EXPORT_FIELD_ID_SET.has(fieldId)) continue
+    if (selected.includes(fieldId)) continue
+    selected.push(fieldId)
+  }
+  return selected.length > 0 ? selected : [...DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS]
+}
 
 function toDateInputValue(value: Date): string {
   const year = value.getFullYear()
@@ -272,6 +362,12 @@ export default function ReportsPage() {
   const [detailPage, setDetailPage] = useState(1)
   const [selectedDetailRow, setSelectedDetailRow] = useState<AttendanceDetailRow | null>(null)
   const [detailDialogOpen, setDetailDialogOpen] = useState(false)
+  const [exportFieldsDialogOpen, setExportFieldsDialogOpen] = useState(false)
+  const [selectedExportFieldIds, setSelectedExportFieldIds] = useState<AttendanceExportFieldId[]>(
+    DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS
+  )
+  const [savedExportViews, setSavedExportViews] = useState<SavedAttendanceExportView[]>([])
+  const [exportViewName, setExportViewName] = useState("")
 
   const peopleOptions = useMemo(() => {
     if (selectedDepartmentId === "all") return people
@@ -292,6 +388,91 @@ export default function ReportsPage() {
     }
     return `${selectedPersonIds.length} personnes`
   }, [people, selectedPersonIds])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const rawFields = window.localStorage.getItem(EXPORT_FIELDS_STORAGE_KEY)
+      if (rawFields) {
+        const parsed = JSON.parse(rawFields) as unknown
+        setSelectedExportFieldIds(sanitizeAttendanceExportFieldIds(parsed))
+      }
+    } catch {
+      setSelectedExportFieldIds([...DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS])
+    }
+
+    try {
+      const rawViews = window.localStorage.getItem(EXPORT_VIEWS_STORAGE_KEY)
+      if (!rawViews) return
+      const parsed = JSON.parse(rawViews) as unknown
+      if (!Array.isArray(parsed)) return
+      const normalizedViews: SavedAttendanceExportView[] = []
+      for (const item of parsed) {
+        if (!item || typeof item !== "object") continue
+        const name = String((item as { name?: unknown }).name || "").trim()
+        if (!name) continue
+        const fields = sanitizeAttendanceExportFieldIds((item as { fieldIds?: unknown }).fieldIds)
+        const updatedAt = String((item as { updatedAt?: unknown }).updatedAt || new Date().toISOString())
+        normalizedViews.push({ name, fieldIds: fields, updatedAt })
+      }
+      setSavedExportViews(normalizedViews)
+    } catch {
+      setSavedExportViews([])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(EXPORT_FIELDS_STORAGE_KEY, JSON.stringify(selectedExportFieldIds))
+  }, [selectedExportFieldIds])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(EXPORT_VIEWS_STORAGE_KEY, JSON.stringify(savedExportViews))
+  }, [savedExportViews])
+
+  const toggleExportField = (fieldId: AttendanceExportFieldId, checked: boolean) => {
+    setSelectedExportFieldIds((current) => {
+      if (checked) {
+        if (current.includes(fieldId)) return current
+        return [...current, fieldId]
+      }
+      if (current.length <= 1) {
+        toast.warning("Selectionnez au moins un champ.")
+        return current
+      }
+      return current.filter((value) => value !== fieldId)
+    })
+  }
+
+  const handleSaveExportView = () => {
+    const trimmedName = exportViewName.trim()
+    if (!trimmedName) {
+      toast.warning("Nom de vue requis.")
+      return
+    }
+    const nextView: SavedAttendanceExportView = {
+      name: trimmedName,
+      fieldIds: selectedExportFieldIds,
+      updatedAt: new Date().toISOString(),
+    }
+    setSavedExportViews((current) => {
+      const withoutSameName = current.filter((view) => view.name.toLowerCase() !== trimmedName.toLowerCase())
+      return [nextView, ...withoutSameName]
+    })
+    setExportViewName("")
+    toast.success(`Vue "${trimmedName}" enregistree.`)
+  }
+
+  const applySavedExportView = (view: SavedAttendanceExportView) => {
+    setSelectedExportFieldIds(view.fieldIds)
+    toast.success(`Vue "${view.name}" appliquee.`)
+  }
+
+  const deleteSavedExportView = (viewNameToDelete: string) => {
+    setSavedExportViews((current) => current.filter((view) => view.name !== viewNameToDelete))
+    toast.success(`Vue "${viewNameToDelete}" supprimee.`)
+  }
 
   useEffect(() => {
     if (selectedPersonIds.length === 1) {
@@ -644,6 +825,7 @@ export default function ReportsPage() {
           tenant: tenantCode,
           personIds: selectedPersonIds,
           departmentId: selectedDepartmentId === "all" ? undefined : selectedDepartmentId,
+          fields: selectedExportFieldIds,
         },
         format
       )
@@ -887,6 +1069,15 @@ export default function ReportsPage() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setExportFieldsDialogOpen(true)}
+                className="gap-2"
+              >
+                <Filter className="h-3.5 w-3.5" />
+                Champs personnalises ({selectedExportFieldIds.length})
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => void handleExport("excel")}
                 disabled={loading || exportLoading !== null || !report}
                 className="gap-2"
@@ -903,6 +1094,16 @@ export default function ReportsPage() {
               >
                 <FileText className="h-3.5 w-3.5" />
                 {exportLoading === "pdf" ? "Export..." : "PDF"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleExport("csv")}
+                disabled={loading || exportLoading !== null || !report}
+                className="gap-2"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportLoading === "csv" ? "Export..." : "CSV"}
               </Button>
             </div>
           </div>
@@ -1218,6 +1419,93 @@ export default function ReportsPage() {
               </Card>
             </TabsContent>
           </Tabs>
+
+          <Dialog open={exportFieldsDialogOpen} onOpenChange={setExportFieldsDialogOpen}>
+            <DialogContent className="sm:max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Champs personnalises d'export</DialogTitle>
+                <DialogDescription>
+                  Selectionnez les colonnes a inclure dans les exports Excel, PDF et CSV.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
+                  <Badge variant="outline" className="text-xs">
+                    {selectedExportFieldIds.length} / {ATTENDANCE_EXPORT_FIELDS.length} champs
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedExportFieldIds(ATTENDANCE_EXPORT_FIELDS.map((field) => field.id))}
+                  >
+                    Tout selectionner
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedExportFieldIds([...DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS])}
+                  >
+                    Reinitialiser
+                  </Button>
+                </div>
+                <div className="grid max-h-72 gap-2 overflow-y-auto rounded-lg border border-border/50 bg-background/40 p-3 md:grid-cols-2">
+                  {ATTENDANCE_EXPORT_FIELDS.map((field) => (
+                    <label key={field.id} className="flex cursor-pointer items-start gap-3 rounded-md border border-transparent p-2 transition-colors hover:border-border/50 hover:bg-muted/20">
+                      <Checkbox
+                        checked={selectedExportFieldIds.includes(field.id)}
+                        onCheckedChange={(checked) => toggleExportField(field.id, checked === true)}
+                      />
+                      <span className="space-y-0.5">
+                        <span className="block text-sm font-medium">{field.label}</span>
+                        <span className="block text-xs text-muted-foreground">{field.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="space-y-2 rounded-lg border border-border/50 bg-muted/10 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Sauvegarder la vue</p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      value={exportViewName}
+                      onChange={(event) => setExportViewName(event.target.value)}
+                      placeholder="Nom de vue (ex: RH mensuel)"
+                      className="sm:flex-1"
+                    />
+                    <Button type="button" onClick={handleSaveExportView}>
+                      Sauvegarder
+                    </Button>
+                  </div>
+                  {savedExportViews.length > 0 ? (
+                    <div className="space-y-1 pt-1">
+                      {savedExportViews.map((view) => (
+                        <div key={view.name} className="flex items-center gap-2 rounded-md border border-border/40 bg-background/60 px-2 py-1.5">
+                          <span className="truncate text-sm">{view.name}</span>
+                          <span className="ml-auto text-[11px] text-muted-foreground">
+                            {new Date(view.updatedAt).toLocaleDateString("fr-FR")}
+                          </span>
+                          <Button type="button" variant="outline" size="sm" onClick={() => applySavedExportView(view)}>
+                            Appliquer
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => deleteSavedExportView(view.name)}>
+                            Supprimer
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Aucune vue sauvegardee pour le moment.</p>
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setExportFieldsDialogOpen(false)}>
+                  Fermer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
             <DialogContent className="sm:max-w-xl">

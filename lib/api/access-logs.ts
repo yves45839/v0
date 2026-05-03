@@ -1,4 +1,5 @@
 import { fetchEmployeeApiToken } from "@/lib/api/employees"
+import { getActiveTenantCode } from "@/lib/api/auth"
 
 export type HikEvent = {
   id: number
@@ -71,12 +72,13 @@ type FetchHikEventsParams = {
 }
 
 export async function fetchHikEvents(params: FetchHikEventsParams = {}): Promise<HikEventsResponse> {
+  const resolvedTenantCode = getActiveTenantCode(HIK_EVENTS_TENANT)
   const search = new URLSearchParams()
   search.set("limit", String(params.limit ?? 200))
   if (params.source) search.set("source", params.source)
   if (params.devIndex) search.set("dev_index", params.devIndex)
   if (params.personId) search.set("person_id", params.personId)
-  if (params.tenant || HIK_EVENTS_TENANT) search.set("tenant", params.tenant ?? HIK_EVENTS_TENANT)
+  if (params.tenant || resolvedTenantCode) search.set("tenant", params.tenant ?? resolvedTenantCode)
   if (params.sinceId != null) search.set("since_id", String(params.sinceId))
   if (params.autoCatchup != null) search.set("auto_catchup", params.autoCatchup ? "1" : "0")
   search.set("include_system", params.includeSystem ? "1" : "0")

@@ -20,11 +20,11 @@ export function DemoBanner() {
     <div className="demo-banner">
       <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500 dark:text-amber-400" />
       <span>
-        Mode demonstration — les donnees affichees sont fictives.{" "}
+        Mode demonstration: les donnees affichees sont fictives.{" "}
         <Link href="/settings?tab=hikcentral" className="underline underline-offset-2 hover:opacity-80 transition-opacity">
           Configurer HikCentral
         </Link>{" "}
-        pour activer les donnees reelles.
+        pour activer les flux reels.
       </span>
     </div>
   )
