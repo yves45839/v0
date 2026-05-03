@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AuthGuard } from '@/components/auth/auth-guard'
 import { Toaster } from '@/components/ui/sonner'
 import { LanguageProvider } from '@/lib/i18n/context'
+import { DEFAULT_LOCALE, LOCALE_TAGS } from '@/lib/i18n/config'
 import './globals.css'
 
 const inter = Inter({
@@ -52,7 +53,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="fr" suppressHydrationWarning>
+    <html lang={LOCALE_TAGS[DEFAULT_LOCALE]} suppressHydrationWarning>
       <body
         className={`${inter.variable} ${interTight.variable} ${jetbrainsMono.variable} overflow-x-hidden font-sans antialiased`}
         suppressHydrationWarning

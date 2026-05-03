@@ -1,4 +1,4 @@
-export type Locale = "fr" | "en"
+import type { Locale } from "./config"
 
 export const translations = {
   fr: {
