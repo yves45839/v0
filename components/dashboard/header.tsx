@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { LogOut, PanelLeft, UserRound } from "lucide-react"
+import { Globe, LogOut, PanelLeft, UserRound } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
 import { logoutCurrentSession } from "@/lib/api/auth"
 import { toast } from "sonner"
@@ -34,7 +34,7 @@ const SIDEBAR_TOGGLE_EVENT = "securepoint:sidebar-toggle"
 export function Header({ hideRouteInfo = false }: HeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const { t } = useI18n()
+  const { t, locale, toggleLocale } = useI18n()
 
   const routeMeta = useMemo(
     () => [
@@ -111,6 +111,17 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
           </div>
         </div>
         <div className="hidden items-center gap-2 sm:flex">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 px-2.5 font-semibold uppercase tracking-wide"
+            onClick={toggleLocale}
+            aria-label={`Switch language (current: ${locale.toUpperCase()})`}
+            title={locale === "fr" ? "Switch to English" : "Passer en français"}
+          >
+            <Globe className="h-3.5 w-3.5" />
+            <span className="text-[11px]">{locale.toUpperCase()}</span>
+          </Button>
           <Button asChild variant="outline" size="sm" className="h-8">
             <Link href="/profile">
               <UserRound className="mr-1.5 h-3.5 w-3.5" />

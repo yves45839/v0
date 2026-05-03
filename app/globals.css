@@ -4,68 +4,68 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ═══════════════════════════════════════════════════════════════
-   LIGHT MODE — "Arctic Cobalt"
-   Ratio cibles : body text 15:1, muted-fg 6:1+, border visible
+   LIGHT MODE — "SecurePoint Sage" (Refonte UX ERP RH)
+   Vert sauge profond, neutres légèrement chauds, BambooHR-friendly
    ═══════════════════════════════════════════════════════════════ */
 :root {
-  /* Couches de fond */
-  --bg-app:        #eef3fb;   /* toile principale — bleu-blanc froid */
-  --bg-sidebar:    #ffffff;   /* sidebar pure white, tranche nette */
-  --bg-panel:      #ffffff;   /* panneaux blancs */
-  --bg-panel-alt:  #f5f8fd;   /* variation alt légèrement teintée */
-  --bg-input:      #e8f0f9;   /* puits de saisie perceptible */
+  /* Couches de fond — neutres légèrement chauds */
+  --bg-app:        oklch(0.985 0.003 90);   /* toile principale */
+  --bg-sidebar:    oklch(1 0 0);            /* sidebar pure white */
+  --bg-panel:      oklch(1 0 0);            /* panneaux blancs */
+  --bg-panel-alt:  oklch(0.975 0.005 90);   /* variation alt */
+  --bg-input:      oklch(0.955 0.006 90);   /* puits de saisie */
 
   /* Texte */
   --background:              var(--bg-app);
-  --foreground:              #061422;   /* quasi-noir bleuté, 17:1 sur fond */
+  --foreground:              oklch(0.22 0.012 250);   /* ink */
   --card:                    var(--bg-panel);
-  --card-foreground:         #061422;
-  --popover:                 #ffffff;
-  --popover-foreground:      #061422;
+  --card-foreground:         oklch(0.22 0.012 250);
+  --popover:                 oklch(1 0 0);
+  --popover-foreground:      oklch(0.22 0.012 250);
 
-  /* Marque */
-  --primary:                 #1848c8;   /* cobalt riche, vif et professionnel */
+  /* Marque — vert sauge profond */
+  --primary:                 oklch(0.46 0.085 165);
   --primary-foreground:      #ffffff;
 
   /* Composants */
-  --secondary:               #d4e4f7;   /* bleu-gris doux */
-  --secondary-foreground:    #102444;   /* 9:1 sur --secondary */
-  --muted:                   #e1ecf8;   /* fonds neutres */
-  --muted-foreground:        #3d5a78;   /* 6.8:1 blanc/fond — nettement lisible */
-  --accent:                  #c8ddf6;
-  --accent-foreground:       #0a1f42;
+  --secondary:               oklch(0.95 0.025 165);   /* sage soft */
+  --secondary-foreground:    oklch(0.32 0.07 165);    /* sage ink */
+  --muted:                   oklch(0.955 0.006 90);
+  --muted-foreground:        oklch(0.42 0.01 250);
+  --accent:                  oklch(0.95 0.025 165);
+  --accent-foreground:       oklch(0.32 0.07 165);
 
   /* États */
-  --destructive:             #b91c1c;   /* rouge profond, 5:1+ sur fond clair */
+  --destructive:             oklch(0.62 0.18 25);    /* corail/rose */
   --destructive-foreground:  #ffffff;
-  --success:                 #065f46;   /* vert forêt, 7:1 */
+  --success:                 oklch(0.62 0.13 155);   /* vert frais */
   --success-foreground:      #ffffff;
-  --warning:                 #92400e;   /* ambre foncé, 7:1 sur fond clair */
-  --warning-foreground:      #ffffff;
+  --warning:                 oklch(0.72 0.15 75);    /* ambre */
+  --warning-foreground:      oklch(0.42 0.12 70);
 
   /* Structure */
-  --border:                  #adc4de;   /* bordures clairement visibles */
+  --border:                  oklch(0.92 0.005 90);
   --input:                   var(--bg-input);
-  --ring:                    #1848c8;
+  --ring:                    oklch(0.46 0.085 165);
 
-  /* Graphiques — série vibrante */
-  --chart-1:  #1848c8;
-  --chart-2:  #047857;
-  --chart-3:  #b45309;
-  --chart-4:  #b91c1c;
-  --chart-5:  #6d28d9;
+  /* Graphiques — palette sauge + accents */
+  --chart-1:  oklch(0.46 0.085 165);   /* sage */
+  --chart-2:  oklch(0.55 0.09 165);    /* sage-2 */
+  --chart-3:  oklch(0.72 0.15 75);     /* ambre */
+  --chart-4:  oklch(0.62 0.18 25);     /* corail */
+  --chart-5:  oklch(0.6 0.12 240);     /* info bleu */
 
-  --radius: 12px;
+  --radius: 10px;
 
   /* Sidebar */
   --sidebar:                    var(--bg-sidebar);
-  --sidebar-foreground:         #061422;
-  --sidebar-primary:            #1848c8;
+  --sidebar-foreground:         oklch(0.22 0.012 250);
+  --sidebar-primary:            oklch(0.46 0.085 165);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent:             #e8f1fc;
-  --sidebar-accent-foreground:  #0a1f42;
-  --sidebar-border:             #ccdaec;
-  --sidebar-ring:               #1848c8;
+  --sidebar-accent:             oklch(0.95 0.025 165);
+  --sidebar-accent-foreground:  oklch(0.32 0.07 165);
+  --sidebar-border:             oklch(0.92 0.005 90);
+  --sidebar-ring:               oklch(0.46 0.085 165);
 
   /* Espacement / typographie */
   --space-1: 4px; --space-2: 8px;  --space-3: 12px;
@@ -94,9 +94,9 @@
   --popover:                 #0f1e30;
   --popover-foreground:      #ddeefa;
 
-  /* Marque */
-  --primary:                 #5aa8ff;   /* ciel bleu brillant sur fond sombre */
-  --primary-foreground:      #01091a;
+  /* Marque — sage clair pour fond sombre */
+  --primary:                 oklch(0.7 0.09 165);
+  --primary-foreground:      oklch(0.18 0.04 165);
 
   /* Composants */
   --secondary:               #122030;
@@ -117,7 +117,7 @@
   /* Structure */
   --border:                  #1c3554;   /* bordures nettement visibles sur fond sombre */
   --input:                   var(--bg-input);
-  --ring:                    #5aa8ff;
+  --ring:                    oklch(0.7 0.09 165);
 
   /* Graphiques — série saturée pour fond sombre */
   --chart-1:  #5aa8ff;
@@ -129,12 +129,12 @@
   /* Sidebar */
   --sidebar:                    var(--bg-sidebar);
   --sidebar-foreground:         #ddeefa;
-  --sidebar-primary:            #5aa8ff;
-  --sidebar-primary-foreground: #01091a;
+  --sidebar-primary:            oklch(0.7 0.09 165);
+  --sidebar-primary-foreground: oklch(0.18 0.04 165);
   --sidebar-accent:             #0f2038;
   --sidebar-accent-foreground:  #ddeefa;
   --sidebar-border:             #1a304e;
-  --sidebar-ring:               #5aa8ff;
+  --sidebar-ring:               oklch(0.7 0.09 165);
 
   --success: #0fd4a0;
   --success-foreground: #00100c;
@@ -144,8 +144,10 @@
 
 @theme inline {
   --font-sans:
-    var(--font-ibm-sans), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: var(--font-ibm-mono), "Consolas", "Courier New", monospace;
+    var(--font-inter), var(--font-inter-tight), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-display:
+    var(--font-inter-tight), var(--font-inter), "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "Consolas", "Courier New", monospace;
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -203,28 +205,7 @@
     letter-spacing: 0.01em;
     min-height: 100vh;
     text-rendering: optimizeLegibility;
-    background-image:
-      radial-gradient(
-        ellipse at 8% -10%,
-        rgba(24, 72, 200, 0.13),
-        transparent 40%
-      ),
-      radial-gradient(
-        ellipse at 96% -5%,
-        rgba(6, 95, 70, 0.09),
-        transparent 44%
-      ),
-      radial-gradient(
-        ellipse at 50% 110%,
-        rgba(24, 72, 200, 0.07),
-        transparent 38%
-      ),
-      radial-gradient(
-        ellipse at 64% 20%,
-        rgba(109, 40, 217, 0.04),
-        transparent 30%
-      ),
-      linear-gradient(158deg, #f0f4fb 0%, #e8f0f9 42%, #eef3fb 100%);
+    background-color: var(--background);
     background-attachment: fixed;
   }
   .dark body {
