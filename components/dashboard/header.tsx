@@ -41,6 +41,7 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
       { href: "/access-logs", title: t.nav.accessLogs, subtitle: t.pages.accessLogsSubtitle },
       { href: "/reports", title: t.nav.reports, subtitle: t.pages.reportsSubtitle },
       { href: "/employees", title: t.employees.title, subtitle: t.employees.subtitle },
+      { href: "/planning/weekly", title: locale === "en" ? "Weekly schedule" : "Planning hebdomadaire", subtitle: locale === "en" ? "Drag-and-drop weekly grid with coverage tracking" : "Grille hebdo avec suivi de couverture" },
       { href: "/planning", title: t.planning.title, subtitle: t.planning.subtitle },
       {
         href: "/timesheet",

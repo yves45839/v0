@@ -46,6 +46,10 @@ import {
 } from "lucide-react"
 import type { Employee } from "@/app/employees/page"
 import { useRouter } from "next/navigation"
+import {
+  EmployeeStatusChip,
+  deriveOperationalStatus,
+} from "@/components/employees/employee-status-chip"
 
 type EmployeeTableProps = {
   employees: Employee[]
@@ -197,6 +201,7 @@ export function EmployeeTable({
               <TableHead className="w-28">Matricule</TableHead>
               <TableHead className="w-36">Departement</TableHead>
               <TableHead className="w-40">Quart</TableHead>
+              <TableHead className="w-32">Statut</TableHead>
               <TableHead>Groupes d&apos;acces</TableHead>
               <TableHead className="w-16"></TableHead>
             </TableRow>
@@ -204,7 +209,7 @@ export function EmployeeTable({
           <TableBody>
             {totalEmployees === 0 ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={6} className="px-4 py-20">
+                <TableCell colSpan={7} className="px-4 py-20">
                   <div className="flex flex-col items-center justify-center gap-4 text-center animate-fade-up">
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-border/60 bg-background/40 shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
                       <Users className="h-7 w-7 text-muted-foreground/70" />
@@ -325,6 +330,13 @@ export function EmployeeTable({
                         Affecter
                       </Button>
                     </div>
+                  </TableCell>
+                  <TableCell className="py-2.5">
+                    <EmployeeStatusChip
+                      status={deriveOperationalStatus(employee, {
+                        suspended: suspendedEmployeeIds.has(employee.id),
+                      })}
+                    />
                   </TableCell>
                   <TableCell className="py-2.5">
                     <div className="flex flex-wrap items-center gap-1">
