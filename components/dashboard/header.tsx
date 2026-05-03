@@ -42,6 +42,14 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
       { href: "/reports", title: t.nav.reports, subtitle: t.pages.reportsSubtitle },
       { href: "/employees", title: t.employees.title, subtitle: t.employees.subtitle },
       { href: "/planning", title: t.planning.title, subtitle: t.planning.subtitle },
+      {
+        href: "/timesheet",
+        title: locale === "en" ? "Timesheet validation" : "Validation pointages",
+        subtitle:
+          locale === "en"
+            ? "Approve, edit or reject anomalies with full timeline context"
+            : "Validez, ajustez ou rejetez les anomalies avec la timeline complète",
+      },
       { href: "/devices", title: t.devices.title, subtitle: t.devices.subtitle },
       { href: "/settings", title: t.nav.settings, subtitle: t.pages.settingsSubtitle },
       { href: "/tenant-users", title: "Comptes", subtitle: "Gestion des utilisateurs, rôles et permissions" },

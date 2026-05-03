@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, Users, Cpu, BarChart3, Shield, CalendarDays, Settings, UserRound, UserCog } from "lucide-react"
+import { LayoutDashboard, Users, Cpu, BarChart3, Shield, CalendarDays, Settings, UserRound, UserCog, ClipboardCheck } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
@@ -19,7 +19,7 @@ type SidebarNavProps = {
 }
 
 function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: SidebarNavProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   const navItems = useMemo(
     () => [
@@ -28,10 +28,11 @@ function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: Sideba
       { name: "Comptes", href: "/tenant-users", icon: UserCog },
       { name: "Mon profil", href: "/profile", icon: UserRound },
       { name: "Plannings", href: "/planning", icon: CalendarDays },
+      { name: locale === "en" ? "Timesheets" : "Pointages", href: "/timesheet", icon: ClipboardCheck },
       { name: "Appareils", href: "/devices", icon: Cpu },
       { name: t.nav.reports, href: "/reports", icon: BarChart3 },
     ],
-    [t]
+    [t, locale]
   )
 
   return (
