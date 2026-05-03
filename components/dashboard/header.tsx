@@ -50,6 +50,14 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
             ? "Approve, edit or reject anomalies with full timeline context"
             : "Validez, ajustez ou rejetez les anomalies avec la timeline complète",
       },
+      {
+        href: "/absences",
+        title: locale === "en" ? "Time off requests" : "Demandes de congés",
+        subtitle:
+          locale === "en"
+            ? "Approve leave requests, spot conflicts and check team availability"
+            : "Validez les congés, repérez les conflits et vérifiez la couverture",
+      },
       { href: "/devices", title: t.devices.title, subtitle: t.devices.subtitle },
       { href: "/settings", title: t.nav.settings, subtitle: t.pages.settingsSubtitle },
       { href: "/tenant-users", title: "Comptes", subtitle: "Gestion des utilisateurs, rôles et permissions" },
