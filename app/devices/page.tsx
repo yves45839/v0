@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { DEMO_DEVICES_DATA } from "@/lib/mock-data/demo-devices"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
+import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { EmptyState } from "@/components/ui/empty-state"
 import {
   Search,
   Plus,
@@ -59,6 +61,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { AddDeviceByIpDialog } from "@/components/devices/add-device-by-ip-dialog"
+import { getActiveTenantCode } from "@/lib/api/auth"
 import { fetchEmployeeApiToken } from "@/lib/api/employees"
 
 type Device = {
@@ -84,6 +87,7 @@ type GatewayDevice = Record<string, unknown>
 type TenantOption = { id: number; code: string; name: string }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
+const DEFAULT_TENANT_CODE = process.env.NEXT_PUBLIC_TENANT_CODE ?? ""
 const RAW_DEVICE_CONFIG_PATH = process.env.NEXT_PUBLIC_DEVICE_CONFIG_PATH ?? "/doc/index.html#/dashboard"
 const DEVICE_CONFIG_PATH = RAW_DEVICE_CONFIG_PATH.startsWith("/")
   ? RAW_DEVICE_CONFIG_PATH
@@ -199,6 +203,75 @@ const getDeviceTypeLabel = (type: Device["type"]) => {
   }
 }
 
+type DeviceTone = "green" | "red" | "amber" | "blue"
+
+const deviceToneClass: Record<DeviceTone, { text: string; bar: string; bg: string; ring: string }> = {
+  green: { text: "text-[#22c55e]", bar: "bg-[#22c55e]", bg: "bg-[#0d2a1a]", ring: "ring-[#22c55e]/40" },
+  red: { text: "text-[#ef4444]", bar: "bg-[#ef4444]", bg: "bg-[#2a0e0e]", ring: "ring-[#ef4444]/40" },
+  amber: { text: "text-[#f59e0b]", bar: "bg-[#f97316]", bg: "bg-[#2a1e06]", ring: "ring-[#f59e0b]/40" },
+  blue: { text: "text-[#60a5fa]", bar: "bg-[#60a5fa]", bg: "bg-[#0d1e2e]", ring: "ring-[#60a5fa]/40" },
+}
+
+const statusToTone: Record<Device["status"], DeviceTone> = {
+  online: "green",
+  warning: "amber",
+  offline: "red",
+}
+
+const statusLabel: Record<Device["status"], string> = {
+  online: "En ligne",
+  warning: "Alerte",
+  offline: "Hors ligne",
+}
+
+function DeviceMetricCard({
+  label,
+  value,
+  note,
+  tone,
+  icon: Icon,
+}: {
+  label: string
+  value: number | string
+  note: string
+  tone: DeviceTone
+  icon: typeof Cpu
+}) {
+  const styles = deviceToneClass[tone]
+  return (
+    <article className="relative min-h-18 border border-[#1c2133] bg-[#111318] p-2.5">
+      <div className={`absolute left-0 top-0 h-full w-[3px] ${styles.bar}`} />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-mono text-[8px] uppercase tracking-[0.2em] text-[#4a5568]">{label}</p>
+          <p className={`mt-1 font-display text-2xl font-bold leading-none tabular-nums ${styles.text}`}>
+            {value}
+          </p>
+        </div>
+        <div className={`flex size-6 items-center justify-center ${styles.bg} ${styles.text}`}>
+          <Icon className="size-3" />
+        </div>
+      </div>
+      <div className={`mt-2 inline-flex px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.08em] ${styles.bg} ${styles.text}`}>
+        {note}
+      </div>
+    </article>
+  )
+}
+
+function DeviceStatPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-[#1c2133] bg-[#0b0d13] px-2 py-1.5 text-center">
+      <div className="font-display text-sm font-semibold leading-none tabular-nums text-[#e2e8f0]">
+        {value}
+      </div>
+      <div className="mt-1 font-mono text-[8px] uppercase tracking-[0.14em] text-[#4a5568]">
+        {label}
+      </div>
+    </div>
+  )
+}
+
 export default function DevicesPage() {
   const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
@@ -213,7 +286,7 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<Device[]>([])
   const [isLoadingDevices, setIsLoadingDevices] = useState(false)
   const [devicesError, setDevicesError] = useState<string | null>(null)
-  const [tenantCode, setTenantCode] = useState("")
+  const [tenantCode, setTenantCode] = useState(() => getActiveTenantCode(DEFAULT_TENANT_CODE))
   const [tenants, setTenants] = useState<TenantOption[]>([])
   const [isLoadingTenants, setIsLoadingTenants] = useState(false)
   const [serialNumber, setSerialNumber] = useState("SN-POSTMAN-0001")
@@ -245,7 +318,7 @@ export default function DevicesPage() {
     return String(tokenData.access)
   }
 
-  const refreshDevices = async (): Promise<Device[]> => {
+  const refreshDevices = async (targetTenantCode = tenantCode): Promise<Device[]> => {
     setIsLoadingDevices(true)
     setDevicesError(null)
 
@@ -262,8 +335,9 @@ export default function DevicesPage() {
         body: JSON.stringify({ dispatch_core_devices: true }),
       }).catch(() => null)
 
-      const query = tenantCode.trim()
-        ? `?tenant=${encodeURIComponent(tenantCode.trim())}&normalized=1&max_result=200`
+      const normalizedTenantCode = targetTenantCode.trim()
+      const query = normalizedTenantCode
+        ? `?tenant=${encodeURIComponent(normalizedTenantCode)}&normalized=1&max_result=200`
         : "?normalized=1&max_result=200"
 
       const response = await fetch(`${normalizedBaseUrl}/api/hikgateway/devices/${query}`, {
@@ -330,7 +404,8 @@ export default function DevicesPage() {
 
       setDevices(normalizedDevices)
       return normalizedDevices
-    } catch {
+    } catch (error) {
+      setDevicesError(error instanceof Error ? error.message : "Impossible de charger les appareils.")
       // Mode demonstration : charger les appareils fictifs
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const demoDevices = DEMO_DEVICES_DATA as any[]
@@ -341,7 +416,7 @@ export default function DevicesPage() {
     }
   }
 
-  const loadTenants = async () => {
+  const loadTenants = async (): Promise<string> => {
     setIsLoadingTenants(true)
     try {
       const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
@@ -367,19 +442,28 @@ export default function DevicesPage() {
         .filter((item: TenantOption) => Number.isFinite(item.id) && item.code)
 
       setTenants(parsed)
-      if (!tenantCode && parsed.length > 0) {
-        setTenantCode(parsed[0].code)
+      const preferredTenantCode = getActiveTenantCode(DEFAULT_TENANT_CODE)
+      const selectedTenantCode =
+        parsed.find((tenant: TenantOption) => tenant.code.toLowerCase() === preferredTenantCode.toLowerCase())?.code ??
+        parsed[0]?.code ??
+        ""
+      if (selectedTenantCode && selectedTenantCode !== tenantCode) {
+        setTenantCode(selectedTenantCode)
       }
+      return selectedTenantCode
     } catch {
       setTenants([])
+      return tenantCode
     } finally {
       setIsLoadingTenants(false)
     }
   }
 
   useEffect(() => {
-    void refreshDevices()
-    void loadTenants()
+    void (async () => {
+      const selectedTenantCode = await loadTenants()
+      await refreshDevices(selectedTenantCode)
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -897,259 +981,177 @@ export default function DevicesPage() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="legacy-theme app-shell bg-[#0b0d13] text-[#e2e8f0]">
       <AppSidebar />
 
       <div className="app-shell-content">
-        <main className="app-page">
+        <Header
+          systemStatus={isLoadingDevices ? "syncing" : devices.length > 0 ? "connected" : "disconnected"}
+          hideRouteInfo
+        />
+
+        <main className="mx-auto w-full max-w-430 space-y-3 px-3 py-3 md:px-4 2xl:max-w-none">
           {/* ── Hero ── */}
-          <section className="animate-fade-up relative mb-8 overflow-hidden rounded-3xl border border-border/60 bg-[linear-gradient(135deg,rgba(78,155,255,0.14),rgba(9,16,26,0.98)_38%,rgba(8,13,21,0.99))] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.3)] backdrop-blur-md sm:p-6 lg:p-8 xl:p-10">
-            <div className="soft-grid absolute inset-0 opacity-15" />
-            <div className="absolute -right-20 -top-10 h-56 w-56 rounded-full bg-primary/12 blur-[80px]" />
-            <div className="absolute -left-14 bottom-0 h-44 w-44 rounded-full bg-cyan-400/6 blur-[60px]" />
-
-            <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] xl:gap-10">
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/6 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-300 backdrop-blur-sm">
-                    <Server className="h-3 w-3" /> Infrastructure
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-primary backdrop-blur-sm">
-                    <ShieldCheck className="h-3 w-3" /> Hikvision
-                  </span>
-                </div>
-
-                <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl lg:text-4xl">
+          <section className="border border-[#1c2133] bg-[#111318]">
+            <div className="flex flex-col gap-3 border-b border-[#1c2133] px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">
+                  Infrastructure Hikvision
+                </p>
+                <h1 className="mt-1 font-display text-[22px] font-bold uppercase leading-none tracking-[0.08em] text-[#e2e8f0]">
                   Appareils
                 </h1>
-                <p className="max-w-2xl text-sm leading-relaxed text-slate-300/90 sm:text-[15px]">
+                <p className="mt-1 max-w-2xl text-xs text-[#7a8599]">
                   Inventaire, sante et actions de maintenance sur les controleurs et lecteurs du parc.
                 </p>
-
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Button variant="outline" size="sm" className="wow-transition border-white/10 bg-white/6 text-white hover:bg-white/10" onClick={() => void refreshDevices()} disabled={isLoadingDevices}>
-                    {isLoadingDevices ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-2 h-3.5 w-3.5" />}
-                    {isLoadingDevices ? "Synchronisation..." : "Synchroniser"}
-                  </Button>
-                  <Button variant="outline" size="sm" className="wow-transition border-white/10 bg-white/6 text-white hover:bg-white/10" onClick={() => setAddByIpOpen(true)}>
-                    <Wifi className="mr-2 h-3.5 w-3.5" />
-                    Ajouter par IP
-                  </Button>
-                  <Button size="sm" className="wow-transition" onClick={() => setAddDeviceOpen(true)}>
-                    <Plus className="mr-2 h-3.5 w-3.5" />
-                    Ajouter
-                  </Button>
-                </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                <div className="wow-transition group rounded-2xl border border-white/8 bg-white/4 p-4 backdrop-blur-sm hover:border-white/14 hover:bg-white/6">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">En ligne</p>
-                    <Wifi className="h-3.5 w-3.5 text-emerald-400" />
-                  </div>
-                  <p className="mt-2 text-3xl font-bold tabular-nums text-white">{onlineDevices}</p>
-                  <p className="mt-1 text-xs text-slate-400/80">sur {devices.length} appareils</p>
-                </div>
-                <div className="wow-transition group rounded-2xl border border-white/8 bg-white/4 p-4 backdrop-blur-sm hover:border-white/14 hover:bg-white/6">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Alertes</p>
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                  </div>
-                  <p className="mt-2 text-3xl font-bold tabular-nums text-white">{warningDevices}</p>
-                  <p className="mt-1 text-xs text-slate-400/80">a surveiller</p>
-                </div>
-                <div className="wow-transition group rounded-2xl border border-white/8 bg-white/4 p-4 backdrop-blur-sm hover:border-white/14 hover:bg-white/6">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Hors ligne</p>
-                    <WifiOff className="h-3.5 w-3.5 text-red-400" />
-                  </div>
-                  <p className="mt-2 text-3xl font-bold tabular-nums text-white">{offlineDevices}</p>
-                  <p className="mt-1 text-xs text-slate-400/80">deconnectes</p>
-                </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#60a5fa]/60 hover:bg-[#1a1f2e] hover:text-[#60a5fa]"
+                  onClick={() => void refreshDevices()}
+                  disabled={isLoadingDevices}
+                >
+                  {isLoadingDevices ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Synchroniser
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#22c55e]/60 hover:bg-[#1a1f2e] hover:text-[#22c55e]"
+                  onClick={() => setAddByIpOpen(true)}
+                >
+                  <Wifi className="mr-2 h-4 w-4" />
+                  Ajouter par IP
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 rounded-none border border-[#f97316] bg-[#f97316] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] shadow-none hover:bg-[#fb923c]"
+                  onClick={() => setAddDeviceOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Ajouter
+                </Button>
               </div>
+            </div>
+
+            <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
+              <DeviceMetricCard
+                label="En ligne"
+                value={onlineDevices}
+                note={`sur ${devices.length} appareils`}
+                tone="green"
+                icon={Wifi}
+              />
+              <DeviceMetricCard
+                label="Alertes"
+                value={warningDevices}
+                note="A surveiller"
+                tone="amber"
+                icon={AlertTriangle}
+              />
+              <DeviceMetricCard
+                label="Hors ligne"
+                value={offlineDevices}
+                note="Deconnectes"
+                tone="red"
+                icon={WifiOff}
+              />
+              <DeviceMetricCard
+                label="Total parc"
+                value={devices.length}
+                note={tenantOptions.length > 0 ? `${tenantOptions.length} tenant(s)` : "Inventaire"}
+                tone="blue"
+                icon={Server}
+              />
             </div>
           </section>
 
           {devicesError && (
-            <div className="wow-transition mb-6 flex items-start gap-3 rounded-xl border border-red-500/25 bg-linear-to-r from-red-500/8 to-red-500/3 p-4 shadow-[0_4px_24px_rgba(239,68,68,0.08)]">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-500/15">
-                <AlertTriangle className="h-4 w-4 text-red-400" />
+            <div role="alert" className="border border-[#ef4444]/40 bg-[#2a0e0e]/40 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <div className="flex size-8 shrink-0 items-center justify-center bg-[#2a0e0e] text-[#ef4444]">
+                  <AlertTriangle className="h-4 w-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#ef4444]/70">Erreur</p>
+                  <p className="mt-1 text-sm text-[#ef4444]">{devicesError}</p>
+                </div>
               </div>
-              <p className="text-sm leading-relaxed text-red-700 dark:text-red-300">{devicesError}</p>
             </div>
           )}
 
-          <Dialog open={addDeviceOpen} onOpenChange={setAddDeviceOpen}>
-            <DialogContent className="max-w-xl border-border/60 shadow-[0_24px_64px_rgba(0,0,0,0.4)]">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
-                    <Plus className="h-4 w-4 text-primary" />
-                  </div>
-                  Ajouter un appareil
-                </DialogTitle>
-                <DialogDescription className="text-muted-foreground/80">
-                  Champs requis : tenant, SN, ehome_key, mot de passe.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="tenant-code" className="text-xs font-medium">Tenant</Label>
-                  {tenants.length > 0 ? (
-                    <Select value={tenantCode} onValueChange={setTenantCode}>
-                      <SelectTrigger id="tenant-code" className="h-10 rounded-xl">
-                        <SelectValue placeholder={isLoadingTenants ? "Chargement..." : "Selectionner un tenant"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {tenants.map((tenant) => (
-                          <SelectItem key={tenant.id} value={tenant.code}>
-                            {tenant.name || tenant.code} ({tenant.code})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      id="tenant-code"
-                      value={tenantCode}
-                      onChange={(e) => setTenantCode(e.target.value)}
-                      placeholder={isLoadingTenants ? "Chargement..." : "TENANT-A"}
-                      className="h-10 rounded-xl"
-                    />
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="serial-number" className="text-xs font-medium">Numero de serie</Label>
-                  <Input
-                    id="serial-number"
-                    value={serialNumber}
-                    onChange={(e) => setSerialNumber(e.target.value)}
-                    placeholder="SN-POSTMAN-0001"
-                    className="h-10 rounded-xl font-mono"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ehome-key" className="text-xs font-medium">Cle eHome</Label>
-                  <Input
-                    id="ehome-key"
-                    value={ehomeKey}
-                    onChange={(e) => setEhomeKey(e.target.value)}
-                    placeholder="0123456789ABCDEF0123456789ABCDEF"
-                    className="h-10 rounded-xl font-mono text-xs"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="device-password" className="text-xs font-medium">Mot de passe</Label>
-                  <Input
-                    id="device-password"
-                    type="password"
-                    value={devicePassword}
-                    onChange={(e) => setDevicePassword(e.target.value)}
-                    placeholder="requis"
-                    className="h-10 rounded-xl"
-                  />
-                </div>
-
-                {submitMessage && (
-                  <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 p-3 text-sm text-emerald-400">
-                    {submitMessage}
-                  </p>
-                )}
-
-                {submitError && (
-                  <p className="rounded-xl border border-destructive/20 bg-destructive/8 p-3 text-sm text-destructive">
-                    {submitError}
-                  </p>
-                )}
-
-                <Button className="w-full rounded-xl" onClick={handleCreateDevice} disabled={isSubmitting}>
-                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                  {isSubmitting ? "Ajout en cours..." : "Ajouter via API"}
+          {/* ── Filters ── */}
+          <section className="border border-[#1c2133] bg-[#111318]">
+            <div className="flex flex-col gap-3 border-b border-[#1c2133] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">Filtres</p>
+                <h2 className="mt-1 font-display text-[15px] font-semibold uppercase leading-none tracking-[0.06em] text-[#e2e8f0]">
+                  Recherche &amp; affinage
+                </h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="border border-[#1c2133] bg-[#0b0d13] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] tabular-nums">
+                  {filteredDevices.length} resultat{filteredDevices.length !== 1 ? "s" : ""}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#ef4444]/60 hover:text-[#ef4444]"
+                  onClick={resetFilters}
+                >
+                  Reinitialiser
                 </Button>
               </div>
-            </DialogContent>
-          </Dialog>
-
-          <Dialog open={editDeviceOpen} onOpenChange={setEditDeviceOpen}>
-            <DialogContent className="max-w-lg border-border/60 shadow-[0_24px_64px_rgba(0,0,0,0.4)]">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
-                    <Settings className="h-4 w-4 text-primary" />
-                  </div>
-                  Modifier l&apos;appareil
-                </DialogTitle>
-                <DialogDescription className="text-muted-foreground/80">
-                  Nom et champs autorises par le backend.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-device-name" className="text-xs font-medium">Nom</Label>
-                  <Input
-                    id="edit-device-name"
-                    value={editName}
-                    onChange={(event) => setEditName(event.target.value)}
-                    placeholder="Nom de l'appareil"
-                    className="h-10 rounded-xl"
-                  />
-                </div>
-
-                {updateError && (
-                  <p className="rounded-xl border border-destructive/20 bg-destructive/8 p-3 text-sm text-destructive">
-                    {updateError}
-                  </p>
-                )}
-
-                <Button className="w-full rounded-xl" onClick={handleUpdateDevice} disabled={isUpdatingDevice}>
-                  {isUpdatingDevice ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {isUpdatingDevice ? "Enregistrement..." : "Enregistrer"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {/* Filters */}
-          <div className="mb-8 rounded-2xl border border-border/60 bg-card/50 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] backdrop-blur-sm animate-fade-up sm:p-6" style={{ animationDelay: "160ms" }}>
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Filtres</p>
-              <Badge variant="outline" className="border-border/60 bg-muted/20 text-[10px] tabular-nums text-muted-foreground">
-                {filteredDevices.length} resultat{filteredDevices.length !== 1 ? "s" : ""}
-              </Badge>
             </div>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+
+            <div className="space-y-2 p-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#4a5568]" />
                 <Input
                   placeholder="Nom, localisation ou IP..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-10 rounded-xl bg-background/50 pl-10 shadow-none transition-colors focus:bg-background"
+                  className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] pl-10 text-sm text-[#e2e8f0] placeholder:text-[#4a5568] focus-visible:ring-[#f97316]/35"
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="h-10 w-full rounded-xl bg-background/50 sm:w-44">
-                    <SelectValue placeholder="Statut" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tous les statuts</SelectItem>
-                    <SelectItem value="attention">A surveiller</SelectItem>
-                    <SelectItem value="online">En ligne</SelectItem>
-                    <SelectItem value="warning">Avertissement</SelectItem>
-                    <SelectItem value="offline">Hors ligne</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="flex items-center gap-1 border border-[#1c2133] bg-[#0b0d13] p-1">
+                {(["all", "online", "warning", "offline", "attention"] as const).map((option) => {
+                  const labels = {
+                    all: "Tous",
+                    online: "En ligne",
+                    warning: "Alerte",
+                    offline: "Hors ligne",
+                    attention: "A surveiller",
+                  } as const
+                  const isSelected = statusFilter === option
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setStatusFilter(option)}
+                      className={`px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em] transition-colors ${
+                        isSelected
+                          ? "bg-[#f97316] text-[#0b0d13]"
+                          : "text-[#4a5568] hover:text-[#e2e8f0]"
+                      }`}
+                    >
+                      {labels[option]}
+                    </button>
+                  )
+                })}
+              </div>
 
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger className="h-10 w-full rounded-xl bg-background/50 sm:w-48">
+                  <SelectTrigger className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[11px] uppercase tracking-[0.08em] text-[#e2e8f0]">
                     <SelectValue placeholder="Type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1161,64 +1163,50 @@ export default function DevicesPage() {
                   </SelectContent>
                 </Select>
 
-                  <Select value={tenantFilter} onValueChange={setTenantFilter}>
-                    <SelectTrigger className="h-10 w-full rounded-xl bg-background/50 sm:w-40">
-                      <SelectValue placeholder="Tenant" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous les tenants</SelectItem>
-                      {tenantOptions.map((tenant) => (
-                        <SelectItem key={tenant} value={tenant}>
-                          {tenant}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <Select value={tenantFilter} onValueChange={setTenantFilter}>
+                  <SelectTrigger className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[11px] uppercase tracking-[0.08em] text-[#e2e8f0]">
+                    <SelectValue placeholder="Tenant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les tenants</SelectItem>
+                    {tenantOptions.map((tenant) => (
+                      <SelectItem key={tenant} value={tenant}>
+                        {tenant}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-                  <Select value={linkFilter} onValueChange={setLinkFilter}>
-                    <SelectTrigger className="h-10 w-full rounded-xl bg-background/50 sm:w-44">
-                      <SelectValue placeholder="Connectivite" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Toutes les liaisons</SelectItem>
-                      <SelectItem value="linked">Lie au coeur</SelectItem>
-                      <SelectItem value="unlinked">Non lie</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Button variant="outline" className="h-10 rounded-xl" onClick={resetFilters}>
-                    Reinitialiser
-                  </Button>
+                <Select value={linkFilter} onValueChange={setLinkFilter}>
+                  <SelectTrigger className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[11px] uppercase tracking-[0.08em] text-[#e2e8f0]">
+                    <SelectValue placeholder="Connectivite" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Toutes les liaisons</SelectItem>
+                    <SelectItem value="linked">Lie au coeur</SelectItem>
+                    <SelectItem value="unlinked">Non lie</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Loading Skeleton */}
+          {/* ── Loading skeleton ── */}
           {isLoadingDevices && devices.length === 0 && (
-            <div className="mb-2 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="skeleton-shimmer rounded-2xl border border-border/40 bg-card/60 p-5">
+                <div key={i} className="border border-[#1c2133] bg-[#111318] p-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-11 w-11 rounded-xl bg-muted/40" />
+                    <div className="size-10 bg-[#1c2133]" />
                     <div className="flex-1 space-y-2">
-                      <div className="h-4 w-3/5 rounded-lg bg-muted/40" />
-                      <div className="h-3 w-2/5 rounded-lg bg-muted/25" />
+                      <div className="h-3 w-3/5 bg-[#1c2133]" />
+                      <div className="h-2 w-2/5 bg-[#1c2133]" />
                     </div>
                   </div>
-                  <div className="mt-4 flex gap-2">
-                    <div className="h-6 w-20 rounded-full bg-muted/25" />
-                    <div className="h-6 w-14 rounded-full bg-muted/20" />
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    <div className="h-3 w-4/5 rounded bg-muted/20" />
-                    <div className="h-3 w-3/5 rounded bg-muted/20" />
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border/30 bg-border/20">
+                  <div className="mt-3 h-5 w-20 bg-[#1c2133]" />
+                  <div className="mt-3 grid grid-cols-3 gap-1">
                     {Array.from({ length: 3 }).map((_, j) => (
-                      <div key={j} className="bg-card/60 p-3">
-                        <div className="mx-auto h-5 w-8 rounded bg-muted/25" />
-                        <div className="mx-auto mt-1.5 h-2.5 w-14 rounded bg-muted/15" />
-                      </div>
+                      <div key={j} className="h-10 bg-[#1c2133]" />
                     ))}
                   </div>
                 </div>
@@ -1226,49 +1214,39 @@ export default function DevicesPage() {
             </div>
           )}
 
-          {/* Devices Grid */}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 animate-fade-up" style={{ animationDelay: "240ms" }}>
-            {filteredDevices.map((device, index) => {
-              const Icon = getDeviceIcon(device.type)
-              return (
-                <Card
-                  key={device.id}
-                  className="group/card wow-transition relative cursor-pointer overflow-hidden rounded-2xl border-border/60 bg-card/80 shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:border-primary/25 hover:shadow-[0_12px_40px_rgba(78,155,255,0.08)]"
-                  style={{ animationDelay: `${index * 40}ms` }}
-                  onClick={() => handleDeviceClick(device)}
-                >
-                  <div className={`absolute inset-x-0 top-0 h-0.5 bg-linear-to-r ${
-                    device.status === "online"
-                      ? "from-transparent via-emerald-400/80 to-transparent"
-                      : device.status === "warning"
-                        ? "from-transparent via-amber-400/80 to-transparent"
-                        : "from-transparent via-red-400/80 to-transparent"
-                  }`} />
-                  <CardContent className="relative p-5">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`flex h-11 w-11 items-center justify-center rounded-xl ring-1 transition-transform duration-300 group-hover/card:scale-105 ${
-                            device.status === "online"
-                              ? "bg-emerald-500/10 ring-emerald-500/20"
-                              : device.status === "warning"
-                                ? "bg-amber-500/10 ring-amber-500/20"
-                                : "bg-red-500/10 ring-red-500/20"
-                          }`}
-                        >
-                          <Icon
-                            className={`h-5 w-5 ${
-                              device.status === "online"
-                                ? "text-emerald-400"
-                                : device.status === "warning"
-                                  ? "text-amber-400"
-                                  : "text-red-400"
-                            }`}
-                          />
+          {/* ── Devices grid ── */}
+          {filteredDevices.length > 0 && (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredDevices.map((device) => {
+                const Icon = getDeviceIcon(device.type)
+                const tone = statusToTone[device.status]
+                const styles = deviceToneClass[tone]
+                return (
+                  <article
+                    key={device.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleDeviceClick(device)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        handleDeviceClick(device)
+                      }
+                    }}
+                    className="group relative cursor-pointer border border-[#1c2133] bg-[#111318] p-3 transition hover:border-[#f97316]/50 hover:bg-[#1a1f2e]/40"
+                  >
+                    <div className={`absolute left-0 top-0 h-full w-[3px] ${styles.bar}`} />
+
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className={`flex size-10 shrink-0 items-center justify-center ${styles.bg} ${styles.text}`}>
+                          <Icon className="size-5" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <h3 className="truncate text-[13px] font-bold tracking-tight text-foreground">{device.name}</h3>
-                          <p className="text-[11px] text-muted-foreground/80">
+                          <h3 className="truncate font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                            {device.name}
+                          </h3>
+                          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
                             {getDeviceTypeLabel(device.type)}
                           </p>
                         </div>
@@ -1276,7 +1254,12 @@ export default function DevicesPage() {
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 transition-opacity group-hover/card:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Actions"
+                            className="h-7 w-7 shrink-0 rounded-none border border-[#1c2133] bg-[#1a1f2e] text-[#7a8599] opacity-0 transition hover:border-[var(--brand-accent)]/60 hover:text-[var(--brand-accent)] group-hover:opacity-100"
+                          >
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -1336,120 +1319,256 @@ export default function DevicesPage() {
                       </DropdownMenu>
                     </div>
 
-                    <div className="mt-3.5 flex items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] font-medium ${
-                          device.status === "online"
-                            ? "border-emerald-500/20 bg-emerald-500/6 text-emerald-400"
-                            : device.status === "warning"
-                              ? "border-amber-500/20 bg-amber-500/6 text-amber-400"
-                              : "border-red-500/20 bg-red-500/6 text-red-400"
-                        }`}
-                      >
-                        {device.status === "online" && (
-                          <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]" />
-                        )}
-                        {device.status === "warning" && (
-                          <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
-                        )}
-                        {device.status === "offline" && (
-                          <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
-                        )}
-                        {device.status === "online"
-                          ? "En ligne"
-                          : device.status === "warning"
-                            ? "Alerte"
-                            : "Hors ligne"}
-                      </Badge>
-                      <span className="text-[10px] text-muted-foreground/60">{device.lastSeen}</span>
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className={`inline-flex items-center gap-1.5 border ${styles.bg} px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] ${styles.text} border-[#1c2133]`}>
+                        <span
+                          className={`size-1.5 rounded-full ${
+                            device.status === "online"
+                              ? "bg-[#22c55e]"
+                              : device.status === "warning"
+                                ? "bg-[#f59e0b] animate-pulse"
+                                : "bg-[#ef4444]"
+                          }`}
+                        />
+                        {statusLabel[device.status]}
+                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#4a5568]">
+                        {device.lastSeen}
+                      </span>
                     </div>
 
-                    <div className="mt-3.5 space-y-1.5 text-sm">
-                      <div className="flex items-center gap-2.5 text-muted-foreground/80">
-                        <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-                        <span className="truncate text-xs">{device.location}</span>
+                    <div className="mt-3 space-y-1.5">
+                      <div className="flex items-center gap-2 font-mono text-[10px] text-[#7a8599]">
+                        <MapPin className="size-3 shrink-0 text-[#4a5568]" />
+                        <span className="truncate uppercase tracking-[0.06em]">{device.location}</span>
                       </div>
-                      <div className="flex items-center gap-2.5 text-muted-foreground/80">
-                        <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-                        <span className="font-mono text-[11px] tabular-nums">{device.ipAddress}</span>
+                      <div className="flex items-center gap-2 font-mono text-[10px] text-[#7a8599]">
+                        <Cpu className="size-3 shrink-0 text-[#4a5568]" />
+                        <span className="tabular-nums">{device.ipAddress}</span>
+                        {device.coreDeviceId ? (
+                          <span className="ml-auto border border-[#1c2133] bg-[#0d1e2e] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#60a5fa]">
+                            Lie
+                          </span>
+                        ) : (
+                          <span className="ml-auto border border-[#1c2133] bg-[#2a1e06] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#f59e0b]">
+                            Non lie
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border/40 bg-border/20 text-center">
-                      <div className="bg-card/80 p-2.5">
-                        <p className="text-base font-bold tabular-nums text-foreground">
-                          {device.todayEvents}
-                        </p>
-                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">Events</p>
-                      </div>
-                      <div className="bg-card/80 p-2.5">
-                        <p className="text-base font-bold tabular-nums text-foreground">
-                          {device.connectedUsers}
-                        </p>
-                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">Users</p>
-                      </div>
-                      <div className="bg-card/80 p-2.5">
-                        <p className="text-xs font-semibold tabular-nums text-foreground">{device.firmware}</p>
-                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">FW</p>
-                      </div>
+                    <div className="mt-3 grid grid-cols-3 gap-1.5">
+                      <DeviceStatPill label="Events" value={String(device.todayEvents)} />
+                      <DeviceStatPill label="Users" value={String(device.connectedUsers)} />
+                      <DeviceStatPill label="Firmware" value={device.firmware} />
                     </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
+                  </article>
+                )
+              })}
+            </div>
+          )}
 
           {!isLoadingDevices && filteredDevices.length === 0 && (
-            <div className="animate-fade-up mt-2 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-card/30 px-6 py-20 text-center">
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/20 ring-1 ring-border/40">
-                <Cpu className="h-7 w-7 text-muted-foreground/40" />
+            <div className="flex flex-col items-center border border-dashed border-[#1c2133] bg-[#111318] px-4 py-12 text-center">
+              <div className="mb-3 flex size-12 items-center justify-center bg-[#1a1f2e] text-[#7a8599]">
+                <Cpu className="size-6" />
               </div>
-              <p className="text-base font-bold text-muted-foreground">Aucun appareil</p>
-              <p className="mt-1.5 max-w-sm text-sm text-muted-foreground/60">
-                Modifiez vos filtres ou ajoutez un nouvel appareil.
+              <p className="font-display text-sm font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                {devices.length === 0 ? "Aucun appareil connecte" : "Aucun appareil ne correspond aux filtres"}
               </p>
-              <Button variant="outline" size="sm" className="mt-6 rounded-xl" onClick={() => setAddDeviceOpen(true)}>
+              <p className="mt-1 max-w-sm font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
+                {devices.length === 0
+                  ? "Ajoutez votre premier lecteur Hikvision pour commencer."
+                  : "Elargissez la recherche ou reinitialisez les filtres."}
+              </p>
+              <Button
+                size="sm"
+                className="mt-3 h-8 rounded-none border border-[#f97316] bg-[#f97316] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[#fb923c]"
+                onClick={() => setAddDeviceOpen(true)}
+              >
                 <Plus className="mr-2 h-4 w-4" />
-                Ajouter
+                Ajouter un appareil
               </Button>
             </div>
           )}
 
-          {/* Device Details Dialog */}
-          <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-            <DialogContent className="max-w-2xl border-border/60 shadow-[0_24px_64px_rgba(0,0,0,0.4)]">
+          {/* ── Add device dialog ── */}
+          <Dialog open={addDeviceOpen} onOpenChange={setAddDeviceOpen}>
+            <DialogContent className="max-w-xl rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
-                <DialogTitle className="flex items-center gap-3">
+                <DialogTitle className="flex items-center gap-2.5 font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                  <div className="flex size-9 items-center justify-center bg-[#2a1408] text-[#f97316]">
+                    <Plus className="h-4 w-4" />
+                  </div>
+                  Ajouter un appareil
+                </DialogTitle>
+                <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                  Champs requis : tenant, SN, ehome_key, mot de passe.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="tenant-code" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                    Tenant
+                  </Label>
+                  {tenants.length > 0 ? (
+                    <Select value={tenantCode} onValueChange={setTenantCode}>
+                      <SelectTrigger id="tenant-code" className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0]">
+                        <SelectValue placeholder={isLoadingTenants ? "Chargement..." : "Selectionner un tenant"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tenants.map((tenant) => (
+                          <SelectItem key={tenant.id} value={tenant.code}>
+                            {tenant.name || tenant.code} ({tenant.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="tenant-code"
+                      value={tenantCode}
+                      onChange={(e) => setTenantCode(e.target.value)}
+                      placeholder={isLoadingTenants ? "Chargement..." : "TENANT-A"}
+                      className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="serial-number" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                    Numero de serie
+                  </Label>
+                  <Input
+                    id="serial-number"
+                    value={serialNumber}
+                    onChange={(e) => setSerialNumber(e.target.value)}
+                    placeholder="SN-POSTMAN-0001"
+                    className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[#e2e8f0] placeholder:text-[#4a5568]"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="ehome-key" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                    Cle eHome
+                  </Label>
+                  <Input
+                    id="ehome-key"
+                    value={ehomeKey}
+                    onChange={(e) => setEhomeKey(e.target.value)}
+                    placeholder="0123456789ABCDEF0123456789ABCDEF"
+                    className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-xs text-[#e2e8f0] placeholder:text-[#4a5568]"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="device-password" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                    Mot de passe
+                  </Label>
+                  <Input
+                    id="device-password"
+                    type="password"
+                    value={devicePassword}
+                    onChange={(e) => setDevicePassword(e.target.value)}
+                    placeholder="requis"
+                    className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
+                  />
+                </div>
+
+                {submitMessage && (
+                  <p className="border border-[#22c55e]/30 bg-[#0d2a1a]/60 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#22c55e]">
+                    {submitMessage}
+                  </p>
+                )}
+
+                {submitError && (
+                  <p className="border border-[#ef4444]/30 bg-[#2a0e0e]/60 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#ef4444]">
+                    {submitError}
+                  </p>
+                )}
+
+                <Button
+                  className="h-9 w-full rounded-none border border-[#f97316] bg-[#f97316] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[#fb923c]"
+                  onClick={handleCreateDevice}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                  {isSubmitting ? "Ajout en cours..." : "Ajouter via API"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Edit device dialog ── */}
+          <Dialog open={editDeviceOpen} onOpenChange={setEditDeviceOpen}>
+            <DialogContent className="max-w-lg rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2.5 font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                  <div className="flex size-9 items-center justify-center bg-[#0d1e2e] text-[#60a5fa]">
+                    <Settings className="h-4 w-4" />
+                  </div>
+                  Modifier l&apos;appareil
+                </DialogTitle>
+                <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                  Nom et champs autorises par le backend.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-device-name" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                    Nom
+                  </Label>
+                  <Input
+                    id="edit-device-name"
+                    value={editName}
+                    onChange={(event) => setEditName(event.target.value)}
+                    placeholder="Nom de l'appareil"
+                    className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
+                  />
+                </div>
+
+                {updateError && (
+                  <p className="border border-[#ef4444]/30 bg-[#2a0e0e]/60 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#ef4444]">
+                    {updateError}
+                  </p>
+                )}
+
+                <Button
+                  className="h-9 w-full rounded-none border border-[#f97316] bg-[#f97316] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[#fb923c]"
+                  onClick={handleUpdateDevice}
+                  disabled={isUpdatingDevice}
+                >
+                  {isUpdatingDevice ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {isUpdatingDevice ? "Enregistrement..." : "Enregistrer"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Device details dialog ── */}
+          <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+            <DialogContent className="max-w-2xl rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3 font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
                   {selectedDevice && (
                     <>
                       {(() => {
                         const Icon = getDeviceIcon(selectedDevice.type)
+                        const tone = statusToTone[selectedDevice.status]
+                        const styles = deviceToneClass[tone]
                         return (
-                          <div
-                            className={`flex h-11 w-11 items-center justify-center rounded-xl ring-1 ${
-                              selectedDevice.status === "online"
-                                ? "bg-emerald-500/10 ring-emerald-500/20"
-                                : selectedDevice.status === "warning"
-                                  ? "bg-amber-500/10 ring-amber-500/20"
-                                  : "bg-red-500/10 ring-red-500/20"
-                            }`}
-                          >
-                            <Icon
-                              className={`h-5 w-5 ${
-                                selectedDevice.status === "online"
-                                  ? "text-emerald-400"
-                                  : selectedDevice.status === "warning"
-                                    ? "text-amber-400"
-                                    : "text-red-400"
-                              }`}
-                            />
+                          <div className={`flex size-10 items-center justify-center ${styles.bg} ${styles.text}`}>
+                            <Icon className="h-5 w-5" />
                           </div>
                         )
                       })()}
-                      <div>
-                        <span className="font-bold tracking-tight">{selectedDevice.name}</span>
-                        <p className="text-xs font-normal text-muted-foreground/80">{getDeviceTypeLabel(selectedDevice.type)}</p>
+                      <div className="min-w-0">
+                        <span className="block truncate">{selectedDevice.name}</span>
+                        <p className="mt-0.5 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-[#7a8599]">
+                          {getDeviceTypeLabel(selectedDevice.type)}
+                        </p>
                       </div>
                     </>
                   )}
@@ -1458,109 +1577,135 @@ export default function DevicesPage() {
 
               {selectedDevice && (
                 <Tabs value={detailsTab} onValueChange={setDetailsTab} className="mt-2">
-                  <TabsList className="w-full rounded-xl bg-muted/20">
-                    <TabsTrigger value="info" className="flex-1 rounded-lg text-xs">
+                  <TabsList className="grid w-full grid-cols-3 rounded-none border border-[#1c2133] bg-[#0b0d13] p-1">
+                    <TabsTrigger
+                      value="info"
+                      className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[#f97316] data-[state=active]:text-[#0b0d13]"
+                    >
                       Informations
                     </TabsTrigger>
-                    <TabsTrigger value="network" className="flex-1 rounded-lg text-xs">
+                    <TabsTrigger
+                      value="network"
+                      className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[#f97316] data-[state=active]:text-[#0b0d13]"
+                    >
                       Reseau
                     </TabsTrigger>
-                    <TabsTrigger value="activity" className="flex-1 rounded-lg text-xs">
+                    <TabsTrigger
+                      value="activity"
+                      className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[#f97316] data-[state=active]:text-[#0b0d13]"
+                    >
                       Activite
                     </TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value="info" className="mt-4 space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-3.5 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Modele</p>
-                        <p className="text-sm font-medium">{selectedDevice.model}</p>
+                  <TabsContent value="info" className="mt-3 space-y-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Modele</p>
+                        <p className="mt-1 text-sm font-medium text-[#e2e8f0]">{selectedDevice.model}</p>
                       </div>
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-3.5 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Serie</p>
-                        <p className="font-mono text-sm tabular-nums">{selectedDevice.serialNumber}</p>
+                      <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Serie</p>
+                        <p className="mt-1 font-mono text-sm tabular-nums text-[#e2e8f0]">{selectedDevice.serialNumber}</p>
                       </div>
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-3.5 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Localisation</p>
-                        <p className="text-sm font-medium">{selectedDevice.location}</p>
+                      <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Localisation</p>
+                        <p className="mt-1 text-sm font-medium text-[#e2e8f0]">{selectedDevice.location}</p>
                       </div>
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-3.5 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Firmware</p>
-                        <p className="text-sm font-medium tabular-nums">{selectedDevice.firmware}</p>
+                      <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Firmware</p>
+                        <p className="mt-1 text-sm font-medium tabular-nums text-[#e2e8f0]">{selectedDevice.firmware}</p>
                       </div>
                     </div>
 
-                    <div className={`flex items-center gap-3 rounded-xl border p-4 ${
-                      selectedDevice.status === "online"
-                        ? "border-emerald-500/20 bg-emerald-500/6"
-                        : selectedDevice.status === "warning"
-                          ? "border-amber-500/20 bg-amber-500/6"
-                          : "border-red-500/20 bg-red-500/6"
-                    }`}>
-                      {selectedDevice.status === "online" ? (
-                        <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                      ) : selectedDevice.status === "warning" ? (
-                        <AlertTriangle className="h-5 w-5 text-amber-400" />
-                      ) : (
-                        <WifiOff className="h-5 w-5 text-red-400" />
-                      )}
-                      <div>
-                        <p className="text-sm font-bold">
-                          {selectedDevice.status === "online"
-                            ? "En ligne"
-                            : selectedDevice.status === "warning"
-                              ? "Connexion instable"
-                              : "Hors ligne"}
-                        </p>
-                        <p className="text-xs text-muted-foreground/80">
-                          Derniere activite : {selectedDevice.lastSeen}
-                        </p>
-                      </div>
-                    </div>
+                    {(() => {
+                      const tone = statusToTone[selectedDevice.status]
+                      const styles = deviceToneClass[tone]
+                      const StatusIcon =
+                        selectedDevice.status === "online"
+                          ? CheckCircle2
+                          : selectedDevice.status === "warning"
+                            ? AlertTriangle
+                            : WifiOff
+                      return (
+                        <div className={`relative flex items-center gap-3 border border-[#1c2133] bg-[#0b0d13] p-3`}>
+                          <div className={`absolute left-0 top-0 h-full w-[3px] ${styles.bar}`} />
+                          <div className={`flex size-8 items-center justify-center ${styles.bg} ${styles.text}`}>
+                            <StatusIcon className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                              {selectedDevice.status === "online"
+                                ? "En ligne"
+                                : selectedDevice.status === "warning"
+                                  ? "Connexion instable"
+                                  : "Hors ligne"}
+                            </p>
+                            <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                              Derniere activite : {selectedDevice.lastSeen}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     <Button
                       variant="outline"
-                      className="w-full rounded-xl"
+                      className="h-9 w-full rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#60a5fa]/60 hover:text-[#60a5fa]"
                       disabled={configuringDeviceId === selectedDevice.id}
                       onClick={() => void handleOpenDeviceConfiguration(selectedDevice)}
                     >
-                      {configuringDeviceId === selectedDevice.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
-                      {configuringDeviceId === selectedDevice.id
-                        ? "Ouverture..."
-                        : "Interface de configuration"}
+                      {configuringDeviceId === selectedDevice.id ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                      )}
+                      {configuringDeviceId === selectedDevice.id ? "Ouverture..." : "Interface de configuration"}
                     </Button>
 
                     <div className="grid gap-2 sm:grid-cols-2">
                       <Button
                         variant="outline"
-                        className="rounded-xl"
+                        className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#22c55e]/60 hover:text-[#22c55e]"
                         disabled={verifyingDeviceId === selectedDevice.id}
                         onClick={() => void handleVerifyDevice(selectedDevice)}
                       >
-                        {verifyingDeviceId === selectedDevice.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Power className="mr-2 h-4 w-4" />}
+                        {verifyingDeviceId === selectedDevice.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Power className="mr-2 h-4 w-4" />
+                        )}
                         {verifyingDeviceId === selectedDevice.id ? "Verification..." : "Verifier"}
                       </Button>
                       <Button
                         variant="outline"
-                        className="rounded-xl"
+                        className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#a78bfa]/60 hover:text-[#a78bfa]"
                         disabled={diagnosingDeviceId === selectedDevice.id}
                         onClick={() => void handleRunDiagnostics(selectedDevice)}
                       >
-                        {diagnosingDeviceId === selectedDevice.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Activity className="mr-2 h-4 w-4" />}
+                        {diagnosingDeviceId === selectedDevice.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Activity className="mr-2 h-4 w-4" />
+                        )}
                         {diagnosingDeviceId === selectedDevice.id ? "Diagnostic..." : "Diagnostiquer"}
                       </Button>
                       <Button
                         variant="outline"
-                        className="rounded-xl"
+                        className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#60a5fa]/60 hover:text-[#60a5fa]"
                         disabled={syncingDeviceId === selectedDevice.id}
                         onClick={() => void handleSyncDevice(selectedDevice)}
                       >
-                        {syncingDeviceId === selectedDevice.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                        {syncingDeviceId === selectedDevice.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCcw className="mr-2 h-4 w-4" />
+                        )}
                         {syncingDeviceId === selectedDevice.id ? "Synchronisation..." : "Synchroniser"}
                       </Button>
                       <Button
                         variant="outline"
-                        className="rounded-xl"
+                        className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#f97316]/60 hover:text-[#f97316]"
                         onClick={() => {
                           setDetailsOpen(false)
                           openEditDevice(selectedDevice)
@@ -1572,73 +1717,87 @@ export default function DevicesPage() {
                     </div>
                   </TabsContent>
 
-                  <TabsContent value="network" className="mt-4 space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-3.5 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">IP</p>
-                        <p className="font-mono text-sm tabular-nums">{selectedDevice.ipAddress}</p>
+                  <TabsContent value="network" className="mt-3 space-y-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">IP</p>
+                        <p className="mt-1 font-mono text-sm tabular-nums text-[#e2e8f0]">{selectedDevice.ipAddress}</p>
                       </div>
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-3.5 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">MAC</p>
-                        <p className="font-mono text-sm">{selectedDevice.macAddress}</p>
+                      <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">MAC</p>
+                        <p className="mt-1 font-mono text-sm text-[#e2e8f0]">{selectedDevice.macAddress}</p>
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-border/60 bg-card/80 p-4">
+                    <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
                       <div className="flex items-center gap-2">
-                        <Activity className="h-4 w-4 text-primary" />
-                        <span className="text-sm font-bold">Diagnostics</span>
+                        <div className="flex size-7 items-center justify-center bg-[#1e1530] text-[#a78bfa]">
+                          <Activity className="h-4 w-4" />
+                        </div>
+                        <span className="font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                          Diagnostics
+                        </span>
                       </div>
-                      <div className="mt-3 grid gap-2 text-sm">
-                        <div className="flex items-center justify-between rounded-lg bg-background/40 px-3 py-2">
-                          <span className="text-xs text-muted-foreground/80">Latence</span>
-                          <span className="font-mono text-xs font-semibold tabular-nums">{getDiagnosticsSnapshot(selectedDevice).latency}</span>
+                      <div className="mt-3 grid gap-2">
+                        <div className="flex items-center justify-between border border-[#1c2133] bg-[#111318] px-3 py-2">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Latence</span>
+                          <span className="font-mono text-sm font-semibold tabular-nums text-[#e2e8f0]">
+                            {getDiagnosticsSnapshot(selectedDevice).latency}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between rounded-lg bg-background/40 px-3 py-2">
-                          <span className="text-xs text-muted-foreground/80">Paquets perdus</span>
-                          <span className="font-mono text-xs font-semibold tabular-nums">{getDiagnosticsSnapshot(selectedDevice).packetLoss}</span>
+                        <div className="flex items-center justify-between border border-[#1c2133] bg-[#111318] px-3 py-2">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Paquets perdus</span>
+                          <span className="font-mono text-sm font-semibold tabular-nums text-[#e2e8f0]">
+                            {getDiagnosticsSnapshot(selectedDevice).packetLoss}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between rounded-lg bg-background/40 px-3 py-2">
-                          <span className="text-xs text-muted-foreground/80">Uptime</span>
-                          <span className="font-mono text-xs font-semibold tabular-nums">{getDiagnosticsSnapshot(selectedDevice).uptime}</span>
+                        <div className="flex items-center justify-between border border-[#1c2133] bg-[#111318] px-3 py-2">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Uptime</span>
+                          <span className="font-mono text-sm font-semibold tabular-nums text-[#e2e8f0]">
+                            {getDiagnosticsSnapshot(selectedDevice).uptime}
+                          </span>
                         </div>
                       </div>
-                      <p className="mt-3 text-xs text-muted-foreground/80">{getDiagnosticsSnapshot(selectedDevice).message}</p>
+                      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599]">
+                        {getDiagnosticsSnapshot(selectedDevice).message}
+                      </p>
                     </div>
                   </TabsContent>
 
-                  <TabsContent value="activity" className="mt-4 space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-4">
+                  <TabsContent value="activity" className="mt-3 space-y-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <article className="relative border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <div className="absolute left-0 top-0 h-full w-[3px] bg-[#f97316]" />
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
-                            <Zap className="h-5 w-5 text-primary" />
+                          <div className="flex size-10 items-center justify-center bg-[#2a1408] text-[#f97316]">
+                            <Zap className="size-5" />
                           </div>
                           <div>
-                            <p className="text-2xl font-bold tabular-nums">
+                            <p className="font-display text-2xl font-bold leading-none tabular-nums text-[#f97316]">
                               {selectedDevice.todayEvents}
                             </p>
-                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                            <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
                               Events
                             </p>
                           </div>
                         </div>
-                      </div>
-                      <div className="rounded-xl border border-border/60 bg-card/80 p-4">
+                      </article>
+                      <article className="relative border border-[#1c2133] bg-[#0b0d13] p-3">
+                        <div className="absolute left-0 top-0 h-full w-[3px] bg-[#60a5fa]" />
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
-                            <Clock className="h-5 w-5 text-primary" />
+                          <div className="flex size-10 items-center justify-center bg-[#0d1e2e] text-[#60a5fa]">
+                            <Clock className="size-5" />
                           </div>
                           <div>
-                            <p className="text-2xl font-bold tabular-nums">
+                            <p className="font-display text-2xl font-bold leading-none tabular-nums text-[#60a5fa]">
                               {selectedDevice.connectedUsers}
                             </p>
-                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                            <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
                               Utilisateurs
                             </p>
                           </div>
                         </div>
-                      </div>
+                      </article>
                     </div>
                   </TabsContent>
                 </Tabs>
@@ -1646,22 +1805,31 @@ export default function DevicesPage() {
             </DialogContent>
           </Dialog>
 
+          {/* ── Delete confirmation ── */}
           <Dialog open={!!pendingDeleteDevice} onOpenChange={(open) => !open && setPendingDeleteDevice(null)}>
-            <DialogContent className="max-w-lg border-border/60">
+            <DialogContent className="max-w-lg rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
-                <DialogTitle>Supprimer l&apos;appareil</DialogTitle>
-                <DialogDescription>
-                  Cette action supprimera {pendingDeleteDevice ? `"${pendingDeleteDevice.name}"` : "l&apos;appareil"} de l&apos;inventaire.
+                <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                  Supprimer l&apos;appareil
+                </DialogTitle>
+                <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                  Cette action supprimera {pendingDeleteDevice ? `"${pendingDeleteDevice.name}"` : "l'appareil"} de l&apos;inventaire.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setPendingDeleteDevice(null)} disabled={deletingDeviceId !== null}>
+                <Button
+                  variant="outline"
+                  onClick={() => setPendingDeleteDevice(null)}
+                  disabled={deletingDeviceId !== null}
+                  className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
+                >
                   Annuler
                 </Button>
                 <Button
                   variant="destructive"
                   onClick={() => void confirmDeleteDevice()}
                   disabled={!pendingDeleteDevice || deletingDeviceId !== null}
+                  className="h-9 rounded-none border border-[#ef4444] bg-[#ef4444] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[#f87171]"
                 >
                   {deletingDeviceId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Supprimer
@@ -1670,19 +1838,31 @@ export default function DevicesPage() {
             </DialogContent>
           </Dialog>
 
+          {/* ── Restart confirmation ── */}
           <Dialog open={!!pendingRestartDevice} onOpenChange={(open) => !open && setPendingRestartDevice(null)}>
-            <DialogContent className="max-w-lg border-border/60">
+            <DialogContent className="max-w-lg rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
-                <DialogTitle>Redemarrer l&apos;appareil</DialogTitle>
-                <DialogDescription>
+                <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
+                  Redemarrer l&apos;appareil
+                </DialogTitle>
+                <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
                   Le redemarrage de {pendingRestartDevice ? `"${pendingRestartDevice.name}"` : "cet appareil"} peut interrompre temporairement les passages.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setPendingRestartDevice(null)} disabled={restartingDeviceId !== null}>
+                <Button
+                  variant="outline"
+                  onClick={() => setPendingRestartDevice(null)}
+                  disabled={restartingDeviceId !== null}
+                  className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
+                >
                   Annuler
                 </Button>
-                <Button onClick={() => void confirmRestartDevice()} disabled={!pendingRestartDevice || restartingDeviceId !== null}>
+                <Button
+                  onClick={() => void confirmRestartDevice()}
+                  disabled={!pendingRestartDevice || restartingDeviceId !== null}
+                  className="h-9 rounded-none border border-[#f97316] bg-[#f97316] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[#fb923c]"
+                >
                   {restartingDeviceId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Redemarrer
                 </Button>
@@ -1690,7 +1870,7 @@ export default function DevicesPage() {
             </DialogContent>
           </Dialog>
 
-          {/* Add Device by IP */}
+          {/* ── Add device by IP ── */}
           <AddDeviceByIpDialog
             open={addByIpOpen}
             onOpenChange={setAddByIpOpen}
