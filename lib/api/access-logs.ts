@@ -54,11 +54,27 @@ export type HikCatchupResponse = {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-const HIK_EVENTS_TENANT = (
-  process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ??
-  process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ??
-  "HQ-CASA"
-).trim()
+
+// Dev safeguard: log a visible warning when tenant env vars are not configured
+function _requireTenantCode(value: string | undefined, varName: string): string {
+  if (!value || value.trim() === "") {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[LR Time] ${varName} is not set. ` +
+        "Add it to your .env.local file. " +
+        "Falling back to empty string — API calls that require a tenant code will fail."
+      )
+    }
+    return ""
+  }
+  return value.trim()
+}
+
+const HIK_EVENTS_TENANT = _requireTenantCode(
+  process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE,
+  "NEXT_PUBLIC_HIK_EVENTS_TENANT"
+)
 
 type FetchHikEventsParams = {
   limit?: number

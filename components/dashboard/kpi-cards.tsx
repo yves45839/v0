@@ -12,9 +12,11 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Users, UserX, Clock, Cpu, ArrowUpRight } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 import type { DashboardKPIData, DashboardSystemStatus } from "@/components/dashboard/types"
+import { useI18n } from "@/lib/i18n/context"
 
 interface KPICardsProps {
   data: DashboardKPIData
@@ -76,75 +78,75 @@ type KpiCard = {
   title: string
   value: number
   subtitle: string
-  icon: typeof Users
+  icon: LucideIcon
+  iconColor?: string
   showProgress?: boolean
   progressValue?: number
   progressTotal?: number
-  trend: string
-  trendUp: boolean
   href: string
   detailDescription: string
 }
 
 export function KPICards({ data, systemStatus }: KPICardsProps) {
+  const { locale } = useI18n()
   const [selectedCardKey, setSelectedCardKey] = useState<KpiCard["key"] | null>(null)
 
   const cards = [
     {
       key: "present" as const,
-      title: "Presents aujourd'hui",
+      title: locale === "en" ? "Present today" : "Presents aujourd'hui",
       value: data.presentToday.count,
-      subtitle: `${data.presentToday.total} employes attendus`,
+      subtitle: locale === "en" ? `${data.presentToday.total} expected employees` : `${data.presentToday.total} employes attendus`,
       icon: Users,
       showProgress: true,
       progressValue: data.presentToday.count,
       progressTotal: data.presentToday.total,
-      trend: "Tendance stable",
-      trendUp: true,
       href: "/employees?focus=present-today",
       detailDescription:
-        "Suivi en temps reel des presences du jour. Ouvrez la vue Employes pour filtrer et traiter les absences potentielles.",
+        locale === "en"
+          ? "Real-time attendance tracking for today. Open Employees view to filter and handle potential absences."
+          : "Suivi en temps reel des presences du jour. Ouvrez la vue Employes pour filtrer et traiter les absences potentielles.",
     },
     {
       key: "absences" as const,
-      title: "Absences",
+      title: locale === "en" ? "Absences" : "Absences",
       value: data.totalAbsences,
-      subtitle: "Sur la periode en cours",
+      subtitle: locale === "en" ? "Current period" : "Sur la periode en cours",
       icon: UserX,
       iconColor: "text-destructive",
-      trend: "Controle requis",
-      trendUp: false,
       href: "/reports?focus=absences",
       detailDescription:
-        "Ce compteur regroupe les absences detectees sur la periode courante. La vue Rapports permet d'analyser les details par employe.",
+        locale === "en"
+          ? "This counter aggregates detected absences for the current period. Reports view provides employee-level details."
+          : "Ce compteur regroupe les absences detectees sur la periode courante. La vue Rapports permet d'analyser les details par employe.",
     },
     {
       key: "late" as const,
-      title: "Retards",
+      title: locale === "en" ? "Late arrivals" : "Retards",
       value: data.lateArrivals,
-      subtitle: "Detectes aujourd'hui",
+      subtitle: locale === "en" ? "Detected today" : "Detectes aujourd'hui",
       icon: Clock,
       iconColor: "text-warning",
-      trend: "A corriger",
-      trendUp: false,
       href: "/reports?focus=late-arrivals",
       detailDescription:
-        "Indique les retards detectes aujourd'hui. Ouvrez Rapports pour identifier les cas critiques et lancer les corrections.",
+        locale === "en"
+          ? "Shows late arrivals detected today. Open Reports to identify critical cases and launch corrections."
+          : "Indique les retards detectes aujourd'hui. Ouvrez Rapports pour identifier les cas critiques et lancer les corrections.",
     },
     {
       key: "devices" as const,
-      title: "Appareils actifs",
+      title: locale === "en" ? "Active devices" : "Appareils actifs",
       value: data.activeDevices.count,
-      subtitle: `${data.activeDevices.total} appareils au total`,
+      subtitle: locale === "en" ? `${data.activeDevices.total} total devices` : `${data.activeDevices.total} appareils au total`,
       icon: Cpu,
       showProgress: true,
       progressValue: data.activeDevices.count,
       progressTotal: data.activeDevices.total,
-      trend: "Surveillance continue",
-      trendUp: true,
       href: "/devices?status=online",
       detailDescription:
-        "Disponibilite de l'infrastructure d'acces. La vue Appareils permet de diagnostiquer les terminaux hors ligne et instables.",
+        locale === "en"
+          ? "Availability of access infrastructure. Devices view helps diagnose offline and unstable terminals."
+          : "Disponibilite de l'infrastructure d'acces. La vue Appareils permet de diagnostiquer les terminaux hors ligne et instables.",
     },
   ] satisfies KpiCard[]
 
@@ -187,16 +189,10 @@ export function KPICards({ data, systemStatus }: KPICardsProps) {
                     <div>
                       <div className="text-3xl font-bold tracking-tight text-card-foreground">{card.value}</div>
                       <p className="mt-1 text-xs text-muted-foreground">{card.subtitle}</p>
-                      <div
-                        className={cn(
-                          "mt-2 text-xs font-semibold",
-                          card.trendUp ? "text-primary" : "text-destructive"
-                        )}
-                      >
-                        {card.trend}
-                      </div>
                       {isFallbackValue ? (
-                        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">Donnees partielles: source API indisponible.</p>
+                        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
+                          {locale === "en" ? "Partial data: API source unavailable." : "Donnees partielles: source API indisponible."}
+                        </p>
                       ) : null}
                     </div>
                     {card.showProgress && card.progressValue !== undefined && card.progressTotal !== undefined && (
@@ -218,28 +214,28 @@ export function KPICards({ data, systemStatus }: KPICardsProps) {
       <Dialog open={selectedCard !== null} onOpenChange={(open) => !open && setSelectedCardKey(null)}>
         <DialogContent className="sm:max-w-md border-border/70 bg-card/95">
           <DialogHeader>
-            <DialogTitle className="text-base">{selectedCard?.title ?? "Detail KPI"}</DialogTitle>
+            <DialogTitle className="text-base">{selectedCard?.title ?? (locale === "en" ? "KPI detail" : "Detail KPI")}</DialogTitle>
             <DialogDescription>
-              {selectedCard?.detailDescription ?? "Analyse detaillee du KPI selectionne."}
+              {selectedCard?.detailDescription ?? (locale === "en" ? "Detailed analysis of the selected KPI." : "Analyse detaillee du KPI selectionne.")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="rounded-xl border border-border/70 bg-background/40 p-4">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Valeur actuelle</p>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{locale === "en" ? "Current value" : "Valeur actuelle"}</p>
             <p className="mt-1 text-3xl font-bold text-foreground tabular-nums">{selectedCard?.value ?? 0}</p>
             {hasFallbackData ? (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                Certaines sources sont degradees. Les valeurs peuvent etre incompletes.
+                {locale === "en" ? "Some sources are degraded. Values may be incomplete." : "Certaines sources sont degradees. Les valeurs peuvent etre incompletes."}
               </p>
             ) : null}
           </div>
 
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={() => setSelectedCardKey(null)}>
-              Fermer
+              {locale === "en" ? "Close" : "Fermer"}
             </Button>
             <Button asChild>
-              <Link href={selectedCard?.href ?? "/"}>Ouvrir la vue detaillee</Link>
+              <Link href={selectedCard?.href ?? "/"}>{locale === "en" ? "Open detailed view" : "Ouvrir la vue detaillee"}</Link>
             </Button>
           </DialogFooter>
         </DialogContent>

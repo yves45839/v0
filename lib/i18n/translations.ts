@@ -281,6 +281,25 @@ export const translations = {
       integrationsSubtitle: "Connecteurs, webhooks et synchronisation externe",
       billingSubtitle: "Plans, paiements, factures et limites d'utilisation",
     },
+    // Settings page (body) — distinct from `nav.settings` (sidebar entry)
+    settingsPage: {
+      administration: "Administration",
+      title: "Paramètres",
+      description:
+        "Configuration globale : organisation, groupes d'accès, horaires, notifications et sécurité.",
+      loading: "Chargement des paramètres...",
+      sectionsLabel: "Sections",
+      navOrganization: "Organisation",
+      navPlanning: "Horaires",
+      navHikcentral: "HikCentral",
+      navSecurity: "Sécurité",
+      navNotifications: "Notifications",
+      navGeneral: "Général",
+      statTenants: "Tenants",
+      statDepts: "Départements",
+      statGroups: "Groupes",
+      statReaders: "Lecteurs",
+    },
   },
 
   en: {
@@ -553,17 +572,34 @@ export const translations = {
     pages: {
       dashboardSubtitle: "Global monitoring of attendance and access control",
       accessLogsSubtitle: "Events, denials and real-time supervision",
-      reportsSubtitle: "Compliance, timesheets and operational exports",
+      reportsSubtitle: "Compliance, attendance and operational exports",
       settingsSubtitle: "Tenant configuration, groups and security",
       zonesSubtitle: "Readers, access groups and zone security",
-      alertsSubtitle: "Real-time surveillance, incidents and alert rules",
-      surveillanceSubtitle: "Cameras, doors and real-time site occupancy",
-      visitorsSubtitle: "Registration, badges and visitor access management",
-      auditSubtitle: "Audit trail, regulatory compliance and reports",
-      integrationsSubtitle: "Connectors, webhooks and external synchronization",
+      alertsSubtitle: "Real-time monitoring, incidents and alert rules",
+      surveillanceSubtitle: "Cameras, doors and live site occupancy",
+      visitorsSubtitle: "Check-in, badges and visitor access management",
+      auditSubtitle: "Audit trail, compliance reports and regulatory checks",
+      integrationsSubtitle: "Connectors, webhooks and external sync",
       billingSubtitle: "Plans, payments, invoices and usage limits",
+    },
+    // Settings page (body)
+    settingsPage: {
+      administration: "Administration",
+      title: "Settings",
+      description:
+        "Global configuration: organisation, access groups, schedules, notifications and security.",
+      loading: "Loading settings...",
+      sectionsLabel: "Sections",
+      navOrganization: "Organisation",
+      navPlanning: "Schedules",
+      navHikcentral: "HikCentral",
+      navSecurity: "Security",
+      navNotifications: "Notifications",
+      navGeneral: "General",
+      statTenants: "Tenants",
+      statDepts: "Departments",
+      statGroups: "Groups",
+      statReaders: "Readers",
     },
   },
 } as const
-
-export type TranslationKeys = typeof translations.fr

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { InfoTooltip } from "@/components/dashboard/info-tooltip"
 import {
   AlertTriangle,
   Calendar,
@@ -42,9 +43,19 @@ export function NeedsAttention({ actions }: NeedsAttentionProps) {
     <Card className="overflow-hidden">
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 pb-3">
         <div>
-          <CardTitle className="text-base font-semibold tracking-tight">
-            {locale === "en" ? "Needs your attention" : "À traiter aujourd'hui"}
-          </CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="text-base font-semibold tracking-tight">
+              {locale === "en" ? "Needs your attention" : "À traiter aujourd'hui"}
+            </CardTitle>
+            <InfoTooltip
+              side="right"
+              content={
+                locale === "en"
+                  ? "Actions sorted by urgency: 🔴 critical, 🟠 warning, 🔵 info. Sources: timesheet anomalies, pending leave requests, uncovered shifts."
+                  : "Actions classées par urgence : 🔴 critique, 🟠 avertissement, 🔵 info. Sources : anomalies de pointage, congés en attente, quarts non couverts."
+              }
+            />
+          </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {locale === "en" ? "Sorted by urgency" : "Trié par urgence"}
           </p>

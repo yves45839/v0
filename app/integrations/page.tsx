@@ -287,7 +287,7 @@ function WebhookRow({ webhook }: { webhook: Webhook }) {
       </div>
       <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
         <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs"><Send className="h-3 w-3" /> Tester</Button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button>
+        <Button size="sm" variant="ghost" aria-label="Supprimer" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button>
       </div>
     </div>
   )

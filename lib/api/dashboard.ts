@@ -2,19 +2,25 @@ import type {
   AccessEvent,
   DashboardKPIData,
   Device,
+  PresenceWeekData,
+  PresenceWeekDay,
   PriorityAction,
+  UpcomingLeaveItem,
+  UpcomingLeaveKind,
 } from "@/components/dashboard/types"
 import { getActiveTenantCode } from "@/lib/api/auth"
 import { fetchHikEvents, type HikEvent } from "@/lib/api/access-logs"
 import {
   fetchDevices,
   fetchEmployeesDetailed,
+  fetchLeaveRequests,
   type DeviceApiItem,
   type EmployeeApiItem,
+  type LeaveRequestApiItem,
 } from "@/lib/api/employees"
 import { fetchAttendanceReport, type AttendanceReportResponse } from "@/lib/api/reports"
 
-const DASHBOARD_TENANT = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "HQ-CASA"
+const DASHBOARD_TENANT = _requireTenantCode(process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT, "NEXT_PUBLIC_HIK_EVENTS_TENANT")
 
 export type DashboardSystemStatus = "connected" | "disconnected" | "syncing"
 
@@ -37,6 +43,8 @@ export type DashboardStatusDetails = {
   }
 }
 
+export type DashboardLocale = "fr" | "en"
+
 export type DashboardPayload = {
   systemStatus: DashboardSystemStatus
   statusDetails: DashboardStatusDetails
@@ -44,7 +52,14 @@ export type DashboardPayload = {
   accessEvents: AccessEvent[]
   devices: Device[]
   priorityActions: PriorityAction[]
+  presenceWeek: PresenceWeekData
+  upcomingLeaves: UpcomingLeaveItem[]
 }
+
+const HIK_EVENTS_FETCH_LIMIT = 500
+const UPCOMING_LEAVE_HORIZON_DAYS = 30
+const MONTHS_FR = ["JAN", "FEV", "MAR", "AVR", "MAI", "JUN", "JUL", "AOU", "SEP", "OCT", "NOV", "DEC"]
+const MONTHS_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 
 function parseDateMs(value: string | null | undefined): number | null {
   const text = String(value ?? "").trim()
@@ -54,10 +69,10 @@ function parseDateMs(value: string | null | undefined): number | null {
   return parsed
 }
 
-function formatEventTime(value: string | null | undefined): string {
+function formatEventTime(value: string | null | undefined, locale: DashboardLocale): string {
   const parsedMs = parseDateMs(value)
   if (parsedMs === null) return "--:--:--"
-  return new Date(parsedMs).toLocaleTimeString("fr-FR", {
+  return new Date(parsedMs).toLocaleTimeString(locale === "en" ? "en-US" : "fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -65,8 +80,13 @@ function formatEventTime(value: string | null | undefined): string {
   })
 }
 
-function formatLastSeen(timestampMs: number | null, status: Device["status"]): string {
+function formatLastSeen(timestampMs: number | null, status: Device["status"], locale: DashboardLocale): string {
   if (timestampMs === null) {
+    if (locale === "en") {
+      if (status === "online") return "Monitor"
+      if (status === "offline") return "No activity"
+      return "Unstable signal"
+    }
     if (status === "online") return "A surveiller"
     if (status === "offline") return "Aucune activite"
     return "Signal instable"
@@ -74,11 +94,11 @@ function formatLastSeen(timestampMs: number | null, status: Device["status"]): s
 
   const diffMs = Math.max(0, Date.now() - timestampMs)
   const diffMinutes = Math.floor(diffMs / 60000)
-  if (diffMinutes <= 0) return "A l'instant"
-  if (diffMinutes < 60) return `Il y a ${diffMinutes} min`
+  if (diffMinutes <= 0) return locale === "en" ? "Just now" : "A l'instant"
+  if (diffMinutes < 60) return locale === "en" ? `${diffMinutes} min ago` : `Il y a ${diffMinutes} min`
   const diffHours = Math.floor(diffMinutes / 60)
-  if (diffHours < 24) return `Il y a ${diffHours} h`
-  return new Date(timestampMs).toLocaleDateString("fr-FR")
+  if (diffHours < 24) return locale === "en" ? `${diffHours} h ago` : `Il y a ${diffHours} h`
+  return new Date(timestampMs).toLocaleDateString(locale === "en" ? "en-US" : "fr-FR")
 }
 
 function normalizeAccessStatus(event: HikEvent): AccessEvent["status"] {
@@ -196,6 +216,129 @@ function buildPriorityActions(params: {
   ]
 }
 
+function startOfLocalDay(date: Date): Date {
+  const copy = new Date(date)
+  copy.setHours(0, 0, 0, 0)
+  return copy
+}
+
+function startOfCurrentWeekLocal(now: Date = new Date()): Date {
+  const start = startOfLocalDay(now)
+  const day = start.getDay() // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const distanceFromMonday = day === 0 ? 6 : day - 1
+  start.setDate(start.getDate() - distanceFromMonday)
+  return start
+}
+
+function computePresenceWeek(
+  events: HikEvent[],
+  totalEmployees: number,
+  reachedEventsLimit: boolean,
+): PresenceWeekData {
+  const now = new Date()
+  const weekStart = startOfCurrentWeekLocal(now)
+  const todayStart = startOfLocalDay(now)
+
+  const dayBuckets: Set<string>[] = Array.from({ length: 7 }, () => new Set())
+  let oldestEventMs: number | null = null
+
+  for (const event of events) {
+    const eventMs = parseDateMs(event.timestamp)
+    if (eventMs === null) continue
+    if (oldestEventMs === null || eventMs < oldestEventMs) {
+      oldestEventMs = eventMs
+    }
+    const eventDate = new Date(eventMs)
+    const dayStart = startOfLocalDay(eventDate)
+    const diffDays = Math.round((dayStart.getTime() - weekStart.getTime()) / 86_400_000)
+    if (diffDays < 0 || diffDays > 6) continue
+    if (normalizeAccessStatus(event) !== "granted") continue
+    const personId = String(event.person_id ?? "").trim()
+    if (!personId) continue
+    dayBuckets[diffDays].add(personId)
+  }
+
+  const days: PresenceWeekDay[] = dayBuckets.map((bucket, index) => {
+    const dayStart = new Date(weekStart)
+    dayStart.setDate(weekStart.getDate() + index)
+    const isFuture = dayStart.getTime() > todayStart.getTime()
+    const covered =
+      isFuture
+      || oldestEventMs === null
+      || oldestEventMs <= dayStart.getTime()
+      || !reachedEventsLimit
+    const count = bucket.size
+    const value = totalEmployees > 0 ? Math.min(100, Math.round((count / totalEmployees) * 100)) : 0
+    return { value, count, covered, isFuture }
+  })
+
+  const isPartial = days.some((day) => !day.covered && !day.isFuture)
+  const observedDays = days.filter((day) => !day.isFuture && day.covered)
+  const averagePct = observedDays.length > 0
+    ? Math.round(observedDays.reduce((acc, day) => acc + day.value, 0) / observedDays.length)
+    : 0
+
+  return { days, averagePct, isPartial, totalEmployees }
+}
+
+function diffDaysCeil(start: Date, end: Date): number {
+  const ms = end.getTime() - start.getTime()
+  return Math.max(1, Math.ceil(ms / 86_400_000) + 1)
+}
+
+function leaveTypeToKind(leaveType: LeaveRequestApiItem["leave_type"]): UpcomingLeaveKind {
+  if (leaveType === "sick") return "sick"
+  if (leaveType === "paid") return "paid"
+  return "personal"
+}
+
+function buildUpcomingLeaves(
+  leaveRequests: LeaveRequestApiItem[],
+  employees: EmployeeApiItem[],
+  locale: DashboardLocale,
+): UpcomingLeaveItem[] {
+  const todayStart = startOfLocalDay(new Date())
+  const horizon = new Date(todayStart)
+  horizon.setDate(horizon.getDate() + UPCOMING_LEAVE_HORIZON_DAYS)
+
+  const employeeNameById = new Map<number, string>()
+  for (const employee of employees) {
+    employeeNameById.set(employee.id, employee.name)
+  }
+
+  type Sortable = { item: UpcomingLeaveItem; startMs: number }
+
+  return leaveRequests
+    .filter((leave) => leave.status === "approved")
+    .map((leave): Sortable | null => {
+      const start = new Date(`${leave.start_date}T00:00:00`)
+      const end = new Date(`${leave.end_date}T00:00:00`)
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
+      if (end.getTime() < todayStart.getTime()) return null
+      if (start.getTime() > horizon.getTime()) return null
+
+      const days = diffDaysCeil(start, end)
+      const monthIndex = start.getMonth()
+      const item: UpcomingLeaveItem = {
+        id: String(leave.id),
+        day: String(start.getDate()).padStart(2, "0"),
+        monthFr: MONTHS_FR[monthIndex],
+        monthEn: MONTHS_EN[monthIndex],
+        name: employeeNameById.get(leave.employee)
+          ?? (locale === "en" ? "Unknown employee" : "Employe inconnu"),
+        duration: locale === "en"
+          ? (days > 1 ? `${days} d` : "1 d")
+          : (days > 1 ? `${days} j` : "1 j"),
+        kind: leaveTypeToKind(leave.leave_type),
+      }
+      return { item, startMs: start.getTime() }
+    })
+    .filter((entry): entry is Sortable => entry !== null)
+    .sort((left, right) => left.startMs - right.startMs)
+    .slice(0, 6)
+    .map((entry) => entry.item)
+}
+
 /** Race a promise against a timeout – rejects if the promise takes too long. */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -209,13 +352,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 const API_TIMEOUT_MS = 5_000
 
-export async function fetchDashboardData(): Promise<DashboardPayload> {
+export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promise<DashboardPayload> {
   const tenantCode = getActiveTenantCode(DASHBOARD_TENANT).trim() || undefined
-  const [eventsResult, reportResult, employeesResult, devicesResult] = await Promise.allSettled([
-    withTimeout(fetchHikEvents({ tenant: tenantCode, limit: 80 }), API_TIMEOUT_MS),
+  const [eventsResult, reportResult, employeesResult, devicesResult, leavesResult] = await Promise.allSettled([
+    withTimeout(fetchHikEvents({ tenant: tenantCode, limit: HIK_EVENTS_FETCH_LIMIT }), API_TIMEOUT_MS),
     withTimeout(fetchAttendanceReport({ tenant: tenantCode, period: "daily" }), API_TIMEOUT_MS),
     withTimeout(fetchEmployeesDetailed(tenantCode), API_TIMEOUT_MS),
     withTimeout(fetchDevices(tenantCode), API_TIMEOUT_MS),
+    withTimeout(fetchLeaveRequests(tenantCode), API_TIMEOUT_MS),
   ])
 
   const settled = [eventsResult, reportResult, employeesResult, devicesResult]
@@ -232,43 +376,45 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
   const report = reportResult.status === "fulfilled" ? reportResult.value : null
   const employees = employeesResult.status === "fulfilled" ? employeesResult.value : []
   const deviceRows = devicesResult.status === "fulfilled" ? devicesResult.value : []
+  const leaveRequests = leavesResult.status === "fulfilled" ? leavesResult.value : []
+  const reachedEventsLimit = events.length >= HIK_EVENTS_FETCH_LIMIT
 
   const sourceStatuses: DashboardStatusDetails["sources"] = [
     {
       key: "accessEvents",
-      label: "Flux acces",
+      label: locale === "en" ? "Access stream" : "Flux acces",
       status: eventsResult.status === "fulfilled" ? "ok" : "error",
       detail:
         eventsResult.status === "fulfilled"
-          ? `${events.length} evenements charges`
-          : (eventsResult.reason instanceof Error ? eventsResult.reason.message : "Source indisponible"),
+          ? (locale === "en" ? `${events.length} events loaded` : `${events.length} evenements charges`)
+          : (eventsResult.reason instanceof Error ? eventsResult.reason.message : (locale === "en" ? "Source unavailable" : "Source indisponible")),
     },
     {
       key: "reports",
-      label: "Rapports",
+      label: locale === "en" ? "Reports" : "Rapports",
       status: reportResult.status === "fulfilled" ? "ok" : "error",
       detail:
         reportResult.status === "fulfilled"
-          ? "Rapport journalier charge"
-          : (reportResult.reason instanceof Error ? reportResult.reason.message : "Source indisponible"),
+          ? (locale === "en" ? "Daily report loaded" : "Rapport journalier charge")
+          : (reportResult.reason instanceof Error ? reportResult.reason.message : (locale === "en" ? "Source unavailable" : "Source indisponible")),
     },
     {
       key: "employees",
-      label: "Employes",
+      label: locale === "en" ? "Employees" : "Employes",
       status: employeesResult.status === "fulfilled" ? "ok" : "error",
       detail:
         employeesResult.status === "fulfilled"
-          ? `${employees.length} employes charges`
-          : (employeesResult.reason instanceof Error ? employeesResult.reason.message : "Source indisponible"),
+          ? (locale === "en" ? `${employees.length} employees loaded` : `${employees.length} employes charges`)
+          : (employeesResult.reason instanceof Error ? employeesResult.reason.message : (locale === "en" ? "Source unavailable" : "Source indisponible")),
     },
     {
       key: "devices",
-      label: "Appareils",
+      label: locale === "en" ? "Devices" : "Appareils",
       status: devicesResult.status === "fulfilled" ? "ok" : "error",
       detail:
         devicesResult.status === "fulfilled"
-          ? `${deviceRows.length} appareils charges`
-          : (devicesResult.reason instanceof Error ? devicesResult.reason.message : "Source indisponible"),
+          ? (locale === "en" ? `${deviceRows.length} devices loaded` : `${deviceRows.length} appareils charges`)
+          : (devicesResult.reason instanceof Error ? devicesResult.reason.message : (locale === "en" ? "Source unavailable" : "Source indisponible")),
     },
   ]
 
@@ -287,16 +433,16 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
         : "warning"
   const webhookLabel =
     webhookStatus === "healthy"
-      ? "Webhook actif"
+      ? (locale === "en" ? "Webhook active" : "Webhook actif")
       : webhookStatus === "warning"
-        ? "Webhook a verifier"
-        : "Webhook hors ligne"
+        ? (locale === "en" ? "Webhook needs attention" : "Webhook a verifier")
+        : (locale === "en" ? "Webhook offline" : "Webhook hors ligne")
   const webhookDetail =
     webhookStatus === "healthy"
-      ? "Reception des evenements operationnelle"
+      ? (locale === "en" ? "Event reception is operational" : "Reception des evenements operationnelle")
       : webhookStatus === "warning"
-        ? "Aucun evenement recent recu. Verifiez la connectivite et les listeners."
-        : "Impossible de contacter la source d'evenements."
+        ? (locale === "en" ? "No recent events. Check connectivity and listeners." : "Aucun evenement recent recu. Verifiez la connectivite et les listeners.")
+        : (locale === "en" ? "Unable to reach events source." : "Impossible de contacter la source d'evenements.")
 
   const latestEventByDevIndex = new Map<string, number>()
   for (const event of events) {
@@ -316,11 +462,11 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
     return {
       id: String(event.id),
       employeeId: personId || "N/A",
-      name: employeeName || personId || "Employe inconnu",
-      department: String(event.department_name ?? "").trim() || "Non assigne",
-      deviceName: String(event.device.device_name ?? "").trim() || event.device.dev_index || "Appareil",
+      name: employeeName || personId || (locale === "en" ? "Unknown employee" : "Employe inconnu"),
+      department: String(event.department_name ?? "").trim() || (locale === "en" ? "Unassigned" : "Non assigne"),
+      deviceName: String(event.device.device_name ?? "").trim() || event.device.dev_index || (locale === "en" ? "Device" : "Appareil"),
       status: normalizeAccessStatus(event),
-      timestamp: formatEventTime(event.timestamp),
+      timestamp: formatEventTime(event.timestamp, locale),
     }
   })
 
@@ -337,15 +483,15 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
       const lastEventMs = latestEventByDevIndex.get(devIndex) ?? null
       return {
         id: String(device.id ?? devIndex),
-        name: String(device.name ?? "").trim() || devIndex || "Appareil",
+        name: String(device.name ?? "").trim() || devIndex || (locale === "en" ? "Device" : "Appareil"),
         type: inferDeviceType(device),
         location: device.serial_number ? `SN ${device.serial_number}` : `DevIndex ${devIndex || "N/A"}`,
         status,
-        lastSeen: formatLastSeen(lastEventMs, status),
+        lastSeen: formatLastSeen(lastEventMs, status, locale),
       }
     })
     .sort((left, right) => {
-      return severityByStatus[left.status] - severityByStatus[right.status] || left.name.localeCompare(right.name, "fr")
+      return severityByStatus[left.status] - severityByStatus[right.status] || left.name.localeCompare(right.name, locale === "en" ? "en" : "fr")
     })
 
   const presentToday = report?.summary.total_employees ?? 0
@@ -395,6 +541,9 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
     },
   }
 
+  const presenceWeek = computePresenceWeek(events, totalEmployees, reachedEventsLimit)
+  const upcomingLeaves = buildUpcomingLeaves(leaveRequests, employees, locale)
+
   return {
     systemStatus,
     statusDetails,
@@ -402,5 +551,7 @@ export async function fetchDashboardData(): Promise<DashboardPayload> {
     accessEvents,
     devices,
     priorityActions,
+    presenceWeek,
+    upcomingLeaves,
   }
 }

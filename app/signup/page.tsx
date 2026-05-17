@@ -2,13 +2,15 @@
 
 import Link from "next/link"
 import { FormEvent, useMemo, useState } from "react"
-import { Building2, Loader2, LockKeyhole, Mail, Shield, UserRound } from "lucide-react"
+import { Building2, Loader2, Mail, Shield, UserRound } from "lucide-react"
 import { toast } from "sonner"
 import { clientSignup } from "@/lib/api/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { PasswordStrengthBar } from "@/components/ui/password-strength-bar"
 
 type SubmitStatus = "idle" | "submitting" | "success"
 
@@ -33,7 +35,7 @@ export default function SignupPage() {
     setError(null)
 
     if (!tenantName.trim()) {
-      setError("Le nom de la societe est obligatoire.")
+      setError("Le nom de la société est obligatoire.")
       return
     }
     if (!email.trim()) {
@@ -41,7 +43,7 @@ export default function SignupPage() {
       return
     }
     if (password.length < 8) {
-      setError("Le mot de passe doit contenir au moins 8 caracteres.")
+      setError("Le mot de passe doit contenir au moins 8 caractères.")
       return
     }
     if (password !== confirmPassword) {
@@ -60,12 +62,12 @@ export default function SignupPage() {
       setVerificationExpiresAt(String(response.email_verification_expires_at ?? ""))
       setEmailSent(Boolean(response.email_sent))
       setStatus("success")
-      toast.success("Compte cree. Verifiez votre email.")
+      toast.success("Compte créé. Vérifiez votre email.")
     } catch (err) {
       const detail = err instanceof Error ? err.message : "Inscription impossible."
       setError(detail)
       setStatus("idle")
-      toast.error("Echec d'inscription")
+      toast.error("Échec d'inscription")
     }
   }
 
@@ -80,8 +82,8 @@ export default function SignupPage() {
                 <Shield className="h-5 w-5" />
               </div>
               <div>
-                <CardTitle className="text-lg">SecurePoint</CardTitle>
-                <CardDescription>Creer un compte et confirmer votre email</CardDescription>
+                <CardTitle className="text-lg">LR Time</CardTitle>
+                <CardDescription>Créer un compte et confirmer votre email</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -90,14 +92,14 @@ export default function SignupPage() {
               <div className="space-y-3 text-sm">
                 <p>
                   {emailSent
-                    ? "Inscription enregistree. Un email de verification a ete envoye."
-                    : "Inscription enregistree. Le compte est en attente de verification email/OTP."}
+                    ? "Inscription enregistrée. Un email de vérification a été envoyé."
+                    : "Inscription enregistrée. Le compte est en attente de vérification email/OTP."}
                 </p>
                 {verificationExpiresAt ? (
                   <p className="text-muted-foreground">Expiration du lien: {new Date(verificationExpiresAt).toLocaleString()}</p>
                 ) : null}
                 <Button asChild variant="outline" className="w-full">
-                  <Link href="/auth/verify-email">Verifier avec OTP ou lien</Link>
+                  <Link href="/auth/verify-email">Vérifier avec OTP ou lien</Link>
                 </Button>
                 <Button asChild className="w-full">
                   <Link href="/login">Aller a la connexion</Link>
@@ -106,7 +108,7 @@ export default function SignupPage() {
             ) : (
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="space-y-2">
-                  <Label htmlFor="tenantName">Nom de la societe</Label>
+                  <Label htmlFor="tenantName">Nom de la société</Label>
                   <div className="relative">
                     <Building2 className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -140,48 +142,39 @@ export default function SignupPage() {
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       className="pl-9"
-                      placeholder="noreply@label-ci.com"
+                      placeholder="prenom.nom@société.com"
                       autoComplete="email"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password">Mot de passe</Label>
-                  <div className="relative">
-                    <LockKeyhole className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type="password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      className="pl-9"
-                      placeholder="Au moins 8 caracteres"
-                      autoComplete="new-password"
-                    />
-                  </div>
+                  <PasswordInput
+                    id="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Au moins 8 caractères"
+                    autoComplete="new-password"
+                  />
+                  <PasswordStrengthBar password={password} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
-                  <div className="relative">
-                    <LockKeyhole className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="confirmPassword"
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(event) => setConfirmPassword(event.target.value)}
-                      className="pl-9"
-                      placeholder="Retapez votre mot de passe"
-                      autoComplete="new-password"
-                    />
-                  </div>
+                  <PasswordInput
+                    id="confirmPassword"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    placeholder="Retapez votre mot de passe"
+                    autoComplete="new-password"
+                  />
                 </div>
                 {error ? <p className="text-xs text-red-400">{error}</p> : null}
                 <Button type="submit" disabled={!canSubmit} className="w-full">
                   {status === "submitting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Creer mon compte
+                  Créer mon compte
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
-                  Deja inscrit ?{" "}
+                  Déjà inscrit ?{" "}
                   <Link href="/login" className="text-primary hover:underline">
                     Se connecter
                   </Link>

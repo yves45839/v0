@@ -121,6 +121,7 @@ export function AddEmployeeModal({
 }: AddEmployeeModalProps) {
   const isEditing = !!employeeToEdit
   const [activeTab, setActiveTab] = useState("info")
+  const [viewMode, setViewMode] = useState<"creation" | "profile">("creation")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [onlineReaders, setOnlineReaders] = useState<GatewayReaderItem[]>([])
   const [selectedReaderDevIndex, setSelectedReaderDevIndex] = useState("")
@@ -209,21 +210,36 @@ export function AddEmployeeModal({
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      try {
-        const dataUrl = await readFileAsDataUrl(file)
-        const normalizedFaceData = normalizeFaceData(dataUrl)
-        setFormData((prev) => ({
-          ...prev,
-          photoFile: file,
-          photoPreview: dataUrl,
-          faceData: normalizedFaceData,
-        }))
-        setFaceEnrollError("")
-        setFaceEnrollMessage("")
-      } catch (error) {
-        setApiError(error instanceof Error ? error.message : "Impossible de charger la photo.")
-      }
+    if (!file) return
+
+    // Validation type et taille
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
+    const MAX_SIZE_MB = 5
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setApiError("Format non supporté. Utilisez JPEG, PNG ou WebP.")
+      e.target.value = ""
+      return
+    }
+    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      setApiError(`La photo ne doit pas dépasser ${MAX_SIZE_MB} Mo.`)
+      e.target.value = ""
+      return
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      const normalizedFaceData = normalizeFaceData(dataUrl)
+      setFormData((prev) => ({
+        ...prev,
+        photoFile: file,
+        photoPreview: dataUrl,
+        faceData: normalizedFaceData,
+      }))
+      setFaceEnrollError("")
+      setFaceEnrollMessage("")
+      setApiError("")
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : "Impossible de charger la photo.")
     }
   }
 
@@ -470,18 +486,27 @@ export function AddEmployeeModal({
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
     const normalizedCardNumber = formData.cardNumber.trim().toLowerCase()
+    // Regex téléphone : formats internationaux ou locaux (CI, FR, etc.)
+    const PHONE_RE = /^[+]?[\d\s\-().]{7,20}$/
 
     if (!formData.employeeNo.trim()) {
-      newErrors.employeeNo = "L'ID employe est requis"
+      newErrors.employeeNo = "L'ID employé est requis."
+    } else if (formData.employeeNo.trim().length > 20) {
+      newErrors.employeeNo = "L'ID employé ne peut pas dépasser 20 caractères."
     }
     if (!formData.name.trim()) {
-      newErrors.name = "Le nom est requis"
+      newErrors.name = "Le nom est requis."
+    } else if (formData.name.trim().length > 100) {
+      newErrors.name = "Le nom ne peut pas dépasser 100 caractères."
     }
     if (formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = "Email invalide"
+      newErrors.email = "Email invalide."
+    }
+    if (formData.phone.trim() && !PHONE_RE.test(formData.phone.trim())) {
+      newErrors.phone = "Format de téléphone invalide. Ex : +225 07 00 00 00 00"
     }
     if (!formData.departmentId) {
-      newErrors.department = "Le departement est requis"
+      newErrors.department = "Le département est requis."
     }
     if (normalizedCardNumber) {
       const hasDuplicateCardNumber = employees.some((employee) => {
@@ -491,27 +516,27 @@ export function AddEmployeeModal({
         return existingCardNumber === normalizedCardNumber
       })
       if (hasDuplicateCardNumber) {
-        newErrors.cardNumber = "Ce numero de carte est deja attribue a un autre employe"
+        newErrors.cardNumber = "Ce numéro de carte est déjà attribué à un autre employé."
       }
     }
     if (formData.fingerprints.length > 10) {
-      newErrors.fingerprints = "Maximum 10 empreintes par employe."
+      newErrors.fingerprints = "Maximum 10 empreintes par employé."
     } else {
       const slots = formData.fingerprints.map((row) => row.fingerIndex)
       if (slots.length !== new Set(slots).size) {
-        newErrors.fingerprints = "Chaque doigt (finger index) doit etre unique."
+        newErrors.fingerprints = "Chaque doigt (finger index) doit être unique."
       } else if (formData.fingerprints.some((row) => !row.template.trim())) {
         newErrors.fingerprints = "Chaque empreinte doit contenir un template."
       }
     }
     if (!formData.validityStart) {
-      newErrors.validityStart = "La date de debut de validite est requise."
+      newErrors.validityStart = "La date de début de validité est requise."
     }
     if (!formData.validityEnd) {
-      newErrors.validityEnd = "La date de fin de validite est requise."
+      newErrors.validityEnd = "La date de fin de validité est requise."
     }
     if (formData.validityStart && formData.validityEnd && formData.validityEnd < formData.validityStart) {
-      newErrors.validityEnd = "La date de fin doit etre superieure ou egale a la date de debut."
+      newErrors.validityEnd = "La date de fin doit être supérieure ou égale à la date de début."
     }
 
     setErrors(newErrors)
@@ -521,6 +546,7 @@ export function AddEmployeeModal({
   const handleSubmit = async () => {
     const isValid = validateForm()
     if (!isValid) {
+      // Rediriger automatiquement vers l'onglet qui contient les erreurs
       const hasFingerprintValidationError =
         formData.fingerprints.length > 10 ||
         new Set(formData.fingerprints.map((row) => row.fingerIndex)).size !== formData.fingerprints.length ||
@@ -528,6 +554,7 @@ export function AddEmployeeModal({
       if (hasFingerprintValidationError) {
         setActiveTab("biometric")
       } else {
+        // Erreurs dans l'onglet info (nom, ID, email, téléphone, département)
         setActiveTab("info")
       }
       return
@@ -665,6 +692,7 @@ export function AddEmployeeModal({
         addYearsToIsoDate(formData.validityStart || employeeToEdit?.validityStart || new Date().toISOString().split("T")[0], 10),
       lastAccess: employeeToEdit?.lastAccess ?? "-",
       accessLogs: employeeToEdit?.accessLogs ?? [],
+      isActive: employeeToEdit?.isActive ?? true,
     }
 
     onAddEmployee(payload)
@@ -710,7 +738,27 @@ export function AddEmployeeModal({
     setActiveTab("info")
   }
 
+  // Détecte si le formulaire a été modifié (pour la confirmation de fermeture)
+  const isFormDirty = Boolean(
+    formData.employeeNo.trim() ||
+    formData.name.trim() ||
+    formData.email.trim() ||
+    formData.phone.trim() ||
+    formData.cardNumber.trim() ||
+    formData.position.trim() ||
+    formData.departmentId ||
+    formData.photoPreview ||
+    formData.fingerprints.length > 0
+  )
+
   const handleClose = () => {
+    // Si c'est une création (pas d'édition) et que le formulaire a été touché, confirmer
+    if (!isEditing && isFormDirty) {
+      const confirmed = window.confirm(
+        "Des données ont été saisies. Voulez-vous vraiment fermer sans enregistrer ?"
+      )
+      if (!confirmed) return
+    }
     resetForm()
     onOpenChange(false)
   }
@@ -758,19 +806,41 @@ export function AddEmployeeModal({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="flex! max-h-[92vh] max-w-[calc(100%-0.75rem)] flex-col! gap-0 overflow-hidden p-0 sm:max-w-4xl xl:max-w-5xl">
-        <div className="relative overflow-hidden border-b border-border/60 bg-[linear-gradient(135deg,rgba(78,155,255,0.12),rgba(9,16,26,0.98)_44%,rgba(8,13,21,0.99))]">
+        <div className="relative shrink-0 overflow-hidden border-b border-border/60 bg-[linear-gradient(135deg,rgba(78,155,255,0.12),rgba(9,16,26,0.98)_44%,rgba(8,13,21,0.99))]">
           <div className="soft-grid absolute inset-0 opacity-15" />
           <div className="absolute -right-16 -top-8 h-48 w-48 rounded-full bg-primary/12 blur-[80px]" />
           <div className="absolute -left-12 bottom-0 h-36 w-36 rounded-full bg-cyan-400/6 blur-[60px]" />
 
           <DialogHeader className="relative gap-5 px-5 pb-5 pt-5 sm:px-6 lg:px-8 lg:pb-6 lg:pt-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge className="border-white/8 bg-white/6 text-white/80 shadow-none backdrop-blur-sm">
+            <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Vue du formulaire">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "creation"}
+                onClick={() => setViewMode("creation")}
+                className={cn(
+                  "rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  viewMode === "creation"
+                    ? "border-primary/40 bg-primary text-primary-foreground shadow-[0_0_0_1px_rgba(78,155,255,0.4)]"
+                    : "border-white/10 bg-white/6 text-white/70 hover:bg-white/10"
+                )}
+              >
                 {isEditing ? "Edition" : "Creation"}
-              </Badge>
-              <Badge variant="outline" className="border-primary/20 bg-primary/8 text-primary backdrop-blur-sm">
-                {activeTab === "info" ? "Profil" : activeTab === "access" ? "Acces" : "Biometrie"}
-              </Badge>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "profile"}
+                onClick={() => setViewMode("profile")}
+                className={cn(
+                  "rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  viewMode === "profile"
+                    ? "border-primary/40 bg-primary text-primary-foreground shadow-[0_0_0_1px_rgba(78,155,255,0.4)]"
+                    : "border-white/10 bg-white/6 text-white/70 hover:bg-white/10"
+                )}
+              >
+                Profil
+              </button>
               {apiError && (
                 <Badge variant="outline" className="border-destructive/25 bg-destructive/8 text-destructive">
                   Erreur
@@ -778,7 +848,14 @@ export function AddEmployeeModal({
               )}
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)] xl:items-end">
+            <div
+              className={cn(
+                "grid gap-5",
+                viewMode === "creation"
+                  ? "xl:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)] xl:items-end"
+                  : "grid-cols-1"
+              )}
+            >
               <div className="space-y-3">
                 <DialogTitle className="text-xl font-bold tracking-tight text-white sm:text-2xl">
                   {isEditing ? "Modifier l'employe" : "Ajouter un employe"}
@@ -805,28 +882,119 @@ export function AddEmployeeModal({
                 </div>
               </div>
 
-              <div className="hidden gap-2.5 xl:grid">
-                <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Profil</p>
-                  <p className="mt-1.5 truncate text-base font-semibold text-white">{formData.name.trim() || "Nouveau"}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{formData.employeeNo.trim() || "ID a renseigner"}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-2.5">
+              {viewMode === "creation" && (
+                <div className="hidden gap-2.5 xl:grid">
                   <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Photo</p>
-                    <p className="mt-1.5 text-sm font-semibold text-white">{hasFaceAsset ? "Prete" : "Aucune"}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Profil</p>
+                    <p className="mt-1.5 truncate text-base font-semibold text-white">{formData.name.trim() || "Nouveau"}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{formData.employeeNo.trim() || "ID a renseigner"}</p>
                   </div>
-                  <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Lecteurs</p>
-                    <p className="mt-1.5 text-sm font-semibold tabular-nums text-white">{selectedDevicesCount}</p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Photo</p>
+                      <p className="mt-1.5 text-sm font-semibold text-white">{hasFaceAsset ? "Prete" : "Aucune"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Lecteurs</p>
+                      <p className="mt-1.5 text-sm font-semibold tabular-nums text-white">{selectedDevicesCount}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </DialogHeader>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
+        {viewMode === "profile" && (
+          <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+            <div className="space-y-5">
+              <section className="rounded-2xl border border-border/60 bg-card/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-20 w-20 border-2 border-border/60">
+                    {formData.photoPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={formData.photoPreview}
+                        alt="Photo employe"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <AvatarFallback className="bg-secondary text-2xl font-bold text-foreground">
+                        {getInitials(formData.name)}
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Profil</p>
+                    <p className="mt-1 truncate text-lg font-bold text-foreground">
+                      {formData.name.trim() || "Nouveau employe"}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {formData.position.trim() || "Fonction a renseigner"}
+                      {" · "}
+                      {(departments.find((d) => String(d.id) === formData.departmentId)?.name) || "Departement a choisir"}
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <section className="rounded-2xl border border-border/60 bg-card/60 p-5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Identite</p>
+                  <dl className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">ID employe</dt><dd className="font-mono text-foreground">{formData.employeeNo.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Email</dt><dd className="truncate text-foreground">{formData.email.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Telephone</dt><dd className="text-foreground">{formData.phone.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Validite</dt><dd className="font-mono text-foreground">{formData.validityStart} → {formData.validityEnd}</dd></div>
+                  </dl>
+                </section>
+
+                <section className="rounded-2xl border border-border/60 bg-card/60 p-5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Acces</p>
+                  <dl className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Numero de badge</dt><dd className="font-mono text-foreground">{formData.cardNumber.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Groupes d'acces</dt><dd className="text-foreground">{selectedAccessGroupsCount}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Lecteurs autorises</dt><dd className="text-foreground">{selectedDevicesCount}</dd></div>
+                  </dl>
+                  {selectedAccessGroupsCount > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {formData.selectedAccessGroupIds.map((id) => {
+                        const group = accessGroups.find((g) => g.id === id)
+                        if (!group) return null
+                        return (
+                          <Badge key={id} variant="outline" className="border-primary/30 bg-primary/10 text-xs text-primary">
+                            {group.name}
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  )}
+                </section>
+
+                <section className="rounded-2xl border border-border/60 bg-card/60 p-5 md:col-span-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Biometrie</p>
+                  <dl className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Photo</dt><dd className="text-foreground">{hasFaceAsset ? "Prete" : "Non fournie"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Empreintes</dt><dd className="text-foreground">{fingerprintCount} / 10</dd></div>
+                  </dl>
+                </section>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => setViewMode("creation")}
+                >
+                  Retour a l'edition
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className={cn("flex flex-1 flex-col overflow-hidden", viewMode === "profile" && "hidden")}>
           <div className="border-b border-border/60 bg-background/50 px-4 py-3 backdrop-blur-sm sm:px-6 lg:px-8">
             <TabsList className="grid h-auto w-full grid-cols-3 rounded-2xl p-1.5">
               <TabsTrigger value="info" className="relative min-h-12 gap-2">
@@ -918,18 +1086,19 @@ export function AddEmployeeModal({
                       <div className="space-y-2">
                         <Label htmlFor="employeeNo" className="flex items-center gap-2">
                           <User className="h-4 w-4 text-muted-foreground" />
-                          ID Employe
+                          ID Employé
                         </Label>
                         <Input
                           id="employeeNo"
                           aria-invalid={Boolean(errors.employeeNo)}
                           placeholder="Ex: EMP-001"
                           value={formData.employeeNo}
+                          maxLength={20}
                           onChange={(e) => handleInputChange("employeeNo", e.target.value)}
                           className={cn("h-11 rounded-2xl", errors.employeeNo && "border-destructive")}
                         />
                         <p className={cn("text-xs", errors.employeeNo ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.employeeNo || "Reference interne unique."}
+                          {errors.employeeNo || "Référence interne unique (20 car. max)."}
                         </p>
                       </div>
 
@@ -943,6 +1112,7 @@ export function AddEmployeeModal({
                           aria-invalid={Boolean(errors.name)}
                           placeholder="Ex: Jean Dupont"
                           value={formData.name}
+                          maxLength={100}
                           onChange={(e) => handleInputChange("name", e.target.value)}
                           className={cn("h-11 rounded-2xl", errors.name && "border-destructive")}
                         />
@@ -972,6 +1142,8 @@ export function AddEmployeeModal({
                           aria-invalid={Boolean(errors.email)}
                           placeholder="Ex: jean.dupont@company.com"
                           value={formData.email}
+                          maxLength={150}
+                          autoComplete="email"
                           onChange={(e) => handleInputChange("email", e.target.value)}
                           className={cn("h-11 rounded-2xl", errors.email && "border-destructive")}
                         />
@@ -983,17 +1155,21 @@ export function AddEmployeeModal({
                       <div className="space-y-2">
                         <Label htmlFor="phone" className="flex items-center gap-2">
                           <Phone className="h-4 w-4 text-muted-foreground" />
-                          Telephone
+                          Téléphone
                         </Label>
                         <Input
                           id="phone"
-                          placeholder="Ex: +33 6 12 34 56 78"
+                          type="tel"
+                          placeholder="Ex: +225 07 00 00 00 00"
                           value={formData.phone}
+                          maxLength={20}
+                          inputMode="tel"
+                          aria-invalid={Boolean(errors.phone)}
                           onChange={(e) => handleInputChange("phone", e.target.value)}
                           className={cn("h-11 rounded-2xl", errors.phone && "border-destructive")}
                         />
                         <p className={cn("text-xs", errors.phone ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.phone || "Contact securite ou operations."}
+                          {errors.phone || "Contact sécurité ou opérations."}
                         </p>
                       </div>
 
@@ -1029,8 +1205,9 @@ export function AddEmployeeModal({
                         </Label>
                         <Input
                           id="position"
-                          placeholder="Ex: Developpeur (optionnel)"
+                          placeholder="Ex: Technicien sécurité (optionnel)"
                           value={formData.position}
+                          maxLength={80}
                           onChange={(e) => handleInputChange("position", e.target.value)}
                           className={cn("h-11 rounded-2xl", errors.position && "border-destructive")}
                         />
@@ -1096,13 +1273,14 @@ export function AddEmployeeModal({
                   <div className="space-y-2">
                     <Label htmlFor="cardNumber" className="flex items-center gap-2">
                       <CreditCard className="h-4 w-4 text-muted-foreground" />
-                      Numero de carte
+                      Numéro de carte
                     </Label>
                     <Input
                       id="cardNumber"
                       aria-invalid={Boolean(errors.cardNumber)}
                       placeholder="Ex: 4A:3B:2C:1D (optionnel)"
                       value={formData.cardNumber}
+                      maxLength={32}
                       onChange={(e) => handleInputChange("cardNumber", e.target.value)}
                       className={cn("h-11 rounded-2xl font-mono tabular-nums", errors.cardNumber && "border-destructive")}
                     />

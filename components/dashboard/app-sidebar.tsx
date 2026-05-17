@@ -2,120 +2,251 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, Users, Cpu, BarChart3, Shield, CalendarDays, Settings, UserRound, UserCog, ClipboardCheck, Plane } from "lucide-react"
+import {
+  BarChart3,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Cpu,
+  LayoutDashboard,
+  Settings,
+  Users,
+  type LucideIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { useI18n } from "@/lib/i18n/context"
-import { AUTH_EVENTS, getActiveTenantCode } from "@/lib/api/auth"
+import { AUTH_EVENTS, getAuthSession } from "@/lib/api/auth"
+import { SectionKey, useSectionDefinitions, findSectionForPath } from "@/components/dashboard/section-tabs"
 
 const SIDEBAR_TOGGLE_EVENT = "securepoint:sidebar-toggle"
+const DESKTOP_SIDEBAR_OPEN_KEY = "securepoint:sidebar-desktop-open"
+const SIDEBAR_EXPANDED_WIDTH = "224px"
+const SIDEBAR_COLLAPSED_WIDTH = "72px"
 
-type SidebarNavProps = {
-  mobile?: boolean
-  pathname: string
-  onNavigate?: () => void
-  tenantCode: string
+const SECTION_ICON_BY_KEY: Record<SectionKey, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  personnes: Users,
+  planning: CalendarDays,
+  appareils: Cpu,
+  rapports: BarChart3,
 }
 
-function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: SidebarNavProps) {
-  const { t, locale } = useI18n()
+type SidebarUser = {
+  initials: string
+  name: string
+  role: string
+}
+
+type SidebarNavProps = {
+  collapsed?: boolean
+  mobile?: boolean
+  onToggle?: () => void
+  pathname: string
+  onNavigate?: () => void
+  user: SidebarUser
+}
+
+function getInitials(label: string): string {
+  const parts = label
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length >= 2) {
+    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase()
+  }
+
+  const compact = label.replace(/[^a-zA-Z0-9]/g, "")
+  return (compact.slice(0, 2) || "LR").toUpperCase()
+}
+
+function getSidebarUser(): SidebarUser {
+  const session = getAuthSession()
+  const user = session?.user
+  const name =
+    `${user?.first_name ?? ""} ${user?.last_name ?? ""}`.trim() ||
+    user?.username ||
+    user?.email ||
+    "Utilisateur"
+  const activeTenant =
+    session?.tenants.find((tenant) => tenant.code === session.activeTenantCode) ??
+    session?.tenants[0]
+
+  return {
+    initials: getInitials(name),
+    name,
+    role: (activeTenant?.role || "Admin").replace(/[_-]/g, " ").toUpperCase(),
+  }
+}
+
+function LogoMark() {
+  return (
+    <div className="flex h-8 w-9 shrink-0 items-center justify-center bg-white text-[17px] font-semibold leading-none shadow-[0_8px_18px_rgba(0,0,0,0.3)]">
+      <span className="text-[#2a3d7e]">L</span>
+      <span className="text-[#f97316]">R</span>
+    </div>
+  )
+}
+
+function SidebarNav({
+  collapsed = false,
+  mobile = false,
+  onToggle,
+  pathname,
+  onNavigate,
+  user,
+}: SidebarNavProps) {
+  const sections = useSectionDefinitions()
+
+  const compact = collapsed && !mobile
+
+  const activeSectionKey = useMemo(
+    () => findSectionForPath(sections, pathname)?.key ?? null,
+    [sections, pathname]
+  )
 
   const navItems = useMemo(
-    () => [
-      { name: "Accueil", href: "/", icon: LayoutDashboard },
-      { name: "Personnes", href: "/employees", icon: Users },
-      { name: "Comptes", href: "/tenant-users", icon: UserCog },
-      { name: "Mon profil", href: "/profile", icon: UserRound },
-      { name: "Plannings", href: "/planning", icon: CalendarDays },
-      { name: locale === "en" ? "Timesheets" : "Pointages", href: "/timesheet", icon: ClipboardCheck },
-      { name: locale === "en" ? "Time off" : "Congés", href: "/absences", icon: Plane },
-      { name: "Appareils", href: "/devices", icon: Cpu },
-      { name: t.nav.reports, href: "/reports", icon: BarChart3 },
-    ],
-    [t, locale]
+    () =>
+      sections.map((section) => ({
+        key: section.key,
+        name: section.label,
+        href: section.defaultHref,
+        icon: SECTION_ICON_BY_KEY[section.key],
+      })),
+    [sections]
   )
 
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-linear-to-b from-primary/22 via-primary/8 to-transparent" />
-
       <div
         className={cn(
-          "relative flex items-center border-b border-sidebar-border/70",
-          mobile ? "h-16 px-4" : "h-16 justify-center px-3 lg:justify-start"
+          "relative flex h-14 items-center border-b border-sidebar-border",
+          compact ? "justify-start px-2" : "gap-3 px-3"
         )}
       >
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-primary/35 bg-primary/20 shadow-[0_8px_18px_rgba(78,155,255,0.25)]">
-          <Shield className="h-4 w-4 text-primary-foreground" />
-        </div>
-        <div className={cn("min-w-0", mobile ? "ml-3" : "ml-0 lg:ml-3")}>
-          <span className={cn("text-[13px] font-semibold tracking-widest text-sidebar-foreground", mobile ? "block" : "hidden lg:block")}>
-            SecurePoint
-          </span>
-          <span className={cn("text-[10px] uppercase tracking-[0.16em] text-muted-foreground", mobile ? "block" : "hidden lg:block")}>
-            Control Center
-          </span>
-        </div>
+        <Link
+          href="/"
+          aria-label="LR Time"
+          className={cn("flex min-w-0 items-center", compact ? "justify-center" : "gap-3")}
+          onClick={onNavigate}
+        >
+          <LogoMark />
+          {!compact && (
+            <span className="font-mono text-[13px] font-bold leading-none text-sidebar-foreground">
+              LR <span className="text-[#f97316]">TIME</span>
+            </span>
+          )}
+        </Link>
+
+        {!mobile && (
+          <button
+            type="button"
+            aria-label={compact ? "Etendre la barre laterale" : "Reduire la barre laterale"}
+            aria-expanded={!compact}
+            title={compact ? "Etendre" : "Reduire"}
+            onClick={onToggle}
+            className={cn(
+              "ml-auto inline-flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+              compact && "absolute right-1 h-7 w-7"
+            )}
+          >
+            {compact ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+        )}
       </div>
 
       <nav
         className={cn(
-          "dense-scrollbar relative flex-1 overflow-y-auto",
-          mobile ? "space-y-1.5 px-3 py-4" : "space-y-1.5 px-2 py-3"
+          "dense-scrollbar relative flex-1 overflow-y-auto py-5",
+          compact ? "space-y-2 px-2" : "space-y-2 px-2.5"
         )}
+        aria-label="Menu principal"
       >
+        {!compact && (
+          <p className="px-1.5 pb-1 text-[10px] font-medium uppercase text-muted-foreground">
+            Menu
+          </p>
+        )}
         {navItems.map((item) => {
-          const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+          const isActive = activeSectionKey === item.key
           return (
             <Link
-              key={item.name}
+              key={item.key}
               href={item.href}
               title={item.name}
               aria-label={item.name}
               onClick={onNavigate}
               className={cn(
-                "group wow-transition relative flex h-10 items-center rounded-lg border border-transparent text-[12px] font-semibold tracking-[0.01em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 press-effect",
-                mobile ? "gap-3 px-3" : "justify-center gap-0 px-3 lg:justify-start lg:gap-3",
+                "group relative flex h-11 items-center border-l-2 border-l-transparent text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                compact ? "justify-center px-0" : "gap-3 px-3",
                 isActive
-                  ? "border-primary/30 bg-linear-to-r from-primary/22 via-primary/10 to-transparent text-sidebar-foreground shadow-[0_10px_24px_rgba(0,0,0,0.18)] before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.75 before:rounded-r-sm before:bg-primary"
-                  : "text-muted-foreground hover:border-primary/20 hover:bg-sidebar-accent/90 hover:text-sidebar-foreground hover:shadow-[0_8px_16px_rgba(0,0,0,0.18)]"
+                  ? "border-l-sidebar-primary bg-sidebar-accent text-sidebar-primary"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
               <item.icon
                 className={cn(
                   "h-4 w-4 shrink-0 transition-colors",
-                  isActive ? "text-primary" : "text-muted-foreground group-hover:text-sidebar-foreground"
+                  isActive ? "text-sidebar-primary" : "text-muted-foreground group-hover:text-sidebar-foreground"
                 )}
               />
-              <span className={cn("truncate", mobile ? "block" : "hidden lg:block")}>{item.name}</span>
+              {!compact && <span className="truncate">{item.name}</span>}
             </Link>
           )
         })}
       </nav>
 
-      <div className={cn("relative border-t border-sidebar-border/70", mobile ? "px-4 py-4" : "px-2 py-3 lg:px-3")}>
-        <div
-          className={cn(
-            "rounded-lg border border-sidebar-border/70 bg-sidebar-accent/50",
-            mobile ? "space-y-2 p-3" : "space-y-1.5 p-2.5"
-          )}
-        >
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <div className="pulse-soft h-1.5 w-1.5 rounded-full bg-success" />
-            <span>{t.nav.gatewayConnected}</span>
+      <div className={cn("relative border-t border-sidebar-border py-3", compact ? "px-2" : "px-3")}>
+        {compact ? (
+          <div className="flex flex-col items-center gap-2">
+            <Link
+              href="/profile"
+              onClick={onNavigate}
+              title={user.name}
+              aria-label={user.name}
+              className="flex h-10 w-10 items-center justify-center bg-sidebar-accent text-[11px] font-bold text-sidebar-foreground transition-colors hover:bg-sidebar-accent/80"
+            >
+              {user.initials}
+            </Link>
+            <Link
+              href="/settings"
+              onClick={onNavigate}
+              title="Parametres"
+              aria-label="Parametres"
+              className="flex h-9 w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
           </div>
-          <p className="truncate text-[11px] text-muted-foreground/80">{t.nav.tenant}: {tenantCode}</p>
+        ) : (
+          <div className="flex items-center gap-2 border border-sidebar-border bg-sidebar-accent p-2">
+            <Link
+              href="/profile"
+              onClick={onNavigate}
+              className="flex min-w-0 flex-1 items-center gap-3"
+              title={user.name}
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-sidebar-primary text-[11px] font-bold text-sidebar-primary-foreground">
+                {user.initials}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[12px] font-semibold text-sidebar-foreground">{user.name}</span>
+                <span className="block truncate text-[10px] font-medium uppercase text-muted-foreground">{user.role}</span>
+              </span>
+            </Link>
 
-          <Link
-            href="/settings"
-            onClick={onNavigate}
-            className="mt-1 inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-sidebar-border/70 bg-background/60 text-[11px] font-semibold text-foreground hover:bg-background/85"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            <span>Parametres</span>
-          </Link>
-        </div>
+            <Link
+              href="/settings"
+              onClick={onNavigate}
+              title="Parametres"
+              aria-label="Parametres"
+              className="flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
+          </div>
+        )}
       </div>
     </>
   )
@@ -124,37 +255,92 @@ function SidebarNav({ mobile = false, pathname, onNavigate, tenantCode }: Sideba
 export function AppSidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [tenantCode, setTenantCode] = useState<string>(
-    getActiveTenantCode(process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "TENANT")
-  )
+  const [desktopOpen, setDesktopOpen] = useState(true)
+  const [sidebarUser, setSidebarUser] = useState<SidebarUser>(() => getSidebarUser())
 
   useEffect(() => {
-    const handleToggle = () => setMobileOpen((current) => !current)
+    const savedDesktopOpen = window.localStorage.getItem(DESKTOP_SIDEBAR_OPEN_KEY)
+    if (savedDesktopOpen != null) {
+      setDesktopOpen(savedDesktopOpen === "true")
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleToggle = () => {
+      if (window.matchMedia("(min-width: 768px)").matches) {
+        setDesktopOpen((current) => !current)
+      } else {
+        setMobileOpen((current) => !current)
+      }
+    }
     window.addEventListener(SIDEBAR_TOGGLE_EVENT, handleToggle)
     return () => window.removeEventListener(SIDEBAR_TOGGLE_EVENT, handleToggle)
   }, [])
 
   useEffect(() => {
-    const syncTenantCode = () => setTenantCode(getActiveTenantCode(process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? "TENANT"))
-    window.addEventListener(AUTH_EVENTS.SESSION_CHANGED, syncTenantCode)
-    window.addEventListener("storage", syncTenantCode)
+    window.localStorage.setItem(DESKTOP_SIDEBAR_OPEN_KEY, String(desktopOpen))
+  }, [desktopOpen])
+
+  useEffect(() => {
+    const updateShellOffset = () => {
+      const root = document.documentElement
+      if (!window.matchMedia("(min-width: 768px)").matches) {
+        root.style.setProperty("--app-sidebar-width", "0rem")
+        return
+      }
+
+      root.style.setProperty(
+        "--app-sidebar-width",
+        desktopOpen ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COLLAPSED_WIDTH
+      )
+    }
+
+    updateShellOffset()
+    window.addEventListener("resize", updateShellOffset)
     return () => {
-      window.removeEventListener(AUTH_EVENTS.SESSION_CHANGED, syncTenantCode)
-      window.removeEventListener("storage", syncTenantCode)
+      window.removeEventListener("resize", updateShellOffset)
+      document.documentElement.style.removeProperty("--app-sidebar-width")
+    }
+  }, [desktopOpen])
+
+  useEffect(() => {
+    const syncSidebarIdentity = () => {
+      setSidebarUser(getSidebarUser())
+    }
+    window.addEventListener(AUTH_EVENTS.SESSION_CHANGED, syncSidebarIdentity)
+    window.addEventListener("storage", syncSidebarIdentity)
+    return () => {
+      window.removeEventListener(AUTH_EVENTS.SESSION_CHANGED, syncSidebarIdentity)
+      window.removeEventListener("storage", syncSidebarIdentity)
     }
   }, [])
 
   return (
     <>
-      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-21 flex-col overflow-hidden border-r border-sidebar-border/85 bg-sidebar/95 shadow-[0_0_42px_rgba(0,0,0,0.28)] backdrop-blur-xl md:flex lg:w-64">
-        <SidebarNav pathname={pathname} tenantCode={tenantCode} />
+      <aside
+        className={cn(
+          "fixed left-0 top-0 z-40 hidden h-screen flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[18px_0_42px_rgba(0,0,0,0.08)] dark:shadow-[18px_0_42px_rgba(0,0,0,0.4)] transition-[width] duration-300 md:flex",
+          desktopOpen ? "w-[224px]" : "w-[72px]"
+        )}
+      >
+        <SidebarNav
+          collapsed={!desktopOpen}
+          onToggle={() => setDesktopOpen((current) => !current)}
+          pathname={pathname}
+          user={sidebarUser}
+        />
       </aside>
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-[88vw] max-w-85 border-r border-sidebar-border/85 bg-sidebar/96 p-0 md:hidden">
+        <SheetContent side="left" className="w-[88vw] max-w-[250px] border-r border-sidebar-border bg-sidebar text-sidebar-foreground p-0 md:hidden">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <div className="flex h-full flex-col overflow-hidden">
-            <SidebarNav mobile pathname={pathname} tenantCode={tenantCode} onNavigate={() => setMobileOpen(false)} />
+            <SidebarNav
+              mobile
+              pathname={pathname}
+              user={sidebarUser}
+              onNavigate={() => setMobileOpen(false)}
+            />
           </div>
         </SheetContent>
       </Sheet>

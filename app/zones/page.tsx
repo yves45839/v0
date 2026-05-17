@@ -523,8 +523,8 @@ export default function ZonesPage() {
                       </div>
                     </div>
                     <div className="flex shrink-0 gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0"><Edit className="h-3.5 w-3.5" /></Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button>
+                      <Button size="sm" variant="ghost" aria-label="Modifier" className="h-7 w-7 p-0"><Edit className="h-3.5 w-3.5" /></Button>
+                      <Button size="sm" variant="ghost" aria-label="Supprimer" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
                   </div>
                 ))}

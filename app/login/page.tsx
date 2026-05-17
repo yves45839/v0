@@ -3,13 +3,16 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Loader2, LockKeyhole, Shield, UserRound } from "lucide-react"
+import { Loader2, Shield, UserRound } from "lucide-react"
 import { toast } from "sonner"
 import { loginWithCredentials, hasAuthSession } from "@/lib/api/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function LoginPage() {
   const router = useRouter()
@@ -18,6 +21,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [failCount, setFailCount] = useState(0)
 
   const nextPath = useMemo(() => {
     const raw = searchParams.get("next")
@@ -34,10 +38,21 @@ export default function LoginPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
-    if (!identifier.trim() || !password.trim()) {
-      setError("Identifiant et mot de passe sont obligatoires.")
+
+    if (!identifier.trim()) {
+      setError("L'identifiant est obligatoire.")
       return
     }
+    // Si l'identifiant ressemble à un email, valider le format
+    if (identifier.includes("@") && !EMAIL_RE.test(identifier.trim())) {
+      setError("Le format de l'adresse email est invalide.")
+      return
+    }
+    if (!password.trim()) {
+      setError("Le mot de passe est obligatoire.")
+      return
+    }
+
     setSubmitting(true)
     try {
       await loginWithCredentials(identifier.trim(), password)
@@ -46,6 +61,7 @@ export default function LoginPage() {
     } catch (err) {
       const detail = err instanceof Error ? err.message : "Connexion impossible."
       setError(detail)
+      setFailCount((n) => n + 1)
       toast.error("Échec de connexion")
     } finally {
       setSubmitting(false)
@@ -63,7 +79,7 @@ export default function LoginPage() {
                 <Shield className="h-5 w-5" />
               </div>
               <div>
-                <CardTitle className="text-lg">SecurePoint</CardTitle>
+                <CardTitle className="text-lg">LR Time</CardTitle>
                 <CardDescription>Connexion à votre organisation</CardDescription>
               </div>
             </div>
@@ -71,7 +87,7 @@ export default function LoginPage() {
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
-                <Label htmlFor="identifier">Email ou nom d'utilisateur</Label>
+                <Label htmlFor="identifier">Email ou nom d&apos;utilisateur</Label>
                 <div className="relative">
                   <UserRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -79,32 +95,30 @@ export default function LoginPage() {
                     value={identifier}
                     onChange={(event) => setIdentifier(event.target.value)}
                     className="pl-9"
-                    placeholder="noreply@label-ci.com"
+                    placeholder="prenom.nom@société.com"
                     autoComplete="username"
                   />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Mot de passe</Label>
-                <div className="relative">
-                  <LockKeyhole className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="pl-9"
-                    placeholder="Votre mot de passe"
-                    autoComplete="current-password"
-                  />
-                </div>
-                <div className="text-right">
-                  <Link href="/auth/forgot-password" className="text-xs text-primary hover:underline">
+                <PasswordInput
+                  id="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Votre mot de passe"
+                  autoComplete="current-password"
+                />
+                <div className="flex items-center justify-between">
+                  {failCount >= 2 ? (
+                    <p className="text-xs text-amber-400">Plusieurs échecs — vérifiez votre identifiant ou réinitialisez votre mot de passe.</p>
+                  ) : <span />}
+                  <Link href="/auth/forgot-password" className="ml-auto text-xs text-primary hover:underline">
                     Mot de passe oublié ?
                   </Link>
                 </div>
               </div>
-              {error ? <p className="text-xs text-red-400">{error}</p> : null}
+              {error ? <p role="alert" className="text-xs text-red-400">{error}</p> : null}
               <Button type="submit" disabled={submitting} className="w-full">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Se connecter
@@ -112,7 +126,7 @@ export default function LoginPage() {
               <p className="text-center text-xs text-muted-foreground">
                 Pas de compte ?{" "}
                 <Link href="/signup" className="text-primary hover:underline">
-                  Creer un compte
+                  Créer un compte
                 </Link>
               </p>
             </form>

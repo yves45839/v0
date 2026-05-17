@@ -1,11 +1,12 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
+import { InfoTooltip } from "@/components/dashboard/info-tooltip"
 import { Download, Plus } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
 
 interface ManagerHeroProps {
-  managerName?: string
+  managerName: string | null
   onSiteCount: number
   totalCount: number
   pendingActions: number
@@ -14,7 +15,7 @@ interface ManagerHeroProps {
 }
 
 export function ManagerHero({
-  managerName = "Jamila",
+  managerName,
   onSiteCount,
   totalCount,
   pendingActions,
@@ -23,10 +24,10 @@ export function ManagerHero({
 }: ManagerHeroProps) {
   const { locale } = useI18n()
 
-  const title =
-    locale === "en"
-      ? `Welcome, ${managerName} 👋`
-      : `Bienvenue, ${managerName} 👋`
+  const greeting = locale === "en" ? "Welcome" : "Bienvenue"
+  const title = managerName
+    ? `${greeting}, ${managerName} 👋`
+    : `${greeting} 👋`
 
   const subtitle =
     locale === "en"
@@ -49,18 +50,48 @@ export function ManagerHero({
           >
             {title}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+            {subtitle}
+            <InfoTooltip
+              side="bottom"
+              content={
+                locale === "en"
+                  ? "Priority actions automatically detected: timesheet anomalies, pending leave requests, uncovered shifts."
+                  : "Actions prioritaires détectées automatiquement : anomalies de pointage, congés en attente, quarts non couverts."
+              }
+            />
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-9" onClick={onExport}>
-            <Download className="mr-1.5 h-3.5 w-3.5" />
-            {locale === "en" ? "Export" : "Exporter"}
-          </Button>
-          <Button size="sm" className="h-9" onClick={onQuickAction}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            {locale === "en" ? "Quick action" : "Action rapide"}
-          </Button>
+          <span className="inline-flex items-center gap-1">
+            <Button variant="outline" size="sm" className="h-9" onClick={onExport}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              {locale === "en" ? "Export" : "Exporter"}
+            </Button>
+            <InfoTooltip
+              side="bottom"
+              content={
+                locale === "en"
+                  ? "Downloads a CSV summary of the dashboard key indicators for the current day."
+                  : "Télécharge un résumé CSV des indicateurs clés du tableau de bord pour la journée en cours."
+              }
+            />
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Button size="sm" className="h-9" onClick={onQuickAction}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              {locale === "en" ? "Quick action" : "Action rapide"}
+            </Button>
+            <InfoTooltip
+              side="bottom"
+              content={
+                locale === "en"
+                  ? "Create an employee, assign a badge or trigger a device synchronisation."
+                  : "Créez un employé, assignez un badge ou lancez une synchronisation des appareils."
+              }
+            />
+          </span>
         </div>
       </div>
     </section>

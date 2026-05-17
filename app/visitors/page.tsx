@@ -555,10 +555,10 @@ export default function VisitorsPage() {
                             </div>
                           </div>
                           <div className="flex gap-1.5">
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs">
+                            <Button size="sm" variant="outline" aria-label="Afficher le QR code" className="h-7 px-2 text-xs">
                               <QrCode className="h-3 w-3" />
                             </Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs">
+                            <Button size="sm" variant="outline" aria-label="Imprimer le badge" className="h-7 px-2 text-xs">
                               <Printer className="h-3 w-3" />
                             </Button>
                           </div>

@@ -36,3 +36,29 @@ export interface PriorityAction {
   ctaLabel?: string
   ctaHref?: string
 }
+
+export interface PresenceWeekDay {
+  value: number
+  count: number
+  covered: boolean
+  isFuture: boolean
+}
+
+export interface PresenceWeekData {
+  days: PresenceWeekDay[]
+  averagePct: number
+  isPartial: boolean
+  totalEmployees: number
+}
+
+export type UpcomingLeaveKind = "paid" | "sick" | "personal"
+
+export interface UpcomingLeaveItem {
+  id: string
+  day: string
+  monthFr: string
+  monthEn: string
+  name: string
+  duration: string
+  kind: UpcomingLeaveKind
+}

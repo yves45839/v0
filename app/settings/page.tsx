@@ -122,8 +122,9 @@ type PendingSensitiveAction =
 export default function SettingsPage() {
   const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
   const searchParams = useSearchParams()
-  const { locale, setLocale } = useI18n()
-  const { resolvedTheme, setTheme } = useTheme()
+  const { locale, setLocale, t } = useI18n()
+  const tt = t.settingsPage
+  const { theme, resolvedTheme, setTheme } = useTheme()
   const [groups, setGroups] = useState<AccessGroup[]>([])
   const [tenantId, setTenantId] = useState<number | null>(null)
   const [tenants, setTenants] = useState<TenantItem[]>([])
@@ -161,7 +162,7 @@ export default function SettingsPage() {
   // Extended preferences
   const [sessionTimeout, setSessionTimeout] = useState("30")
   const [language, setLanguage] = useState<string>(() => locale)
-  const [themePreference, setThemePreference] = useState<"dark" | "light">("dark")
+  const [themePreference, setThemePreference] = useState<"system" | "dark" | "light">("dark")
   const [alertOnAccessDenied, setAlertOnAccessDenied] = useState(true)
   const [alertOnIntrusion, setAlertOnIntrusion] = useState(true)
   const [alertOnLateArrival, setAlertOnLateArrival] = useState(false)
@@ -176,7 +177,7 @@ export default function SettingsPage() {
     timezone: "Europe/Paris",
     sessionTimeout: "30",
     language: locale,
-    theme: "dark" as "dark" | "light",
+    theme: "dark" as "system" | "dark" | "light",
     alertOnAccessDenied: true,
     alertOnIntrusion: true,
     alertOnLateArrival: false,
@@ -766,7 +767,7 @@ export default function SettingsPage() {
       setCompanyName(trimmedName)
       setTimezone(trimmedTimezone)
       setLocale(language as "fr" | "en")
-      setTheme(themePreference)
+      setTheme(themePreference === "system" ? "dark" : themePreference)
       toast.success("Paramètres généraux enregistrés")
     } finally {
       setIsSavingPreferences(false)
@@ -930,8 +931,11 @@ export default function SettingsPage() {
     if (!raw) return
 
     try {
-      const parsed = JSON.parse(raw) as typeof savedPreferences & { theme?: "dark" | "light" }
-      const parsedTheme = parsed.theme === "dark" || parsed.theme === "light" ? parsed.theme : "dark"
+      const parsed = JSON.parse(raw) as typeof savedPreferences & { theme?: "system" | "dark" | "light" }
+      const parsedTheme =
+        parsed.theme === "dark" || parsed.theme === "light" || parsed.theme === "system"
+          ? parsed.theme
+          : "dark"
       setSavedPreferences({ ...parsed, theme: parsedTheme })
       setEmailNotifications(parsed.emailNotifications)
       setPushNotifications(parsed.pushNotifications)
@@ -945,7 +949,7 @@ export default function SettingsPage() {
         setLocale(parsed.language)
       }
       setThemePreference(parsedTheme)
-      setTheme(parsedTheme)
+      setTheme(parsedTheme === "system" ? "dark" : parsedTheme)
       if (parsed.alertOnAccessDenied !== undefined) setAlertOnAccessDenied(parsed.alertOnAccessDenied)
       if (parsed.alertOnIntrusion !== undefined) setAlertOnIntrusion(parsed.alertOnIntrusion)
       if (parsed.alertOnLateArrival !== undefined) setAlertOnLateArrival(parsed.alertOnLateArrival)
@@ -962,10 +966,14 @@ export default function SettingsPage() {
   }, [locale])
 
   useEffect(() => {
-    if (resolvedTheme === "dark" || resolvedTheme === "light") {
-      setThemePreference(resolvedTheme)
-    }
-  }, [resolvedTheme])
+    // Ne pas écraser le choix "system" de l'utilisateur si déjà sélectionné.
+    setThemePreference((current) => {
+      if (current === "system") return current
+      if (theme === "dark" || theme === "light") return theme
+      if (resolvedTheme === "dark" || resolvedTheme === "light") return resolvedTheme
+      return current
+    })
+  }, [theme, resolvedTheme])
 
   // ── Helpers ──────────────────────────────────────────────────
   const timeToMinutes = (t: string) => {
@@ -974,12 +982,12 @@ export default function SettingsPage() {
   }
 
   const settingsNav = [
-    { id: "organization", label: "Organisation", icon: Building2, badge: apiDepartments.length + groups.length },
-    { id: "planning", label: "Horaires", icon: CalendarDays, badge: apiPlannings.length + apiWorkShifts.length },
-    { id: "hikcentral", label: "HikCentral", icon: Server, badge: tenants.length },
-    { id: "security", label: "Sécurité", icon: Shield, badge: null },
-    { id: "notifications", label: "Notifications", icon: Bell, badge: null },
-    { id: "general", label: "Général", icon: Globe, badge: null },
+    { id: "organization", label: tt.navOrganization, icon: Building2, badge: apiDepartments.length + groups.length },
+    { id: "planning", label: tt.navPlanning, icon: CalendarDays, badge: apiPlannings.length + apiWorkShifts.length },
+    { id: "hikcentral", label: tt.navHikcentral, icon: Server, badge: tenants.length },
+    { id: "security", label: tt.navSecurity, icon: Shield, badge: null },
+    { id: "notifications", label: tt.navNotifications, icon: Bell, badge: null },
+    { id: "general", label: tt.navGeneral, icon: Globe, badge: null },
   ] as const
 
   return (
@@ -998,18 +1006,18 @@ export default function SettingsPage() {
             <div className="relative p-6 sm:p-8">
               <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Administration</p>
-                  <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Paramètres</h1>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">{tt.administration}</p>
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{tt.title}</h1>
                   <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-                    Configuration globale : organisation, groupes d&apos;accès, horaires, notifications et sécurité.
+                    {tt.description}
                   </p>
                 </div>
                 <div className="grid grid-cols-4 gap-3">
                   {[
-                    { value: tenants.length, label: "Tenants", icon: Building },
-                    { value: apiDepartments.length, label: "Depts", icon: Building2 },
-                    { value: groups.length, label: "Groupes", icon: DoorOpen },
-                    { value: apiReaders.length, label: "Lecteurs", icon: Cpu },
+                    { value: tenants.length, label: tt.statTenants, icon: Building },
+                    { value: apiDepartments.length, label: tt.statDepts, icon: Building2 },
+                    { value: groups.length, label: tt.statGroups, icon: DoorOpen },
+                    { value: apiReaders.length, label: tt.statReaders, icon: Cpu },
                   ].map((stat) => (
                     <div key={stat.label} className="flex flex-col items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-4 py-3 text-center">
                       <stat.icon className="mb-0.5 h-3.5 w-3.5 text-muted-foreground/60" />
@@ -1022,7 +1030,7 @@ export default function SettingsPage() {
               {isInitialLoading && (
                 <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Chargement des paramètres...
+                  {tt.loading}
                 </div>
               )}
             </div>
@@ -1034,7 +1042,7 @@ export default function SettingsPage() {
             {/* ── Navigation latérale ── */}
             <aside className="w-full shrink-0 lg:w-52">
               <nav className="sticky top-6 overflow-hidden rounded-2xl border border-border/60 bg-card/80 p-2 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
-                <p className="mb-1 px-3 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Sections</p>
+                <p className="mb-1 px-3 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">{tt.sectionsLabel}</p>
                 <div className="flex flex-row flex-wrap gap-1 lg:flex-col lg:gap-0.5">
                   {settingsNav.map((item) => {
                     const active = activeTab === item.id
@@ -2205,17 +2213,19 @@ export default function SettingsPage() {
                         <Select
                           value={themePreference}
                           onValueChange={(value) => {
-                            const nextTheme = value as "dark" | "light"
+                            const nextTheme = value as "system" | "dark" | "light"
                             setThemePreference(nextTheme)
-                            setTheme(nextTheme)
+                            // "Par défaut" applique le thème sombre (défaut de l'application)
+                            setTheme(nextTheme === "system" ? "dark" : nextTheme)
                           }}
                         >
                           <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="dark">dark</SelectItem>
-                            <SelectItem value="light">light</SelectItem>
+                            <SelectItem value="system">Par défaut (sombre)</SelectItem>
+                            <SelectItem value="dark">Sombre</SelectItem>
+                            <SelectItem value="light">Clair</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

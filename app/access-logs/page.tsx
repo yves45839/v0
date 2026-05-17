@@ -55,7 +55,9 @@ import {
   ChevronRight,
   X,
   Copy,
+  Inbox,
 } from "lucide-react"
+import { EmptyState } from "@/components/ui/empty-state"
 import { toast } from "sonner"
 
 type AccessLog = {
@@ -186,11 +188,14 @@ function mapEventToAccessLog(event: HikEvent): AccessLog {
 
 export default function AccessLogsPage() {
   const searchParams = useSearchParams()
-  const tenantCode = (
-    process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ??
-    process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ??
-    "HQ-CASA"
-  ).trim()
+  const tenantCode = (() => {
+    const code = (process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ?? "").trim()
+    if (!code && process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn("[LR Time] NEXT_PUBLIC_HIK_EVENTS_TENANT is not set — configure it in .env.local")
+    }
+    return code
+  })()
   const latestLogIdRef = useRef<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -737,16 +742,26 @@ export default function AccessLogsPage() {
                     </TableRow>
                   )}
                   {!loading && sortedLogs.length === 0 && !hasActiveFilters && (
-                    <TableRow className="border-border">
-                      <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-                        Aucun evenement trouve pour la periode actuelle.
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableCell colSpan={8} className="py-8">
+                        <EmptyState
+                          icon={Inbox}
+                          title="Aucun évènement pour la période actuelle"
+                          description="Les évènements d'accès apparaîtront ici en temps réel dès que vos appareils en émettront."
+                          variant="bare"
+                        />
                       </TableCell>
                     </TableRow>
                   )}
                   {!loading && sortedLogs.length === 0 && hasActiveFilters && (
-                    <TableRow className="border-border">
-                      <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-                        Aucun resultat pour ces filtres. Essayez d'elargir la recherche.
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableCell colSpan={8} className="py-8">
+                        <EmptyState
+                          icon={Filter}
+                          title="Aucun résultat pour ces filtres"
+                          description="Essayez d'élargir la recherche ou de réinitialiser les filtres."
+                          variant="bare"
+                        />
                       </TableCell>
                     </TableRow>
                   )}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -23,15 +23,90 @@ import {
   Wallet,
 } from "lucide-react"
 import {
-  PLANS,
-  currentSubscription,
+  PLANS as MOCK_PLANS,
+  currentSubscription as mockSubscription,
   currentUsage,
   invoices,
   paymentMethods,
   nextDueDate,
   supportTickets,
+  type Plan as MockPlan,
+  type CurrentSubscription as MockSubscription,
 } from "@/lib/mock-data/demo-billing"
+import {
+  fetchBillingSummary,
+  fetchPlans,
+  type Plan as ApiPlan,
+  type BillingSummary,
+} from "@/lib/api/billing"
 import type { BillingTab } from "./billing-tabs"
+
+// ─── API → mock-shape adapters ─────────────────────────────────────────
+// The page was built against a static mock catalog (`MockPlan` w/ string
+// `id`, gradient, features array). The real Django backend exposes a very
+// different shape (numeric id, code, amount-as-string, etc.). Rather than
+// rewriting the whole component, we adapt API data into the mock shape so
+// the existing render logic keeps working.
+
+const PLAN_VISUALS: Record<string, { gradient: string; color: string }> = {
+  free:     { gradient: "from-slate-500/10 via-slate-500/5 to-transparent", color: "text-slate-500" },
+  starter:  { gradient: "from-emerald-500/10 via-emerald-500/5 to-transparent", color: "text-emerald-500" },
+  pro:      { gradient: "from-primary/15 via-primary/5 to-transparent", color: "text-primary" },
+  business: { gradient: "from-violet-500/15 via-violet-500/5 to-transparent", color: "text-violet-500" },
+  enterprise: { gradient: "from-amber-500/15 via-amber-500/5 to-transparent", color: "text-amber-500" },
+}
+
+function adaptApiPlan(p: ApiPlan): MockPlan {
+  const visual = PLAN_VISUALS[p.code] ?? PLAN_VISUALS.pro
+  return {
+    id: p.code as MockPlan["id"],
+    name: p.name,
+    price: parseFloat(p.amount) || 0,
+    priceLabel:
+      p.interval === "month" ? "/ mois" :
+      p.interval === "year"  ? "/ an"   :
+      "",
+    description: p.description || "",
+    features: [
+      { label: `${p.device_quota.toLocaleString("fr-FR")} appareils inclus`, included: true },
+      { label: `${p.event_quota_per_month.toLocaleString("fr-FR")} évènements / mois`, included: true },
+      { label: "Support prioritaire", included: p.has_priority_support },
+      { label: "Analytique avancée", included: p.has_advanced_analytics },
+    ],
+    limits: {
+      employees: "illimite",
+      devices: p.device_quota || "illimite",
+      sites: "illimite",
+      admins: "illimite",
+      historyDays: "illimite",
+    },
+    color: visual.color,
+    gradient: visual.gradient,
+  }
+}
+
+function adaptApiSummary(summary: BillingSummary | null, fallback: MockSubscription): MockSubscription {
+  const sub = summary?.subscription
+  if (!sub) return fallback
+  const apiStatus = String(sub.status || "").toLowerCase()
+  // The mock UI uses a smaller set of statuses than Stripe — map down.
+  const status: MockSubscription["status"] =
+    apiStatus === "trialing" ? "trial" :
+    apiStatus === "active" ? "active" :
+    apiStatus === "past_due" || apiStatus === "unpaid" ? "suspended" :
+    apiStatus === "canceled" ? "expired" :
+    "pending_payment"
+  return {
+    planId: (sub.plan?.code ?? fallback.planId) as MockSubscription["planId"],
+    status,
+    renewalDate: sub.current_period_end ?? fallback.renewalDate,
+    renewalAmount: parseFloat(sub.plan?.amount ?? "0") || fallback.renewalAmount,
+    startDate: sub.current_period_start ?? fallback.startDate,
+    trialEndsAt: sub.trial_end ?? undefined,
+    cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
+    autoRenew: !sub.cancel_at_period_end,
+  }
+}
 
 interface BillingOverviewProps {
   onTabChange: (tab: BillingTab) => void
@@ -85,7 +160,54 @@ function UsageBar({ label, used, limit, icon: Icon }: { label: string; used: num
 }
 
 export function BillingOverview({ onTabChange }: BillingOverviewProps) {
-  const plan = PLANS.find((p) => p.id === currentSubscription.planId)!
+  // Hydrate real catalog + subscription from the backend. We fall back to the
+  // mock data when the API is unreachable or returns nothing, so the screen
+  // stays usable during local dev / before Stripe is wired up.
+  const [apiPlans, setApiPlans] = useState<MockPlan[]>([])
+  const [apiSummary, setApiSummary] = useState<BillingSummary | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchPlans()
+      .then((plans) => {
+        if (!cancelled) setApiPlans(plans.map(adaptApiPlan))
+      })
+      .catch(() => { /* keep mock fallback */ })
+    fetchBillingSummary()
+      .then((summary) => {
+        if (!cancelled) setApiSummary(summary)
+      })
+      .catch(() => { /* keep mock fallback */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const PLANS = apiPlans.length > 0 ? apiPlans : MOCK_PLANS
+  const currentSubscription = apiSummary
+    ? adaptApiSummary(apiSummary, mockSubscription)
+    : mockSubscription
+
+  const plan = PLANS.find((p) => p.id === currentSubscription.planId)
+  if (!plan) {
+    // No matching plan in the catalog yet (e.g. PLANS not yet hydrated from
+    // /api/billing/plans/, or freshly provisioned tenant without subscription).
+    // Render a minimal empty state with a CTA to open the plans tab.
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border bg-card p-12 text-center">
+        <Sparkles className="h-10 w-10 text-muted-foreground" aria-hidden />
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold">Aucun abonnement actif</h2>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Choisissez un plan pour activer votre tenant et accéder à
+            l&apos;ensemble des fonctionnalités LR&nbsp;Time.
+          </p>
+        </div>
+        <Button onClick={() => onTabChange("plans")} className="mt-2">
+          Voir les plans
+          <ArrowUpRight className="ml-1 h-4 w-4" />
+        </Button>
+      </div>
+    )
+  }
   const statusCfg = STATUS_CONFIG[currentSubscription.status]
   const lastInvoice = invoices[0]
   const failedInvoices = invoices.filter((i) => i.status === "failed")

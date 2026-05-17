@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import type { DepartmentApiItem, OrganizationApiItem } from "@/lib/api/employees"
-import { Building2, ChevronRight, Users } from "lucide-react"
+import { Building2, ChevronRight, Plus, Users } from "lucide-react"
 
 export type EmployeeScope =
   | { type: "all"; label: string }
@@ -21,6 +21,7 @@ type OrganizationTreeProps = {
   employeeCountByOrganization: Map<number, number>
   employeeCountByDepartment: Map<number, number>
   onEmployeeDrop?: (department: DepartmentApiItem) => void
+  onCreateDepartment?: (organizationId: number, parentId: number | null) => void
 }
 
 export function OrganizationTree({
@@ -31,6 +32,7 @@ export function OrganizationTree({
   employeeCountByOrganization,
   employeeCountByDepartment,
   onEmployeeDrop,
+  onCreateDepartment,
 }: OrganizationTreeProps) {
   const [dragOverDepartmentId, setDragOverDepartmentId] = useState<number | null>(null)
   const departmentsByOrganization = new Map<number, DepartmentApiItem[]>()
@@ -60,23 +62,12 @@ export function OrganizationTree({
     const isDragTarget = dragOverDepartmentId === department.id
 
     return (
-      <div key={department.id} className="space-y-2">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() =>
-            onSelectScope({
-              type: "department",
-              departmentId: department.id,
-              label: department.name,
-            })
-          }
+      <div key={department.id} className="space-y-1.5">
+        <div
           className={cn(
-            "wow-transition h-auto w-full justify-between rounded-xl border border-transparent bg-background/20 px-3 py-2.5 text-left hover:border-primary/25 hover:bg-secondary/45",
-            isSelected && "border-primary/30 bg-primary/12 text-foreground",
-            isDragTarget && "border-emerald-400/50 bg-emerald-500/10 text-emerald-100"
+            "group/dept relative flex items-center gap-1 transition-colors",
+            isDragTarget && "outline outline-2 outline-emerald-400/60"
           )}
-          style={{ paddingLeft: `${depth * 16 + 12}px` }}
           onDragOver={(event) => {
             if (!onEmployeeDrop) return
             event.preventDefault()
@@ -87,7 +78,11 @@ export function OrganizationTree({
             event.preventDefault()
             setDragOverDepartmentId(department.id)
           }}
-          onDragLeave={() => {
+          onDragLeave={(event) => {
+            if (!onEmployeeDrop) return
+            const container = event.currentTarget
+            const relatedTarget = event.relatedTarget as Node | null
+            if (relatedTarget && container.contains(relatedTarget)) return
             if (dragOverDepartmentId === department.id) {
               setDragOverDepartmentId(null)
             }
@@ -99,17 +94,51 @@ export function OrganizationTree({
             onEmployeeDrop(department)
           }}
         >
-          <span className="flex min-w-0 items-center gap-2">
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-sm font-medium">{department.name}</span>
-          </span>
-          <Badge variant="secondary" className="min-w-8 justify-center">
-            {employeeCountByDepartment.get(department.id) ?? 0}
-          </Badge>
-        </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() =>
+              onSelectScope({
+                type: "department",
+                departmentId: department.id,
+                label: department.name,
+              })
+            }
+            className={cn(
+              "h-auto min-w-0 flex-1 justify-between rounded-none border border-transparent bg-[#0b0d13]/40 px-2.5 py-2 text-left text-[#7a8599] hover:border-[#f97316]/35 hover:bg-[#1a1f2e] hover:text-[#e2e8f0]",
+              isSelected && "border-[#f97316]/55 bg-[#2a1e06] text-[#f97316]",
+              isDragTarget && "border-[#22c55e]/55 bg-[#0d2a1a] text-[#22c55e]"
+            )}
+            style={{ paddingLeft: `${depth * 12 + 10}px` }}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#4a5568]" />
+              <span className="truncate text-xs font-medium">{department.name}</span>
+            </span>
+            <Badge variant="secondary" className="min-w-7 justify-center rounded-none border border-[#1c2133] bg-[#111318] px-1.5 font-mono text-[9px] text-[#7a8599]">
+              {employeeCountByDepartment.get(department.id) ?? 0}
+            </Badge>
+          </Button>
+
+          {onCreateDepartment && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover/dept:opacity-100"
+              title="Créer un sous-département"
+              onClick={(event) => {
+                event.stopPropagation()
+                onCreateDepartment(department.organization, department.id)
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
 
         {children.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {children.map((child) => renderDepartment(child, depth + 1))}
           </div>
         )}
@@ -118,25 +147,33 @@ export function OrganizationTree({
   }
 
   return (
-    <Card className="overflow-hidden border-border/70 bg-card/90 p-0">
-      <div className="space-y-3 p-4">
+    <Card className="overflow-hidden rounded-none border-[#1c2133] bg-[#111318] p-0 shadow-none">
+      <div className="border-b border-[#1c2133] px-3 py-2.5">
+        <p className="font-display text-[13px] font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
+          Organisations
+        </p>
+        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-[#4a5568]">
+          Glisser-deposer vers departement
+        </p>
+      </div>
+      <div className="space-y-2.5 p-3">
         <Button
           type="button"
           variant="ghost"
           onClick={() => onSelectScope({ type: "all", label: "Tous les employes" })}
           className={cn(
-            "wow-transition h-auto w-full justify-between rounded-xl border border-border/70 bg-background/35 px-4 py-3 text-left hover:border-primary/25 hover:bg-secondary/35",
-            selectedScope.type === "all" && "border-primary/30 bg-primary/10 text-foreground"
+            "h-auto w-full justify-between rounded-none border border-[#1c2133] bg-[#0b0d13] px-3 py-2.5 text-left text-[#e2e8f0] hover:border-[#f97316]/45 hover:bg-[#1a1f2e]",
+            selectedScope.type === "all" && "border-[#f97316]/55 bg-[#2a1e06] text-[#f97316]"
           )}
         >
-          <span className="flex items-center gap-2 text-sm font-medium">
-            <Users className="h-4 w-4" />
+          <span className="flex min-w-0 items-center gap-2 text-xs font-medium">
+            <Users className="h-3.5 w-3.5 shrink-0" />
             Tous les employes
           </span>
-          <Badge variant="secondary">Global</Badge>
+          <Badge variant="secondary" className="rounded-none border border-[#1c2133] bg-[#111318] px-1.5 font-mono text-[9px] text-[#7a8599]">Global</Badge>
         </Button>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {organizations.map((organization) => {
             const isSelected =
               selectedScope.type === "organization" &&
@@ -148,32 +185,49 @@ export function OrganizationTree({
             return (
               <div
                 key={organization.id}
-                className="rounded-xl border border-border/70 bg-background/20 p-2.5"
+                className="border border-[#1c2133] bg-[#0b0d13]/45 p-2"
               >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() =>
-                    onSelectScope({
-                      type: "organization",
-                      organizationId: organization.id,
-                      label: organization.name,
-                    })
-                  }
-                  className={cn(
-                    "wow-transition h-auto w-full justify-between rounded-lg px-3 py-3.5 text-left hover:bg-secondary/35",
-                    isSelected && "bg-primary/12 text-foreground"
+                <div className="group/org flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      onSelectScope({
+                        type: "organization",
+                        organizationId: organization.id,
+                        label: organization.name,
+                      })
+                    }
+                    className={cn(
+                      "h-auto min-w-0 flex-1 justify-between rounded-none px-2.5 py-2.5 text-left text-[#e2e8f0] hover:bg-[#1a1f2e]",
+                      isSelected && "bg-[#0d1e2e] text-[#60a5fa]"
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Building2 className="h-3.5 w-3.5 shrink-0 text-[#60a5fa]" />
+                      <span className="truncate text-xs font-semibold">{organization.name}</span>
+                    </span>
+                    <Badge className="rounded-none bg-[#f97316] px-1.5 font-mono text-[9px] text-[#0b0d13]">
+                      {employeeCountByOrganization.get(organization.id) ?? 0}
+                    </Badge>
+                  </Button>
+
+                  {onCreateDepartment && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover/org:opacity-100"
+                      title="Créer un département"
+                      onClick={() => onCreateDepartment(organization.id, null)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
                   )}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Building2 className="h-4 w-4 shrink-0 text-primary" />
-                    <span className="truncate text-sm font-semibold">{organization.name}</span>
-                  </span>
-                  <Badge>{employeeCountByOrganization.get(organization.id) ?? 0}</Badge>
-                </Button>
+                </div>
 
                 {rootDepartments.length > 0 && (
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-1.5 space-y-1.5">
                     {rootDepartments.map((department) => renderDepartment(department))}
                   </div>
                 )}

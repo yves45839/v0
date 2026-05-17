@@ -149,6 +149,18 @@ function isBrowser(): boolean {
   return typeof window !== "undefined"
 }
 
+/**
+ * Clear the local session and redirect to /login preserving the current path
+ * as the `next` query param so the user is returned here after re-auth.
+ * No-op on the server (SSR context).
+ */
+export function redirectToLogin(): void {
+  if (!isBrowser()) return
+  clearAuthSession()
+  const next = encodeURIComponent(window.location.pathname + window.location.search)
+  window.location.replace(`/login?next=${next}`)
+}
+
 function decodeBase64Url(payload: string): string {
   const normalized = payload.replace(/-/g, "+").replace(/_/g, "/")
   const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4)
@@ -470,9 +482,10 @@ async function authRequest(path: string, init?: RequestInit): Promise<Response> 
 
   const refreshed = await getAccessToken({ forceRefresh: true })
   if (!refreshed) {
+    redirectToLogin()
     return response
   }
-  return fetch(`${API_BASE_URL}${path}`, {
+  const retried = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -481,6 +494,10 @@ async function authRequest(path: string, init?: RequestInit): Promise<Response> 
     },
     cache: "no-store",
   })
+  if (retried.status === 401) {
+    redirectToLogin()
+  }
+  return retried
 }
 
 async function authJson<T>(path: string, init?: RequestInit): Promise<T> {

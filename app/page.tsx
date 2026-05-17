@@ -1,16 +1,19 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { DashboardOverview } from "@/components/dashboard/dashboard-overview"
 import type { DashboardPayload, DashboardStatusDetails } from "@/lib/api/dashboard"
+import { getAuthUser } from "@/lib/api/auth"
 import {
   dashboardKpiData,
   accessEvents as mockAccessEvents,
   devices as mockDevices,
   priorityActions as mockPriorityActions,
 } from "@/lib/dashboard/mock-data"
+import { useI18n } from "@/lib/i18n/context"
+import type { PresenceWeekData } from "@/components/dashboard/types"
 
 const MOCK_STATUS_DETAILS: DashboardStatusDetails = {
   updatedAt: "", // sera défini côté client uniquement (évite hydration mismatch)
@@ -28,6 +31,13 @@ const MOCK_STATUS_DETAILS: DashboardStatusDetails = {
   },
 }
 
+const EMPTY_PRESENCE_WEEK: PresenceWeekData = {
+  days: Array.from({ length: 7 }, () => ({ value: 0, count: 0, covered: false, isFuture: false })),
+  averagePct: 0,
+  isPartial: true,
+  totalEmployees: 0,
+}
+
 const INITIAL_DATA: DashboardPayload = {
   systemStatus: "disconnected",
   statusDetails: MOCK_STATUS_DETAILS,
@@ -35,17 +45,29 @@ const INITIAL_DATA: DashboardPayload = {
   accessEvents: mockAccessEvents,
   devices: mockDevices,
   priorityActions: mockPriorityActions,
+  presenceWeek: EMPTY_PRESENCE_WEEK,
+  upcomingLeaves: [],
 }
 
 export default function DashboardPage() {
+  const { locale } = useI18n()
   const [data, setData] = useState<DashboardPayload>(INITIAL_DATA)
   const [isRefreshing, setIsRefreshing] = useState(true)
-  const loadedRef = useRef(false)
+  const [managerName, setManagerName] = useState<string | null>(null)
 
   useEffect(() => {
-    if (loadedRef.current) return
-    loadedRef.current = true
+    const user = getAuthUser()
+    if (!user) {
+      setManagerName(null)
+      return
+    }
+    const fullName = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim()
+    setManagerName(fullName || user.username || user.email || null)
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
+    setIsRefreshing(true)
 
     // Définir updatedAt côté client uniquement (évite hydration mismatch)
     setData(prev => ({
@@ -56,7 +78,7 @@ export default function DashboardPage() {
     async function loadRealData() {
       try {
         const { fetchDashboardData } = await import("@/lib/api/dashboard")
-        const result = await fetchDashboardData()
+        const result = await fetchDashboardData(locale)
         if (!cancelled) setData(result)
       } catch {
         // API indisponible — on reste sur les donnees de demonstration
@@ -67,7 +89,7 @@ export default function DashboardPage() {
 
     void loadRealData()
     return () => { cancelled = true }
-  }, [])
+  }, [locale])
 
   return (
     <div className="app-shell">
@@ -76,6 +98,7 @@ export default function DashboardPage() {
         <Header
           systemStatus={isRefreshing ? "syncing" : data.systemStatus}
           statusDetails={data.statusDetails}
+          hideRouteInfo
         />
         <DashboardOverview
           systemStatus={isRefreshing ? "syncing" : data.systemStatus}
@@ -83,6 +106,9 @@ export default function DashboardPage() {
           accessEvents={data.accessEvents}
           devices={data.devices}
           priorityActions={data.priorityActions}
+          presenceWeek={data.presenceWeek}
+          upcomingLeaves={data.upcomingLeaves}
+          managerName={managerName}
         />
       </div>
     </div>

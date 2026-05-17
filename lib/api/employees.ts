@@ -1,4 +1,4 @@
-import { getAccessToken, getSessionTokens } from "@/lib/api/auth"
+import { getAccessToken, getSessionTokens, redirectToLogin } from "@/lib/api/auth"
 
 export type AuthTokens = {
   access: string
@@ -58,6 +58,13 @@ export type DepartmentApiItem = {
   parent: number | null
   name: string
   code: string
+  planning?: number | null
+  effective_planning?: {
+    id: number
+    tenant: number
+    name: string
+    code: string
+  } | null
   work_shift?: number | null
   effective_work_shift?: {
     id: number
@@ -130,6 +137,50 @@ export type PlanningApiItem = {
   entries: PlanningEntryApiItem[]
 }
 
+export type PlanningAssignmentApiItem = {
+  id: number
+  tenant: number
+  planning: number | null
+  work_shift: number | null
+  department: number | null
+  employee: number | null
+  valid_from: string
+  valid_to: string | null
+  include_sub_departments: boolean
+  check_in_not_required: boolean
+  check_out_not_required: boolean
+  effective_for_holiday: boolean
+  effective_for_overtime: boolean
+  flexible_weekend: boolean
+  priority: number
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type CreatePlanningAssignmentPayload = {
+  tenant: number
+  employee?: number | null
+  department?: number | null
+  planning?: number | null
+  work_shift?: number | null
+  valid_from: string
+  valid_to?: string | null
+  include_sub_departments?: boolean
+  priority?: number
+  metadata?: Record<string, unknown>
+}
+
+export type UpdatePlanningAssignmentPayload = Partial<CreatePlanningAssignmentPayload>
+
+export type CreateDepartmentPayload = {
+  tenant: number
+  organization: number
+  parent?: number | null
+  name: string
+  code?: string
+}
+
 export type CreateWorkShiftPayload = {
   tenant: number
   name: string
@@ -193,6 +244,7 @@ export type UpdateEmployeePayload = {
   cards?: Array<{ card_no: string; card_type?: string }>
   fingerprints?: Array<{ finger_index: number; template: string }>
   face?: { face_data: string } | null
+  is_active?: boolean
 }
 
 export type EmployeeListItem = {
@@ -200,6 +252,47 @@ export type EmployeeListItem = {
   employee_no: string
   name: string
 }
+
+export type LeaveRequestStatus = "pending" | "approved" | "rejected" | "cancelled"
+export type LeaveRequestType = "paid" | "sick" | "unpaid" | "special"
+
+export type LeaveRequestApiItem = {
+  id: number
+  tenant: number
+  employee: number
+  leave_type: LeaveRequestType
+  status: LeaveRequestStatus
+  start_date: string
+  end_date: string
+  reason: string
+  rejection_reason: string
+  approved_by: number | null
+  approved_at: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type CreateLeaveRequestPayload = {
+  tenant: number
+  employee: number
+  leave_type: LeaveRequestType
+  start_date: string
+  end_date: string
+  reason?: string
+}
+
+export type UpdateLeaveRequestPayload = Partial<{
+  leave_type: LeaveRequestType
+  status: LeaveRequestStatus
+  start_date: string
+  end_date: string
+  reason: string
+  rejection_reason: string
+  approved_by: number | null
+  approved_at: string | null
+  metadata: Record<string, unknown>
+}>
 
 export type PushEmployeeResult = {
   status: "ok" | "partial" | "skipped"
@@ -688,18 +781,24 @@ async function employeeApiRequest<T>(path: string, init?: RequestInit): Promise<
     cache: "no-store",
   })
 
-  if (response.status === 401 && getSessionTokens()) {
-    const refreshedAccess = await getAccessToken({ forceRefresh: true }).catch(() => null)
-    if (refreshedAccess) {
-      response = await fetch(`${API_BASE_URL}${path}`, {
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${refreshedAccess}`,
-          ...(init?.headers ?? {}),
-        },
-        cache: "no-store",
-      })
+  if (response.status === 401) {
+    if (getSessionTokens()) {
+      const refreshedAccess = await getAccessToken({ forceRefresh: true }).catch(() => null)
+      if (refreshedAccess) {
+        response = await fetch(`${API_BASE_URL}${path}`, {
+          ...init,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${refreshedAccess}`,
+            ...(init?.headers ?? {}),
+          },
+          cache: "no-store",
+        })
+      }
+    }
+    // If still 401 after refresh attempt (or no session to refresh), redirect to login
+    if (response.status === 401) {
+      redirectToLogin()
     }
   }
 
@@ -774,6 +873,26 @@ export async function updateEmployee(
   })
 }
 
+export async function setEmployeeActive(
+  employeeId: string | number,
+  isActive: boolean
+): Promise<EmployeeApiItem> {
+  return employeeApiRequest<EmployeeApiItem>(`/api/employees/${employeeId}/`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_active: isActive }),
+  })
+}
+
+export async function deleteEmployee(employeeId: string | number): Promise<void> {
+  return employeeApiDelete(`/api/employees/${employeeId}/`)
+}
+
+export async function fetchEmployeeById(
+  employeeId: string | number
+): Promise<EmployeeApiItem> {
+  return employeeApiRequest<EmployeeApiItem>(`/api/employees/${employeeId}/`)
+}
+
 export async function fetchEmployees(tenantCode?: string): Promise<EmployeeListItem[]> {
   const search = new URLSearchParams()
   if (tenantCode) {
@@ -802,6 +921,13 @@ export async function fetchAccessGroups(tenantCode?: string): Promise<AccessGrou
   const query = search.toString()
   const payload = await employeeApiRequest<unknown>(`/api/access-groups/${query ? `?${query}` : ""}`)
   return parseListPayload<AccessGroupApiItem>(payload)
+}
+
+export async function createDepartment(payload: CreateDepartmentPayload): Promise<DepartmentApiItem> {
+  return employeeApiRequest<DepartmentApiItem>("/api/departments/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
 }
 
 export async function fetchDepartments(tenantCode?: string): Promise<DepartmentApiItem[]> {
@@ -1148,6 +1274,87 @@ export async function fetchEmployeeSchedule(
   return employeeApiRequest<EmployeeScheduleApiResponse>(
     `/api/employees/${employeeId}/schedule/${query ? `?${query}` : ""}`
   )
+}
+
+export async function fetchLeaveRequests(
+  tenantCode?: string,
+  options?: { status?: LeaveRequestStatus; startFrom?: string; endTo?: string }
+): Promise<LeaveRequestApiItem[]> {
+  const search = new URLSearchParams()
+  if (tenantCode) {
+    search.set("tenant", tenantCode)
+  }
+  if (options?.status) {
+    search.set("status", options.status)
+  }
+  if (options?.startFrom) {
+    search.set("start_from", options.startFrom)
+  }
+  if (options?.endTo) {
+    search.set("end_to", options.endTo)
+  }
+  const query = search.toString()
+  const payload = await employeeApiRequest<unknown>(`/api/leave-requests/${query ? `?${query}` : ""}`)
+  return parseListPayload<LeaveRequestApiItem>(payload)
+}
+
+export async function fetchPlanningAssignments(
+  tenantCode?: string,
+  options?: { employee?: number | string; department?: number | string }
+): Promise<PlanningAssignmentApiItem[]> {
+  const search = new URLSearchParams()
+  if (tenantCode) {
+    search.set("tenant", tenantCode)
+  }
+  if (options?.employee != null) {
+    search.set("employee", String(options.employee))
+  }
+  if (options?.department != null) {
+    search.set("department", String(options.department))
+  }
+  const query = search.toString()
+  const payload = await employeeApiRequest<unknown>(`/api/planning-assignments/${query ? `?${query}` : ""}`)
+  return parseListPayload<PlanningAssignmentApiItem>(payload)
+}
+
+export async function createPlanningAssignment(
+  payload: CreatePlanningAssignmentPayload
+): Promise<PlanningAssignmentApiItem> {
+  return employeeApiRequest<PlanningAssignmentApiItem>("/api/planning-assignments/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updatePlanningAssignment(
+  id: number,
+  payload: UpdatePlanningAssignmentPayload
+): Promise<PlanningAssignmentApiItem> {
+  return employeeApiRequest<PlanningAssignmentApiItem>(`/api/planning-assignments/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deletePlanningAssignment(id: number): Promise<void> {
+  return employeeApiDelete(`/api/planning-assignments/${id}/`)
+}
+
+export async function createLeaveRequest(payload: CreateLeaveRequestPayload): Promise<LeaveRequestApiItem> {
+  return employeeApiRequest<LeaveRequestApiItem>("/api/leave-requests/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateLeaveRequest(
+  leaveRequestId: number | string,
+  payload: UpdateLeaveRequestPayload
+): Promise<LeaveRequestApiItem> {
+  return employeeApiRequest<LeaveRequestApiItem>(`/api/leave-requests/${leaveRequestId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
 }
 
 export async function pushEmployeeToGateway(

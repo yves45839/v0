@@ -25,7 +25,7 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'SecurePoint - Supervision Presence et Controle d\'acces',
+  title: 'LR Time - Supervision Presence et Controle d\'acces',
   description: 'Plateforme operationnelle de supervision presence, acces et securite Hikvision',
   generator: 'v0.app',
   icons: {
@@ -53,12 +53,17 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang={LOCALE_TAGS[DEFAULT_LOCALE]} suppressHydrationWarning>
+    <html
+      lang={LOCALE_TAGS[DEFAULT_LOCALE]}
+      className="dark"
+      style={{ colorScheme: 'dark' }}
+      suppressHydrationWarning
+    >
       <body
-        className={`${inter.variable} ${interTight.variable} ${jetbrainsMono.variable} overflow-x-hidden font-sans antialiased`}
+        className={`${inter.variable} ${interTight.variable} ${jetbrainsMono.variable} overflow-x-hidden font-sans antialiased bg-background text-foreground`}
         suppressHydrationWarning
       >
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
           <LanguageProvider>
             <AuthGuard>{children}</AuthGuard>
             <Toaster richColors closeButton position="bottom-right" />

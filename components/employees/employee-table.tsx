@@ -8,6 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -34,6 +44,7 @@ import {
   Pencil,
   FileText,
   UserX,
+  UserCheck,
   ShieldCheck,
   Loader2,
   Clock,
@@ -43,6 +54,9 @@ import {
   Fingerprint,
   CalendarCheck,
   Users,
+  GripVertical,
+  Eye,
+  Trash2,
 } from "lucide-react"
 import type { Employee } from "@/app/employees/page"
 import { useRouter } from "next/navigation"
@@ -50,18 +64,21 @@ import {
   EmployeeStatusChip,
   deriveOperationalStatus,
 } from "@/components/employees/employee-status-chip"
+import { EmptyState } from "@/components/ui/empty-state"
 
 type EmployeeTableProps = {
   employees: Employee[]
   onEmployeeClick: (employee: Employee) => void
+  onPreviewEmployee?: (employee: Employee) => void
   onEditEmployee: (employee: Employee) => void
   accessGroupOptions: Array<{ id: number; name: string }>
   workShiftOptions: Array<{ id: number; name: string }>
   onAssignAccessGroups: (employee: Employee, accessGroupIds: number[]) => Promise<void>
   onAssignWorkShift: (employee: Employee, workShiftIds: number[]) => Promise<void>
   onDragEmployee?: (employee: Employee | null) => void
-  suspendedEmployeeIds: Set<string>
-  onToggleSuspension: (employee: Employee) => void
+  togglingEmployeeIds: Set<string>
+  onToggleSuspension: (employee: Employee) => void | Promise<void>
+  onDeleteEmployee: (employee: Employee) => Promise<void>
 }
 
 const departmentColors: Record<string, string> = {
@@ -77,14 +94,16 @@ const departmentColors: Record<string, string> = {
 export function EmployeeTable({
   employees,
   onEmployeeClick,
+  onPreviewEmployee,
   onEditEmployee,
   accessGroupOptions,
   workShiftOptions,
   onAssignAccessGroups,
   onAssignWorkShift,
   onDragEmployee,
-  suspendedEmployeeIds,
+  togglingEmployeeIds,
   onToggleSuspension,
+  onDeleteEmployee,
 }: EmployeeTableProps) {
   const router = useRouter()
   const [groupDialogEmployee, setGroupDialogEmployee] = useState<Employee | null>(null)
@@ -95,6 +114,8 @@ export function EmployeeTable({
   const [isSavingWorkShift, setIsSavingWorkShift] = useState(false)
   const [pageSize, setPageSize] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
+  const [deleteCandidate, setDeleteCandidate] = useState<Employee | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const selectedGroupSet = useMemo(() => new Set(selectedGroupIds), [selectedGroupIds])
   const selectedWorkShiftSet = useMemo(() => new Set(selectedWorkShiftIds), [selectedWorkShiftIds])
@@ -179,6 +200,19 @@ export function EmployeeTable({
     }
   }
 
+  const handleConfirmDelete = async () => {
+    if (!deleteCandidate) return
+    setIsDeleting(true)
+    try {
+      await onDeleteEmployee(deleteCandidate)
+      setDeleteCandidate(null)
+    } catch {
+      // L'erreur est déjà signalée via toast par le parent.
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const handleSaveWorkShift = async () => {
     if (!workShiftDialogEmployee || selectedWorkShiftIds.length === 0) return
     setIsSavingWorkShift(true)
@@ -192,35 +226,30 @@ export function EmployeeTable({
 
   return (
     <>
-      <Card className="overflow-hidden border-border/70 bg-card/90 p-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
-        <div className="overflow-x-auto p-3 sm:p-4">
-        <Table className="min-w-235">
-          <TableHeader className="sticky top-0 z-10">
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="w-72">Profil</TableHead>
-              <TableHead className="w-28">Matricule</TableHead>
-              <TableHead className="w-36">Departement</TableHead>
-              <TableHead className="w-40">Quart</TableHead>
-              <TableHead className="w-32">Statut</TableHead>
-              <TableHead>Groupes d&apos;acces</TableHead>
-              <TableHead className="w-16"></TableHead>
+      <Card className="overflow-hidden rounded-none border-[#1c2133] bg-[#111318] p-0 shadow-none">
+        <div className="dense-scrollbar overflow-x-auto">
+        <Table className="min-w-[760px] table-fixed xl:min-w-full">
+          <TableHeader className="sticky top-0 z-10 bg-[#0b0d13]">
+            <TableRow className="border-[#1c2133] hover:bg-transparent">
+              <TableHead className="h-9 w-68 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568] 2xl:w-96">Profil</TableHead>
+              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Matricule</TableHead>
+              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Departement</TableHead>
+              <TableHead className="h-9 w-30 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Quart</TableHead>
+              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Statut</TableHead>
+              <TableHead className="h-9 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Groupes d&apos;acces</TableHead>
+              <TableHead className="h-9 w-11 px-1"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {totalEmployees === 0 ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={7} className="px-4 py-20">
-                  <div className="flex flex-col items-center justify-center gap-4 text-center animate-fade-up">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-border/60 bg-background/40 shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
-                      <Users className="h-7 w-7 text-muted-foreground/70" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-base font-semibold text-foreground">Aucun employe dans cette vue</p>
-                      <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
-                        Ajustez la recherche, les filtres ou le perimetre pour afficher des fiches.
-                      </p>
-                    </div>
-                  </div>
+                <TableCell colSpan={7} className="px-4 py-10">
+                  <EmptyState
+                    icon={Users}
+                    title="Aucun employé dans cette vue"
+                    description="Ajustez la recherche, les filtres ou le périmètre pour afficher des fiches."
+                    variant="bare"
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -228,7 +257,7 @@ export function EmployeeTable({
                 <TableRow
                   key={employee.id}
                   draggable
-                  className="group wow-transition cursor-grab hover:bg-accent/20 active:cursor-grabbing"
+                  className="group cursor-grab border-[#1c2133] transition-colors hover:bg-[#1a1f2e]/70 active:cursor-grabbing"
                   role="button"
                   tabIndex={0}
                   aria-label={`Ouvrir la fiche de ${employee.name}`}
@@ -247,80 +276,78 @@ export function EmployeeTable({
                   }}
                   onDragEnd={() => onDragEmployee?.(null)}
                 >
-                  <TableCell className="py-2">
-                    <div className="flex items-start gap-2.5">
-                      <Avatar className="mt-0.5 h-8 w-8 border border-primary/10 shadow-[0_4px_12px_rgba(0,0,0,0.1)]">
-                        <AvatarFallback className="bg-secondary/80 text-xs font-semibold text-foreground">
+                  <TableCell className="max-w-0 px-2 py-1.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <GripVertical className="h-3.5 w-3.5 shrink-0 text-[#4a5568] opacity-0 transition-opacity group-hover:opacity-100" />
+                      <Avatar className="h-7 w-7 rounded-none border border-[#1c2133] shadow-none">
+                        <AvatarFallback className="rounded-none bg-[#1e2a3a] text-[10px] font-semibold text-[#60a5fa]">
                           {getInitials(employee.name)}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-[13px] font-semibold text-foreground">{employee.name}</p>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            <Monitor
-                              className={cn("h-3.5 w-3.5", iconStateClass(employee.deviceIds.length > 0))}
-                              title="Personne dans le lecteur"
-                            />
-                            <ScanFace
-                              className={cn("h-3.5 w-3.5", iconStateClass(employee.biometricStatus.hasFacePhoto))}
-                              title="Visage present"
-                            />
-                            <CreditCard
-                              className={cn(
-                                "h-3.5 w-3.5",
-                                iconStateClass(employee.cardNumber.trim() !== "" && employee.cardNumber !== "Non attribue")
-                              )}
-                              title="Au moins une carte"
-                            />
-                            <Fingerprint
-                              className={cn(
-                                "h-3.5 w-3.5",
-                                iconStateClass(employee.biometricStatus.hasFingerprint || employee.fingerprints.length > 0)
-                              )}
-                              title="Au moins une empreinte"
-                            />
-                            <CalendarCheck
-                              className={cn("h-3.5 w-3.5", iconStateClass(isEmployeeValidityActive(employee)))}
-                              title="Periode de validite"
-                            />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <p className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[#e2e8f0]">{employee.name}</p>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <span title="Personne dans le lecteur">
+                              <Monitor className={cn("h-3 w-3", iconStateClass(employee.deviceIds.length > 0))} />
+                            </span>
+                            <span title="Visage present">
+                              <ScanFace className={cn("h-3 w-3", iconStateClass(employee.biometricStatus.hasFacePhoto))} />
+                            </span>
+                            <span title="Au moins une carte">
+                              <CreditCard
+                                className={cn(
+                                  "h-3 w-3",
+                                  iconStateClass(employee.cardNumber.trim() !== "" && employee.cardNumber !== "Non attribue")
+                                )}
+                              />
+                            </span>
+                            <span title="Au moins une empreinte">
+                              <Fingerprint
+                                className={cn(
+                                  "h-3 w-3",
+                                  iconStateClass(employee.biometricStatus.hasFingerprint || employee.fingerprints.length > 0)
+                                )}
+                              />
+                            </span>
+                            <span title="Periode de validite">
+                              <CalendarCheck className={cn("h-3 w-3", iconStateClass(isEmployeeValidityActive(employee)))} />
+                            </span>
                           </div>
                         </div>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="py-2.5">
-                    <span className="rounded-md border border-border/50 bg-background/30 px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                  <TableCell className="px-2 py-1.5">
+                    <span className="inline-block max-w-24 truncate border border-[#1c2133] bg-[#0b0d13] px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-[#7a8599]">
                       {employee.employeeId}
                     </span>
                   </TableCell>
-                  <TableCell className="py-2.5">
+                  <TableCell className="px-2 py-1.5">
                     <Badge
                       variant="secondary"
                       className={cn(
-                        "text-[11px] font-medium",
-                        departmentColors[employee.department] || "border-border/50 bg-secondary/60 text-secondary-foreground"
+                        "max-w-24 truncate rounded-none px-1.5 py-0 text-[10px] font-medium",
+                        departmentColors[employee.department] || "border-[#1c2133] bg-[#1a1f2e] text-[#7a8599]"
                       )}
                     >
                       {employee.department}
                     </Badge>
                   </TableCell>
-                  <TableCell className="py-2.5">
-                    <div className="flex flex-col items-start gap-1">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant="outline" className="text-[10px] font-medium">
+                  <TableCell className="px-2 py-1.5">
+                    <div className="flex min-w-0 items-center gap-1">
+                        <Badge variant="outline" className="max-w-24 truncate rounded-none border-[#1c2133] bg-[#0b0d13] px-1.5 py-0 font-mono text-[10px] font-medium text-[#7a8599]">
                           {employee.workShift}
                         </Badge>
                         {employee.workShiftIds.length > 1 && (
-                          <Badge variant="secondary" className="text-[10px] font-medium">
+                          <Badge variant="secondary" className="rounded-none bg-[#2a1e06] px-1.5 py-0 font-mono text-[10px] font-medium text-[#f59e0b]">
                             +{employee.workShiftIds.length - 1}
                           </Badge>
                         )}
-                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-5 rounded-md px-1.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+                        className="h-5 shrink-0 rounded-none px-1.5 font-mono text-[10px] text-[#f97316] opacity-0 transition-opacity hover:bg-[#2a1e06] group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation()
                           openWorkShiftDialog(employee)
@@ -331,33 +358,34 @@ export function EmployeeTable({
                       </Button>
                     </div>
                   </TableCell>
-                  <TableCell className="py-2.5">
+                  <TableCell className="px-2 py-1.5">
                     <EmployeeStatusChip
                       status={deriveOperationalStatus(employee, {
-                        suspended: suspendedEmployeeIds.has(employee.id),
+                        suspended: employee.isActive === false,
                       })}
+                      className="px-2 py-0 text-[10px]"
                     />
                   </TableCell>
-                  <TableCell className="py-2.5">
+                  <TableCell className="px-2 py-1.5">
                     <div className="flex flex-wrap items-center gap-1">
                       {employee.accessGroups.slice(0, 2).map((group) => (
                         <Badge
                           key={group}
                           variant="outline"
-                          className="text-[10px] font-medium"
+                          className="max-w-28 truncate rounded-none border-[#1c2133] bg-[#0b0d13] px-1.5 py-0 font-mono text-[10px] font-medium text-[#7a8599]"
                         >
                           {group}
                         </Badge>
                       ))}
                       {employee.accessGroups.length > 2 && (
-                        <Badge variant="outline" className="text-[10px] font-medium">
+                        <Badge variant="outline" className="rounded-none border-[#1c2133] bg-[#0b0d13] px-1.5 py-0 font-mono text-[10px] font-medium text-[#7a8599]">
                           +{employee.accessGroups.length - 2}
                         </Badge>
                       )}
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-5 rounded-md px-1.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+                        className="h-5 rounded-none px-1.5 font-mono text-[10px] text-[#60a5fa] opacity-0 transition-opacity hover:bg-[#0d1e2e] group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation()
                           openGroupDialog(employee)
@@ -368,19 +396,39 @@ export function EmployeeTable({
                       </Button>
                     </div>
                   </TableCell>
-                  <TableCell className="py-2.5">
+                  <TableCell className="px-1 py-1.5">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 w-8 rounded-lg p-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                          className="h-7 w-7 rounded-none p-0 text-[#7a8599] opacity-0 transition-opacity hover:bg-[#1a1f2e] hover:text-[#f97316] group-hover:opacity-100 focus-visible:opacity-100"
                         >
-                          <MoreHorizontal className="h-4 w-4" />
+                          <MoreHorizontal className="h-3.5 w-3.5" />
                           <span className="sr-only">Actions</span>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onEmployeeClick(employee)
+                          }}
+                        >
+                          <Eye className="mr-2 h-4 w-4" />
+                          Voir la fiche
+                        </DropdownMenuItem>
+                        {onPreviewEmployee && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onPreviewEmployee(employee)
+                            }}
+                          >
+                            <FileText className="mr-2 h-4 w-4" />
+                            Aperçu rapide
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation()
@@ -419,12 +467,28 @@ export function EmployeeTable({
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation()
-                            onToggleSuspension(employee)
+                            void onToggleSuspension(employee)
+                          }}
+                          disabled={togglingEmployeeIds.has(employee.id)}
+                        >
+                          {togglingEmployeeIds.has(employee.id) ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : employee.isActive === false ? (
+                            <UserCheck className="mr-2 h-4 w-4" />
+                          ) : (
+                            <UserX className="mr-2 h-4 w-4" />
+                          )}
+                          {employee.isActive === false ? "Réactiver" : "Désactiver"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteCandidate(employee)
                           }}
                           className="text-destructive focus:text-destructive"
                         >
-                          <UserX className="mr-2 h-4 w-4" />
-                          {suspendedEmployeeIds.has(employee.id) ? "Reactiver" : "Suspendre"}
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Supprimer
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -436,19 +500,19 @@ export function EmployeeTable({
         </Table>
         </div>
         {totalEmployees > 0 && (
-          <div className="flex flex-col gap-2 border-t border-border/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
+          <div className="flex flex-col gap-2 border-t border-[#1c2133] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
               Affichage {startIndex + 1}-{endIndex} sur {totalEmployees}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="text-xs text-muted-foreground" htmlFor="employee-page-size">
+              <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]" htmlFor="employee-page-size">
                 Lignes
               </label>
               <select
                 id="employee-page-size"
                 value={pageSize}
                 onChange={(event) => setPageSize(Number(event.target.value))}
-                className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                className="h-7 rounded-none border border-[#1c2133] bg-[#0b0d13] px-2 font-mono text-[10px] text-[#e2e8f0]"
               >
                 <option value={10}>10</option>
                 <option value={20}>20</option>
@@ -460,20 +524,20 @@ export function EmployeeTable({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 px-2 text-xs"
+                className="h-7 rounded-none border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7a8599] hover:border-[#f97316]/60 hover:bg-[#1a1f2e] hover:text-[#f97316]"
                 onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
                 disabled={!canGoPrev}
               >
                 Precedent
               </Button>
-              <span className="min-w-20 text-center text-xs text-muted-foreground">
+              <span className="min-w-20 text-center font-mono text-[10px] uppercase tracking-[0.08em] text-[#4a5568]">
                 Page {currentPage}/{totalPages}
               </span>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 px-2 text-xs"
+                className="h-7 rounded-none border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7a8599] hover:border-[#f97316]/60 hover:bg-[#1a1f2e] hover:text-[#f97316]"
                 onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
                 disabled={!canGoNext}
               >
@@ -520,6 +584,38 @@ export function EmployeeTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!deleteCandidate}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setDeleteCandidate(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cet employé ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteCandidate
+                ? `${deleteCandidate.name} (${deleteCandidate.employeeId}) sera retiré du tenant et de tous les lecteurs liés. Cette action est irréversible.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleConfirmDelete()
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={!!workShiftDialogEmployee} onOpenChange={(open) => !open && closeWorkShiftDialog()}>
         <DialogContent>

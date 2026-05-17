@@ -8,6 +8,7 @@ import { Globe, LogOut, PanelLeft, UserRound } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
 import { logoutCurrentSession } from "@/lib/api/auth"
 import { toast } from "sonner"
+import { SectionTabs } from "@/components/dashboard/section-tabs"
 
 interface HeaderProps {
   systemStatus?: "connected" | "disconnected" | "syncing"
@@ -99,10 +100,11 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
     return (
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/76 shadow-[0_10px_26px_rgba(0,0,0,0.22)] backdrop-blur-xl supports-backdrop-filter:bg-background/64 md:hidden">
         <div className="mx-auto flex min-h-15 w-full max-w-430 items-center gap-3 px-4 md:px-5">
-          <Button variant="outline" size="icon" onClick={toggleSidebar}>
+          <Button variant="outline" size="icon" aria-label="Ouvrir le menu" onClick={toggleSidebar}>
             <PanelLeft className="h-4 w-4" />
           </Button>
         </div>
+        <SectionTabs />
       </header>
     )
   }
@@ -112,7 +114,7 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
       <div className="mx-auto flex min-h-19 w-full max-w-430 items-center gap-3 px-4 md:px-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="icon" className="md:hidden" onClick={toggleSidebar}>
+            <Button variant="outline" size="icon" aria-label="Ouvrir le menu" onClick={toggleSidebar}>
               <PanelLeft className="h-4 w-4" />
             </Button>
 
@@ -151,6 +153,7 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
           </Button>
         </div>
       </div>
+      <SectionTabs />
     </header>
   )
 }
