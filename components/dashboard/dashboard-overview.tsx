@@ -254,12 +254,19 @@ function KpiBlock({
   )
 }
 
-function PresenceChart({ data }: { data: PresenceWeekData }) {
+function PresenceChart({
+  data,
+  systemStatus,
+}: {
+  data: PresenceWeekData
+  systemStatus: DashboardSystemStatus
+}) {
   const [range, setRange] = useState<RangeKey>("7j")
 
-  const hasLiveValues = data.days.some(
+  const hasPresenceData = data.days.some(
     (day) => day.covered && !day.isFuture && day.count > 0 && day.value > 0,
   )
+  const hasLiveValues = systemStatus === "connected" && hasPresenceData
   const liveSeven = data.days.map((day) => day.value)
 
   // Construit une série complète selon la plage demandée, puis l'agrège pour
@@ -589,7 +596,7 @@ export function DashboardOverview({
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_12rem] 2xl:grid-cols-[minmax(0,1fr)_16rem]">
-          <PresenceChart data={presenceWeek} />
+          <PresenceChart data={presenceWeek} systemStatus={systemStatus} />
           <DevicePanel devices={devices} />
         </section>
 
