@@ -65,7 +65,6 @@ const toneClass: Record<IndustrialTone, { text: string; bg: string; bar: string;
 }
 
 const dayLabels = ["L", "M", "M", "J", "V", "S", "D"]
-const fallbackBars = [78, 84, 86, 91, 87, 45, 31]
 
 type RangeKey = "7j" | "30j" | "90j"
 
@@ -258,14 +257,19 @@ function KpiBlock({
 function PresenceChart({ data }: { data: PresenceWeekData }) {
   const [range, setRange] = useState<RangeKey>("7j")
 
-  const hasLiveValues = data.days.some((day) => day.covered && !day.isFuture && day.value > 0)
-  const liveSeven = hasLiveValues ? data.days.map((day) => day.value) : fallbackBars
+  const hasLiveValues = data.days.some(
+    (day) => day.covered && !day.isFuture && day.count > 0 && day.value > 0,
+  )
+  const liveSeven = data.days.map((day) => day.value)
 
   // Construit une série complète selon la plage demandée, puis l'agrège pour
-  // un nombre de barres lisible.
+  // un nombre de barres lisible. Quand aucune donnée réelle n'est disponible,
+  // on n'invente rien : la série reste à zéro.
   const { bars, labels, title } = useMemo(() => {
     const totalDays = range === "7j" ? 7 : range === "30j" ? 30 : 90
-    const fullSeries = buildSeries(liveSeven, totalDays)
+    const fullSeries = hasLiveValues
+      ? buildSeries(liveSeven, totalDays)
+      : Array.from({ length: totalDays }, () => 0)
     return {
       bars: aggregateForRange(fullSeries, range),
       labels: buildLabels(totalDays),
@@ -276,7 +280,7 @@ function PresenceChart({ data }: { data: PresenceWeekData }) {
             ? "Presence - 30 derniers jours"
             : "Presence - 90 derniers jours",
     }
-  }, [liveSeven, range])
+  }, [hasLiveValues, liveSeven, range])
 
   const rangeOptions: { key: RangeKey; label: string }[] = [
     { key: "7j", label: "7j" },
@@ -325,36 +329,40 @@ function PresenceChart({ data }: { data: PresenceWeekData }) {
               <div key={index} className="border-t border-[#1c2133]" />
             ))}
           </div>
-          <div
-            className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-3 px-2 sm:gap-6 sm:px-8"
-            style={{ gridTemplateColumns: `repeat(${bars.length}, minmax(0, 1fr))` }}
-          >
-            {bars.map((value, index) => {
-              const height = Math.max(8, Math.min(96, value))
-              return (
-                <div key={index} className="flex h-full flex-col justify-end gap-3">
-                  <div className="flex flex-1 items-end">
-                    <div
-                      className={cn(
-                        "w-full bg-[#f97316] transition-all duration-500",
-                        !hasLiveValues && "opacity-90"
-                      )}
-                      style={{ height: `${height}%` }}
-                    />
+          {hasLiveValues ? (
+            <div
+              className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-3 px-2 sm:gap-6 sm:px-8"
+              style={{ gridTemplateColumns: `repeat(${bars.length}, minmax(0, 1fr))` }}
+            >
+              {bars.map((value, index) => {
+                const height = Math.max(8, Math.min(96, value))
+                return (
+                  <div key={index} className="flex h-full flex-col justify-end gap-3">
+                    <div className="flex flex-1 items-end">
+                      <div
+                        className="w-full bg-[#f97316] transition-all duration-500"
+                        style={{ height: `${height}%` }}
+                      />
+                    </div>
+                    <span className="text-center font-display text-[11px] font-bold text-[#4a5568]">
+                      {labels[index] ?? ""}
+                    </span>
                   </div>
-                  <span className="text-center font-display text-[11px] font-bold text-[#4a5568]">
-                    {labels[index] ?? ""}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <Activity className="size-8 text-[#4a5568]" />
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#4a5568]">
+                Aucune donnee de presence sur la periode
+              </p>
+              <p className="font-mono text-[9px] tracking-[0.08em] text-[#4a5568]">
+                Connectez HikCentral pour afficher les pointages reels
+              </p>
+            </div>
+          )}
         </div>
-        {!hasLiveValues ? (
-          <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#f59e0b]">
-            Donnees reelles indisponibles · rendu de structure conserve
-          </p>
-        ) : null}
       </div>
     </section>
   )
