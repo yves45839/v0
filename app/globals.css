@@ -1418,3 +1418,210 @@ body {
   --sidebar-ring:               oklch(0.72 0.16 252);
 }
 
+/* Orange / black theme used by login and settings. */
+.black-orange-theme {
+  --bg-app: #050403;
+  --bg-sidebar: #070604;
+  --bg-panel: #11100d;
+  --bg-panel-alt: #17130e;
+  --bg-input: #0b0a08;
+  --background: var(--bg-app);
+  --foreground: #fff7ed;
+  --card: var(--bg-panel);
+  --card-foreground: #fff7ed;
+  --popover: #14110d;
+  --popover-foreground: #fff7ed;
+  --primary: #f97316;
+  --primary-foreground: #120804;
+  --brand: #f97316;
+  --brand-foreground: #120804;
+  --brand-soft: rgba(249, 115, 22, 0.16);
+  --brand-accent: #fb923c;
+  --brand-accent-foreground: #130804;
+  --brand-accent-soft: rgba(251, 146, 60, 0.18);
+  --secondary: #21150c;
+  --secondary-foreground: #fed7aa;
+  --muted: #17120d;
+  --muted-foreground: #c7a789;
+  --accent: #2b1608;
+  --accent-foreground: #fed7aa;
+  --border: rgba(251, 146, 60, 0.32);
+  --input: var(--bg-input);
+  --ring: #fb923c;
+  --sidebar: var(--bg-sidebar);
+  --sidebar-foreground: #fff7ed;
+  --sidebar-primary: #f97316;
+  --sidebar-primary-foreground: #120804;
+  --sidebar-accent: #21150c;
+  --sidebar-accent-foreground: #fed7aa;
+  --sidebar-border: rgba(251, 146, 60, 0.28);
+  --sidebar-ring: #fb923c;
+  color-scheme: dark;
+}
+
+.black-orange-theme :is([class*="rounded-"], [data-slot="button"], [data-slot="card"], [data-slot="input"]) {
+  border-radius: 2px !important;
+}
+
+.black-orange-theme [data-slot="button"] {
+  border-color: rgba(251, 146, 60, 0.72) !important;
+  background: linear-gradient(135deg, #fb923c, #f97316 48%, #9a3412) !important;
+  color: #120804 !important;
+  box-shadow: 0 10px 24px rgba(249, 115, 22, 0.24) !important;
+}
+
+.black-orange-theme [data-slot="button"][data-variant="outline"],
+.black-orange-theme [data-slot="button"].border-border {
+  background: rgba(17, 16, 13, 0.92) !important;
+  color: #fed7aa !important;
+}
+
+.black-orange-theme :is([data-slot="input"], [data-slot="select-trigger"], textarea) {
+  border-color: rgba(251, 146, 60, 0.34) !important;
+  background: rgba(8, 7, 5, 0.86) !important;
+  color: #fff7ed !important;
+}
+
+.settings-orange-theme.app-shell {
+  background-color: #050403;
+  background-image:
+    linear-gradient(rgba(251, 146, 60, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(251, 146, 60, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.settings-orange-theme .app-page > section,
+.settings-orange-theme aside nav,
+.settings-orange-theme .app-page :is(.bg-card\/80, .bg-card, .bg-background\/60, .bg-background\/40) {
+  border-color: rgba(251, 146, 60, 0.32) !important;
+  background-color: rgba(17, 16, 13, 0.88) !important;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(251, 146, 60, 0.08) !important;
+}
+
+.settings-orange-theme .app-page :is(.text-sky-400, .text-blue-400, .text-violet-400, .text-purple-400, .text-primary) {
+  color: #fb923c !important;
+}
+
+.settings-orange-theme .app-page :is(.bg-sky-500\/10, .bg-blue-500\/10, .bg-violet-500\/10, .bg-purple-500\/10, .bg-primary\/10, .bg-primary\/20) {
+  background-color: rgba(249, 115, 22, 0.16) !important;
+}
+
+.settings-orange-theme .app-page :is(.ring-sky-400\/20, .ring-blue-400\/20, .ring-violet-400\/20, .ring-purple-400\/20) {
+  --tw-ring-color: rgba(251, 146, 60, 0.28) !important;
+}
+
+.settings-orange-theme .app-page [class*="from-sky-"],
+.settings-orange-theme .app-page [class*="from-blue-"],
+.settings-orange-theme .app-page [class*="from-violet-"],
+.settings-orange-theme .app-page [class*="from-purple-"] {
+  --tw-gradient-from: rgba(249, 115, 22, 0.34) !important;
+  --tw-gradient-to: rgba(154, 52, 18, 0.18) !important;
+}
+
+.auth-vector-stage {
+  --pointer-x: 50%;
+  --pointer-y: 50%;
+  isolation: isolate;
+}
+
+.auth-vector-stage::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: "";
+  background:
+    radial-gradient(circle at var(--pointer-x) var(--pointer-y), rgba(251, 146, 60, 0.24), transparent 22rem),
+    linear-gradient(135deg, rgba(249, 115, 22, 0.08), transparent 38%),
+    #050403;
+}
+
+.auth-vector-grid,
+.auth-vector-orbit,
+.auth-vector-beam,
+.auth-vector-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.auth-vector-grid {
+  inset: -20%;
+  background-image:
+    linear-gradient(rgba(251, 146, 60, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(251, 146, 60, 0.14) 1px, transparent 1px);
+  background-size: 54px 54px;
+  mask-image: radial-gradient(circle at var(--pointer-x) var(--pointer-y), black 0 34rem, transparent 56rem);
+  transform: translate(
+    calc((var(--pointer-x) - 50%) * -0.08),
+    calc((var(--pointer-y) - 50%) * -0.08)
+  );
+  animation: auth-grid-drift 16s linear infinite;
+}
+
+.auth-vector-orbit {
+  border: 1px solid rgba(251, 146, 60, 0.34);
+  box-shadow: 0 0 42px rgba(249, 115, 22, 0.12);
+}
+
+.auth-vector-orbit-a {
+  right: 8%;
+  top: 10%;
+  width: 26rem;
+  height: 26rem;
+  transform: translate(
+    calc((var(--pointer-x) - 50%) * 0.13),
+    calc((var(--pointer-y) - 50%) * 0.13)
+  ) rotate(18deg);
+  animation: auth-orbit-spin 24s linear infinite;
+}
+
+.auth-vector-orbit-b {
+  bottom: 9%;
+  left: 7%;
+  width: 18rem;
+  height: 18rem;
+  transform: translate(
+    calc((var(--pointer-x) - 50%) * -0.16),
+    calc((var(--pointer-y) - 50%) * -0.16)
+  ) rotate(-12deg);
+  animation: auth-orbit-spin 18s linear infinite reverse;
+}
+
+.auth-vector-beam {
+  height: 1px;
+  width: 42rem;
+  background: linear-gradient(90deg, transparent, rgba(251, 146, 60, 0.7), transparent);
+}
+
+.auth-vector-beam-a {
+  left: -8rem;
+  top: 22%;
+  transform: rotate(-24deg) translateX(calc((var(--pointer-x) - 50%) * 0.18));
+}
+
+.auth-vector-beam-b {
+  right: -10rem;
+  bottom: 18%;
+  transform: rotate(-24deg) translateX(calc((var(--pointer-x) - 50%) * -0.14));
+}
+
+.auth-vector-cursor {
+  left: var(--pointer-x);
+  top: var(--pointer-y);
+  width: 10rem;
+  height: 10rem;
+  border: 1px solid rgba(251, 146, 60, 0.2);
+  transform: translate(-50%, -50%) rotate(45deg);
+  transition: left 120ms ease-out, top 120ms ease-out;
+}
+
+@keyframes auth-grid-drift {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 54px 54px, 54px 54px; }
+}
+
+@keyframes auth-orbit-spin {
+  from { rotate: 0deg; }
+  to { rotate: 360deg; }
+}
+

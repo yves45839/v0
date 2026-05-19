@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { FormEvent, useMemo, useState } from "react"
+import { type CSSProperties, FormEvent, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Loader2, Shield } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { confirmPasswordReset } from "@/lib/api/auth"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { PasswordStrengthBar } from "@/components/ui/password-strength-bar"
+import { LRLogoMark } from "@/components/brand/lr-logo-mark"
 
 /**
  * Wizard conditionnel :
@@ -35,6 +36,7 @@ export default function ResetPasswordPage() {
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pointer, setPointer] = useState({ x: 50, y: 50 })
 
   const passwordMismatch = confirmTouched && confirmPassword.length > 0 && newPassword !== confirmPassword
 
@@ -79,15 +81,33 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_55%),radial-gradient(circle_at_bottom_right,_rgba(14,165,233,0.16),_transparent_50%)]" />
+    <div
+      className="black-orange-theme auth-vector-stage relative min-h-screen overflow-hidden bg-background"
+      style={
+        {
+          "--pointer-x": `${pointer.x}%`,
+          "--pointer-y": `${pointer.y}%`,
+        } as CSSProperties
+      }
+      onMouseMove={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect()
+        setPointer({
+          x: ((event.clientX - rect.left) / rect.width) * 100,
+          y: ((event.clientY - rect.top) / rect.height) * 100,
+        })
+      }}
+    >
+      <div className="auth-vector-grid" />
+      <div className="auth-vector-orbit auth-vector-orbit-a" />
+      <div className="auth-vector-orbit auth-vector-orbit-b" />
+      <div className="auth-vector-beam auth-vector-beam-a" />
+      <div className="auth-vector-beam auth-vector-beam-b" />
+      <div className="auth-vector-cursor" />
       <div className="relative mx-auto flex min-h-screen max-w-md items-center px-4 py-10">
-        <Card className="w-full border-border/60 bg-card/85 backdrop-blur-sm">
+        <Card className="w-full border-orange-400/45 bg-card/88 backdrop-blur-md">
           <CardHeader className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 text-primary">
-                <Shield className="h-5 w-5" />
-              </div>
+              <LRLogoMark className="h-10 w-11 text-[18px]" />
               <div>
                 <CardTitle className="text-lg">LR Time</CardTitle>
                 <CardDescription>

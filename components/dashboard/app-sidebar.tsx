@@ -18,6 +18,7 @@ import { usePathname } from "next/navigation"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { AUTH_EVENTS, getAuthSession } from "@/lib/api/auth"
 import { SectionKey, useSectionDefinitions, findSectionForPath } from "@/components/dashboard/section-tabs"
+import { LRLogoMark } from "@/components/brand/lr-logo-mark"
 
 const SIDEBAR_TOGGLE_EVENT = "securepoint:sidebar-toggle"
 const DESKTOP_SIDEBAR_OPEN_KEY = "securepoint:sidebar-desktop-open"
@@ -80,15 +81,6 @@ function getSidebarUser(): SidebarUser {
   }
 }
 
-function LogoMark() {
-  return (
-    <div className="flex h-8 w-9 shrink-0 items-center justify-center bg-white text-[17px] font-semibold leading-none shadow-[0_8px_18px_rgba(0,0,0,0.3)]">
-      <span className="text-[#2a3d7e]">L</span>
-      <span className="text-[#f97316]">R</span>
-    </div>
-  )
-}
-
 function SidebarNav({
   collapsed = false,
   mobile = false,
@@ -131,7 +123,7 @@ function SidebarNav({
           className={cn("flex min-w-0 items-center", compact ? "justify-center" : "gap-3")}
           onClick={onNavigate}
         >
-          <LogoMark />
+            <LRLogoMark />
           {!compact && (
             <span className="font-mono text-[13px] font-bold leading-none text-sidebar-foreground">
               LR <span className="text-[#f97316]">TIME</span>

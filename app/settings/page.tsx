@@ -991,7 +991,7 @@ export default function SettingsPage() {
   ] as const
 
   return (
-    <div className="app-shell">
+    <div className="app-shell black-orange-theme settings-orange-theme">
       <AppSidebar />
 
       <div className="app-shell-content">
