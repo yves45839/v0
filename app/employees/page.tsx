@@ -1404,6 +1404,8 @@ export default function EmployeesPage() {
               id: department.id,
               tenant: department.tenant,
               name: department.name,
+              parent: department.parent,
+              organization: department.organization,
             }))}
             accessGroups={accessGroups.map((group) => ({ id: group.id, name: group.name }))}
             devices={devices.map((device) => ({
@@ -1562,4 +1564,3 @@ export default function EmployeesPage() {
     </div>
   )
 }
-

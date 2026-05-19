@@ -97,10 +97,48 @@ type AddEmployeeModalProps = {
   onAddEmployee: (employee: Employee) => void
   employeeToEdit?: Employee | null
   employees: Employee[]
-  departments: Array<{ id: number; tenant: number; name: string }>
+  departments: Array<{ id: number; tenant: number; name: string; parent?: number | null; organization?: number }>
   accessGroups: Array<{ id: number; name: string }>
   devices: Array<{ id: number; dev_index: string; name?: string; status?: string }>
   tenantCode: string
+}
+
+/**
+ * Calcule le prochain matricule selon le pattern EMP-XXX (auto-increment, padding 3 zeros).
+ * - Parse tous les matricules existants au format EMP-<nombre>
+ * - Renvoie EMP-<max+1> (zero-padded sur au moins 3 chiffres)
+ * - Si aucun matricule pertinent, renvoie EMP-001
+ */
+function computeNextEmployeeNo(employees: Employee[]): string {
+  const PREFIX = "EMP-"
+  const matriculeRe = /^EMP-(\d+)$/i
+  let maxN = 0
+  for (const emp of employees) {
+    const id = String(emp?.employeeId ?? "").trim()
+    const match = id.match(matriculeRe)
+    if (!match) continue
+    const n = Number.parseInt(match[1], 10)
+    if (Number.isFinite(n) && n > maxN) {
+      maxN = n
+    }
+  }
+  const next = maxN + 1
+  const padded = String(next).padStart(3, "0")
+  return `${PREFIX}${padded}`
+}
+
+/**
+ * Identifie l'ID du département "racine" / "organisation elle-même".
+ * - Préfère un département avec parent === null.
+ * - À défaut, prend le premier de la liste.
+ */
+function findRootDepartmentId(
+  departments: Array<{ id: number; parent?: number | null }>
+): string {
+  if (!departments || departments.length === 0) return ""
+  const root = departments.find((d) => d.parent === null || d.parent === undefined)
+  if (root) return String(root.id)
+  return String(departments[0].id)
 }
 
 type FingerprintDraft = {
@@ -707,12 +745,15 @@ export function AddEmployeeModal({
   }
 
   const resetForm = () => {
+    // Pré-remplissage : matricule auto-incrémenté + département racine (organisation elle-même)
+    const nextEmployeeNo = computeNextEmployeeNo(employees)
+    const defaultDepartmentId = findRootDepartmentId(departments)
     setFormData({
-      employeeNo: "",
+      employeeNo: nextEmployeeNo,
       name: "",
       email: "",
       phone: "",
-      departmentId: "",
+      departmentId: defaultDepartmentId,
       position: "",
       cardNumber: "",
       selectedAccessGroupIds: [],
@@ -805,13 +846,13 @@ export function AddEmployeeModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="flex! max-h-[92vh] max-w-[calc(100%-0.75rem)] flex-col! gap-0 overflow-hidden p-0 sm:max-w-4xl xl:max-w-5xl">
+      <DialogContent className="flex! max-h-[96vh] max-w-[calc(100%-0.5rem)] flex-col! gap-0 overflow-hidden p-0 sm:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl">
         <div className="relative shrink-0 overflow-hidden border-b border-border/60 bg-[linear-gradient(135deg,rgba(78,155,255,0.12),rgba(9,16,26,0.98)_44%,rgba(8,13,21,0.99))]">
           <div className="soft-grid absolute inset-0 opacity-15" />
           <div className="absolute -right-16 -top-8 h-48 w-48 rounded-full bg-primary/12 blur-[80px]" />
           <div className="absolute -left-12 bottom-0 h-36 w-36 rounded-full bg-cyan-400/6 blur-[60px]" />
 
-          <DialogHeader className="relative gap-5 px-5 pb-5 pt-5 sm:px-6 lg:px-8 lg:pb-6 lg:pt-6">
+          <DialogHeader className="relative gap-3 px-5 pb-3 pt-3 sm:px-6 lg:px-8 lg:pb-4 lg:pt-4">
             <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Vue du formulaire">
               <button
                 type="button"
@@ -850,17 +891,17 @@ export function AddEmployeeModal({
 
             <div
               className={cn(
-                "grid gap-5",
+                "grid gap-3",
                 viewMode === "creation"
                   ? "xl:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)] xl:items-end"
                   : "grid-cols-1"
               )}
             >
-              <div className="space-y-3">
-                <DialogTitle className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+              <div className="space-y-1.5">
+                <DialogTitle className="text-lg font-bold tracking-tight text-white sm:text-xl">
                   {isEditing ? "Modifier l'employe" : "Ajouter un employe"}
                 </DialogTitle>
-                <DialogDescription className="max-w-xl text-sm leading-relaxed text-slate-300/80">
+                <DialogDescription className="max-w-xl text-xs leading-relaxed text-slate-300/80">
                   {isEditing
                     ? "Mettez a jour les informations, acces et biometrie de cet employe."
                     : "Renseignez identite, habilitations et biometrie en quelques etapes."}
@@ -883,20 +924,20 @@ export function AddEmployeeModal({
               </div>
 
               {viewMode === "creation" && (
-                <div className="hidden gap-2.5 xl:grid">
-                  <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
+                <div className="hidden gap-1.5 xl:grid">
+                  <div className="rounded-xl border border-white/6 bg-white/3 px-3 py-2 backdrop-blur-sm">
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Profil</p>
-                    <p className="mt-1.5 truncate text-base font-semibold text-white">{formData.name.trim() || "Nouveau"}</p>
-                    <p className="mt-0.5 text-xs text-slate-500">{formData.employeeNo.trim() || "ID a renseigner"}</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-white">{formData.name.trim() || "Nouveau"}</p>
+                    <p className="text-[10px] text-slate-500">{formData.employeeNo.trim() || "ID a renseigner"}</p>
                   </div>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="rounded-xl border border-white/6 bg-white/3 px-3 py-2 backdrop-blur-sm">
                       <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Photo</p>
-                      <p className="mt-1.5 text-sm font-semibold text-white">{hasFaceAsset ? "Prete" : "Aucune"}</p>
+                      <p className="mt-0.5 text-xs font-semibold text-white">{hasFaceAsset ? "Prete" : "Aucune"}</p>
                     </div>
-                    <div className="rounded-2xl border border-white/6 bg-white/3 p-3.5 backdrop-blur-sm">
+                    <div className="rounded-xl border border-white/6 bg-white/3 px-3 py-2 backdrop-blur-sm">
                       <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Lecteurs</p>
-                      <p className="mt-1.5 text-sm font-semibold tabular-nums text-white">{selectedDevicesCount}</p>
+                      <p className="mt-0.5 text-xs font-semibold tabular-nums text-white">{selectedDevicesCount}</p>
                     </div>
                   </div>
                 </div>
@@ -995,18 +1036,18 @@ export function AddEmployeeModal({
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className={cn("flex flex-1 flex-col overflow-hidden", viewMode === "profile" && "hidden")}>
-          <div className="border-b border-border/60 bg-background/50 px-4 py-3 backdrop-blur-sm sm:px-6 lg:px-8">
-            <TabsList className="grid h-auto w-full grid-cols-3 rounded-2xl p-1.5">
-              <TabsTrigger value="info" className="relative min-h-12 gap-2">
+          <div className="border-b border-border/60 bg-background/50 px-4 py-2 backdrop-blur-sm sm:px-6 lg:px-8">
+            <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl p-1">
+              <TabsTrigger value="info" className="relative min-h-9 gap-2 text-xs">
                 <User className="h-4 w-4" />
                 Informations
                 {hasInfoErrors && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />}
               </TabsTrigger>
-              <TabsTrigger value="access" className="min-h-12 gap-2">
+              <TabsTrigger value="access" className="min-h-9 gap-2 text-xs">
                 <CreditCard className="h-4 w-4" />
                 Acces
               </TabsTrigger>
-              <TabsTrigger value="biometric" className="relative min-h-12 gap-2">
+              <TabsTrigger value="biometric" className="relative min-h-9 gap-2 text-xs">
                 <Fingerprint className="h-4 w-4" />
                 Biometrie
                 {hasBiometricErrors && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />}
@@ -1014,14 +1055,14 @@ export function AddEmployeeModal({
             </TabsList>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
-            <TabsContent value="info" className="mt-0 space-y-5">
-              <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-                <section className="rounded-2xl border border-border/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))] p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+          <div className="flex-1 overflow-y-auto px-4 py-3 sm:px-6 lg:px-8 lg:py-4">
+            <TabsContent value="info" className="mt-0 space-y-3">
+              <div className="grid gap-3 xl:grid-cols-[240px_minmax(0,1fr)]">
+                <section className="rounded-2xl border border-border/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))] p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Portrait</p>
-                  <div className="mt-5 flex flex-col items-center gap-4 text-center">
+                  <div className="mt-2 flex flex-col items-center gap-2 text-center">
                     <div className="relative">
-                      <Avatar className="h-24 w-24 border-2 border-dashed border-border/60 shadow-[0_12px_28px_rgba(0,0,0,0.15)]">
+                      <Avatar className="h-20 w-20 border-2 border-dashed border-border/60 shadow-[0_12px_28px_rgba(0,0,0,0.15)]">
                         {formData.photoPreview ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -1050,23 +1091,23 @@ export function AddEmployeeModal({
                       </label>
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                       <p className="text-sm font-bold text-foreground">{formData.name.trim() || "Nouveau"}</p>
-                      <p className="text-xs text-muted-foreground/80">
+                      <p className="text-[10px] text-muted-foreground/80">
                         Photo recommandee pour la biometrie.
                       </p>
                     </div>
 
-                    <div className="grid w-full gap-2.5 sm:grid-cols-2 xl:grid-cols-1">
-                      <div className="rounded-xl border border-border/60 bg-background/30 p-3 text-left">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Profil</p>
-                        <p className="mt-1 text-xs text-foreground">
+                    <div className="grid w-full grid-cols-2 gap-1.5 xl:grid-cols-2">
+                      <div className="rounded-lg border border-border/60 bg-background/30 px-2 py-1.5 text-left">
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Profil</p>
+                        <p className="text-[11px] text-foreground">
                           {identityReady ? "Complet" : "A completer"}
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/60 bg-background/30 p-3 text-left">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Photo</p>
-                        <p className="mt-1 text-xs text-foreground">
+                      <div className="rounded-lg border border-border/60 bg-background/30 px-2 py-1.5 text-left">
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Photo</p>
+                        <p className="text-[11px] text-foreground">
                           {hasFaceAsset ? "Prete" : "Aucune"}
                         </p>
                       </div>
@@ -1074,18 +1115,19 @@ export function AddEmployeeModal({
                   </div>
                 </section>
 
-                <div className="space-y-5">
-                  <section className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-5">
-                    <div className="mb-4 space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Identite</p>
-                      <h3 className="text-base font-bold text-foreground">Informations principales</h3>
-                      <p className="text-sm text-muted-foreground/80">Donnees de base pour la fiche employe.</p>
+                <div className="space-y-3">
+                  <section className="rounded-2xl border border-border/60 bg-card/80 p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-4">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Identite</p>
+                        <h3 className="text-sm font-bold text-foreground">Informations principales</h3>
+                      </div>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="employeeNo" className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
+                    <div className="grid gap-2.5 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="employeeNo" className="flex items-center gap-2 text-xs">
+                          <User className="h-3.5 w-3.5 text-muted-foreground" />
                           ID Employé
                         </Label>
                         <Input
@@ -1095,16 +1137,16 @@ export function AddEmployeeModal({
                           value={formData.employeeNo}
                           maxLength={20}
                           onChange={(e) => handleInputChange("employeeNo", e.target.value)}
-                          className={cn("h-11 rounded-2xl", errors.employeeNo && "border-destructive")}
+                          className={cn("h-9 rounded-xl", errors.employeeNo && "border-destructive")}
                         />
-                        <p className={cn("text-xs", errors.employeeNo ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.employeeNo || "Référence interne unique (20 car. max)."}
+                        <p className={cn("text-[10px] leading-tight", errors.employeeNo ? "text-destructive" : "text-muted-foreground")}>
+                          {errors.employeeNo || "Auto: EMP-001 (modifiable, 20 car. max)."}
                         </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="name" className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
+                      <div className="space-y-1">
+                        <Label htmlFor="name" className="flex items-center gap-2 text-xs">
+                          <User className="h-3.5 w-3.5 text-muted-foreground" />
                           Nom complet
                         </Label>
                         <Input
@@ -1114,26 +1156,25 @@ export function AddEmployeeModal({
                           value={formData.name}
                           maxLength={100}
                           onChange={(e) => handleInputChange("name", e.target.value)}
-                          className={cn("h-11 rounded-2xl", errors.name && "border-destructive")}
+                          className={cn("h-9 rounded-xl", errors.name && "border-destructive")}
                         />
-                        <p className={cn("text-xs", errors.name ? "text-destructive" : "text-muted-foreground")}>
+                        <p className={cn("text-[10px] leading-tight", errors.name ? "text-destructive" : "text-muted-foreground")}>
                           {errors.name || "Affiche dans les listes et journaux."}
                         </p>
                       </div>
                     </div>
                   </section>
 
-                  <section className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-5">
-                    <div className="mb-4 space-y-1">
+                  <section className="rounded-2xl border border-border/60 bg-card/80 p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-4">
+                    <div className="mb-2">
                       <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Organisation</p>
-                      <h3 className="text-base font-bold text-foreground">Contexte professionnel</h3>
-                      <p className="text-sm text-muted-foreground/80">Coordonnees et rattachement.</p>
+                      <h3 className="text-sm font-bold text-foreground">Contexte professionnel</h3>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="email" className="flex items-center gap-2">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
+                    <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="email" className="flex items-center gap-2 text-xs">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                           Email
                         </Label>
                         <Input
@@ -1145,16 +1186,16 @@ export function AddEmployeeModal({
                           maxLength={150}
                           autoComplete="email"
                           onChange={(e) => handleInputChange("email", e.target.value)}
-                          className={cn("h-11 rounded-2xl", errors.email && "border-destructive")}
+                          className={cn("h-9 rounded-xl", errors.email && "border-destructive")}
                         />
-                        <p className={cn("text-xs", errors.email ? "text-destructive" : "text-muted-foreground")}>
+                        <p className={cn("text-[10px] leading-tight", errors.email ? "text-destructive" : "text-muted-foreground")}>
                           {errors.email || "Identifiant de contact."}
                         </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="phone" className="flex items-center gap-2">
-                          <Phone className="h-4 w-4 text-muted-foreground" />
+                      <div className="space-y-1">
+                        <Label htmlFor="phone" className="flex items-center gap-2 text-xs">
+                          <Phone className="h-3.5 w-3.5 text-muted-foreground" />
                           Téléphone
                         </Label>
                         <Input
@@ -1166,41 +1207,44 @@ export function AddEmployeeModal({
                           inputMode="tel"
                           aria-invalid={Boolean(errors.phone)}
                           onChange={(e) => handleInputChange("phone", e.target.value)}
-                          className={cn("h-11 rounded-2xl", errors.phone && "border-destructive")}
+                          className={cn("h-9 rounded-xl", errors.phone && "border-destructive")}
                         />
-                        <p className={cn("text-xs", errors.phone ? "text-destructive" : "text-muted-foreground")}>
+                        <p className={cn("text-[10px] leading-tight", errors.phone ? "text-destructive" : "text-muted-foreground")}>
                           {errors.phone || "Contact sécurité ou opérations."}
                         </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <div className="space-y-1">
+                        <Label className="flex items-center gap-2 text-xs">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                           Departement
                         </Label>
                         <Select
                           value={formData.departmentId}
                           onValueChange={(value) => handleInputChange("departmentId", value)}
                         >
-                          <SelectTrigger className={cn("h-11 rounded-2xl", errors.department && "border-destructive")}>
+                          <SelectTrigger className={cn("h-9 rounded-xl", errors.department && "border-destructive")}>
                             <SelectValue placeholder="Selectionner un departement" />
                           </SelectTrigger>
                           <SelectContent>
-                            {departments.map((dept) => (
-                              <SelectItem key={dept.id} value={String(dept.id)}>
-                                {dept.name}
-                              </SelectItem>
-                            ))}
+                            {departments.map((dept) => {
+                              const isRoot = dept.parent === null || dept.parent === undefined
+                              return (
+                                <SelectItem key={dept.id} value={String(dept.id)}>
+                                  {dept.name}{isRoot ? " (racine)" : ""}
+                                </SelectItem>
+                              )
+                            })}
                           </SelectContent>
                         </Select>
-                        <p className={cn("text-xs", errors.department ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.department || "Rattachement principal."}
+                        <p className={cn("text-[10px] leading-tight", errors.department ? "text-destructive" : "text-muted-foreground")}>
+                          {errors.department || "Defaut: organisation racine."}
                         </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="position" className="flex items-center gap-2">
-                          <Briefcase className="h-4 w-4 text-muted-foreground" />
+                      <div className="space-y-1">
+                        <Label htmlFor="position" className="flex items-center gap-2 text-xs">
+                          <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
                           Poste
                         </Label>
                         <Input
@@ -1209,15 +1253,15 @@ export function AddEmployeeModal({
                           value={formData.position}
                           maxLength={80}
                           onChange={(e) => handleInputChange("position", e.target.value)}
-                          className={cn("h-11 rounded-2xl", errors.position && "border-destructive")}
+                          className={cn("h-9 rounded-xl", errors.position && "border-destructive")}
                         />
-                        <p className={cn("text-xs", errors.position ? "text-destructive" : "text-muted-foreground")}>
+                        <p className={cn("text-[10px] leading-tight", errors.position ? "text-destructive" : "text-muted-foreground")}>
                           {errors.position || "Fonction dans le tableau et la fiche."}
                         </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="validityStart" className="flex items-center gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="validityStart" className="flex items-center gap-2 text-xs">
                           Debut validite
                         </Label>
                         <Input
@@ -1226,15 +1270,15 @@ export function AddEmployeeModal({
                           aria-invalid={Boolean(errors.validityStart)}
                           value={formData.validityStart}
                           onChange={(e) => handleInputChange("validityStart", e.target.value)}
-                          className={cn("h-11 rounded-2xl", errors.validityStart && "border-destructive")}
+                          className={cn("h-9 rounded-xl", errors.validityStart && "border-destructive")}
                         />
-                        <p className={cn("text-xs", errors.validityStart ? "text-destructive" : "text-muted-foreground")}>
+                        <p className={cn("text-[10px] leading-tight", errors.validityStart ? "text-destructive" : "text-muted-foreground")}>
                           {errors.validityStart || "Par defaut: date de creation."}
                         </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="validityEnd" className="flex items-center gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="validityEnd" className="flex items-center gap-2 text-xs">
                           Fin validite
                         </Label>
                         <Input
@@ -1243,9 +1287,9 @@ export function AddEmployeeModal({
                           aria-invalid={Boolean(errors.validityEnd)}
                           value={formData.validityEnd}
                           onChange={(e) => handleInputChange("validityEnd", e.target.value)}
-                          className={cn("h-11 rounded-2xl", errors.validityEnd && "border-destructive")}
+                          className={cn("h-9 rounded-xl", errors.validityEnd && "border-destructive")}
                         />
-                        <p className={cn("text-xs", errors.validityEnd ? "text-destructive" : "text-muted-foreground")}>
+                        <p className={cn("text-[10px] leading-tight", errors.validityEnd ? "text-destructive" : "text-muted-foreground")}>
                           {errors.validityEnd || "Par defaut: +10 ans."}
                         </p>
                       </div>
@@ -1825,11 +1869,11 @@ export function AddEmployeeModal({
           </p>
         )}
 
-        <DialogFooter className="gap-2 border-t border-border/60 px-5 py-4 sm:px-6 lg:px-8">
-          <Button variant="outline" className="rounded-xl" onClick={handleClose} disabled={isSubmitting}>
+        <DialogFooter className="gap-2 border-t border-border/60 px-5 py-2.5 sm:px-6 lg:px-8">
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={handleClose} disabled={isSubmitting}>
             Annuler
           </Button>
-          <Button className="rounded-xl" onClick={handleSubmit} disabled={isSubmitting}>
+          <Button size="sm" className="rounded-xl" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
