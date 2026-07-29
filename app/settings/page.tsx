@@ -80,6 +80,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  MapPin,
   Network,
   Plus,
   RefreshCw,
@@ -96,6 +97,7 @@ import {
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
+import { PunchSitesTab } from "@/components/settings/punch-sites-tab"
 
 type AccessGroup = {
   id: string
@@ -142,7 +144,7 @@ export default function SettingsPage() {
   const [groupError, setGroupError] = useState<string | null>(null)
   const [workShiftError, setWorkShiftError] = useState<string | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(false)
-  const VALID_TABS = ["organization", "planning", "hikcentral", "security", "notifications", "general"] as const
+  const VALID_TABS = ["organization", "planning", "sites", "hikcentral", "security", "notifications", "general"] as const
   const initialTab = searchParams.get("tab")
   const [activeTab, setActiveTab] = useState<string>(
     VALID_TABS.includes(initialTab as typeof VALID_TABS[number]) ? (initialTab as string) : "organization"
@@ -988,6 +990,7 @@ export default function SettingsPage() {
   const settingsNav = [
     { id: "organization", label: tt.navOrganization, icon: Building2, badge: apiDepartments.length + groups.length },
     { id: "planning", label: tt.navPlanning, icon: CalendarDays, badge: apiPlannings.length + apiWorkShifts.length },
+    { id: "sites", label: tr.sites.navLabel, icon: MapPin, badge: null },
     { id: "hikcentral", label: tt.navHikcentral, icon: Server, badge: tenants.length },
     { id: "security", label: tt.navSecurity, icon: Shield, badge: null },
     { id: "notifications", label: tt.navNotifications, icon: Bell, badge: null },
@@ -1775,6 +1778,9 @@ export default function SettingsPage() {
               )}
 
               {/* ═══════════════ HIKCENTRAL ═══════════════ */}
+              {/* ═══════════════ SITES DE POINTAGE ═══════════════ */}
+              {activeTab === "sites" && <PunchSitesTab />}
+
               {activeTab === "hikcentral" && (
                 <>
                   {/* Connexion status */}
