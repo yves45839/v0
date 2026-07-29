@@ -157,6 +157,15 @@ const en = {
   },
 
   drawer: {
+    mobileAppTitle: "Mobile app",
+    mobileLinked: "Account active",
+    mobileInvited: "Invitation sent",
+    mobileNone: "No account",
+    mobileInvite: "Invite to mobile app",
+    mobileReinvite: "Resend invitation",
+    mobileInviteSuccess: (email: string) => `Invitation sent to ${email}`,
+    mobileInviteError: "Unable to send the invitation",
+    mobileNeedsSave: "Save the employee before inviting them.",
     hiredOn: (date: string) => `Hired on ${date}`,
     validity: (start: string, end: string) => `Validity: ${start} - ${end}`,
     statusSynced: "Synced",
@@ -668,6 +677,15 @@ const fr: typeof en = {
   },
 
   drawer: {
+    mobileAppTitle: "Application mobile",
+    mobileLinked: "Compte actif",
+    mobileInvited: "Invitation envoyée",
+    mobileNone: "Aucun compte",
+    mobileInvite: "Inviter sur l'app mobile",
+    mobileReinvite: "Renvoyer l'invitation",
+    mobileInviteSuccess: (email: string) => `Invitation envoyée à ${email}`,
+    mobileInviteError: "Impossible d'envoyer l'invitation",
+    mobileNeedsSave: "Enregistrez l'employé avant de l'inviter.",
     hiredOn: (date: string) => `Embauché le ${date}`,
     validity: (start: string, end: string) => `Validité : ${start} - ${end}`,
     statusSynced: "Synchronisé",

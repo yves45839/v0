@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Mail,
   Phone,
+  Smartphone,
   Calendar,
   CreditCard,
   Upload,
@@ -24,6 +25,9 @@ import {
   Plus,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useState } from "react"
+import { ApiError } from "@/lib/api/client"
+import { inviteEmployeeMobile } from "@/lib/api/employees"
 import type { Employee } from "@/app/employees/page"
 import { useI18n } from "@/lib/i18n/context"
 import { employeesDict } from "@/lib/i18n/pages/employees-page"
@@ -49,8 +53,26 @@ export function EmployeeDrawer({
 }: EmployeeDrawerProps) {
   const { locale, t, formatDate } = useI18n()
   const tr = employeesDict[locale]
+  const [inviteBusy, setInviteBusy] = useState(false)
 
   if (!employee) return null
+
+  const handleInviteMobile = async () => {
+    if (!employee.apiId) {
+      toast.error(tr.drawer.mobileNeedsSave)
+      return
+    }
+    setInviteBusy(true)
+    try {
+      const result = await inviteEmployeeMobile(employee.apiId)
+      toast.success(tr.drawer.mobileInviteSuccess(result.email))
+    } catch (error) {
+      const detail = error instanceof ApiError ? error.message : tr.drawer.mobileInviteError
+      toast.error(tr.drawer.mobileInviteError, { description: detail })
+    } finally {
+      setInviteBusy(false)
+    }
+  }
 
   const getInitials = (name: string) => {
     return name
@@ -126,6 +148,48 @@ export function EmployeeDrawer({
                     {tr.drawer.validity(formatDate(fallbackValidityStart), formatDate(fallbackValidityEnd))}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                {tr.drawer.mobileAppTitle}
+              </h3>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-muted-foreground/70" />
+                  <Badge
+                    variant="secondary"
+                    className={
+                      employee.mobileStatus === "linked"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                        : employee.mobileStatus === "invited"
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                          : "text-muted-foreground"
+                    }
+                  >
+                    {employee.mobileStatus === "linked"
+                      ? tr.drawer.mobileLinked
+                      : employee.mobileStatus === "invited"
+                        ? tr.drawer.mobileInvited
+                        : tr.drawer.mobileNone}
+                  </Badge>
+                </div>
+                {employee.mobileStatus !== "linked" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-lg text-[11px]"
+                    disabled={inviteBusy}
+                    onClick={() => void handleInviteMobile()}
+                  >
+                    {inviteBusy
+                      ? "…"
+                      : employee.mobileStatus === "invited"
+                        ? tr.drawer.mobileReinvite
+                        : tr.drawer.mobileInvite}
+                  </Button>
+                ) : null}
               </div>
             </div>
 

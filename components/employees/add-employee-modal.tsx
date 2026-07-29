@@ -706,6 +706,7 @@ export function AddEmployeeModal({
     const payload: Employee = {
       id: employeeToEdit?.id ?? createLocalEmployeeId(),
       apiId: savedEmployeeApiId,
+      mobileStatus: employeeToEdit?.mobileStatus ?? "none",
       tenantId: selectedDepartment?.tenant ?? employeeToEdit?.tenantId ?? null,
       employeeId: formData.employeeNo.trim(),
       name: formData.name,

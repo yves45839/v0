@@ -104,6 +104,7 @@ export type Employee = {
   accessGroupIds: number[]
   accessGroups: string[]
   syncStatus: "synced" | "pending" | "error"
+  mobileStatus: "linked" | "invited" | "none"
   isActive: boolean
   biometricStatus: {
     hasFacePhoto: boolean
@@ -268,6 +269,7 @@ function mapApiEmployeeToUi(
       .map((groupId) => accessGroupById.get(groupId)?.name)
       .filter((groupName): groupName is string => Boolean(groupName)),
     syncStatus: apiEmployee.needs_gateway_push ? "pending" : "synced",
+    mobileStatus: apiEmployee.mobile_status ?? "none",
     isActive: apiEmployee.is_active !== false,
     biometricStatus: { hasFacePhoto, hasFingerprint },
     fingerprints: fingerprintRows,
@@ -654,6 +656,7 @@ export default function EmployeesPage() {
         const mappedEmployee: Employee = {
           id: existingEmployee?.id ?? createLocalEmployeeId(employeeId || row.name),
           apiId: existingEmployee?.apiId ?? null,
+          mobileStatus: existingEmployee?.mobileStatus ?? "none",
           tenantId: existingEmployee?.tenantId ?? tenantId,
           employeeId: employeeId || existingEmployee?.employeeId || `EMP-${Date.now()}`,
           name: row.name.trim() || existingEmployee?.name || tr.unnamedEmployee,

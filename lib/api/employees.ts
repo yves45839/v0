@@ -38,6 +38,7 @@ export type EmployeeApiItem = {
   } | null
   devices?: number[]
   access_groups: number[]
+  mobile_status?: "linked" | "invited" | "none"
   cards: Array<{ card_no: string; card_type: string }>
   fingerprints?: Array<{ id?: number; finger_index: number; template: string }>
   face?: { id?: number; face_data: string } | null
@@ -737,6 +738,25 @@ export async function createEmployee(
   return apiJson<CreateEmployeeResponse>("/api/employees/", {
     method: "POST",
     body: JSON.stringify(payload),
+  })
+}
+
+export type InviteEmployeeMobileResponse = {
+  id: string
+  email: string
+  status: string
+  expires_at: string
+  email_sent: boolean
+}
+
+/** Invite un employé à créer son compte application mobile (rôle ≥ org_admin). */
+export async function inviteEmployeeMobile(
+  employeeId: number,
+  email?: string
+): Promise<InviteEmployeeMobileResponse> {
+  return apiJson<InviteEmployeeMobileResponse>(`/api/employees/${employeeId}/invite-mobile/`, {
+    method: "POST",
+    body: JSON.stringify(email ? { email } : {}),
   })
 }
 
