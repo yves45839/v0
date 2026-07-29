@@ -30,6 +30,7 @@ import {
   Zap,
 } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 import { toast } from "sonner"
 import type { GatewayReaderItem, EnrollFingerprintResponse } from "@/lib/api/employees"
 
@@ -69,6 +70,7 @@ export function FingerprintEnrollDialog({
   onEnroll,
 }: FingerprintEnrollDialogProps) {
   const { t, locale } = useI18n()
+  const tr = employeesDict[locale]
   const [selectedFingerIndex, setSelectedFingerIndex] = useState<number>(1)
   const [selectedReader, setSelectedReader] = useState<string>(readers[0]?.dev_index ?? "")
   const [enrollState, setEnrollState] = useState<EnrollState>("idle")
@@ -91,14 +93,14 @@ export function FingerprintEnrollDialog({
         ? FINGERS.find((f) => f.index === selectedFingerIndex)?.label
         : FINGERS.find((f) => f.index === selectedFingerIndex)?.labelEn
       toast.success(t.biometrics.fingerprintCaptured, {
-        description: `${fingerLabel} — ${result.success_count}/${result.target_readers_count} lecteur(s) OK`,
+        description: tr.fpDialog.readersOkDesc(fingerLabel ?? "", result.success_count, result.target_readers_count),
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setEnrollError(msg)
       setEnrollState("error")
     }
-  }, [selectedReader, selectedFingerIndex, employeeId, onEnroll, t, locale])
+  }, [selectedReader, selectedFingerIndex, employeeId, onEnroll, t, tr, locale])
 
   const successRate = enrollResult
     ? Math.round((enrollResult.success_count / Math.max(enrollResult.target_readers_count, 1)) * 100)
@@ -176,7 +178,7 @@ export function FingerprintEnrollDialog({
           </div>
           {selectedFingerIndex && (
             <p className="text-center text-xs text-muted-foreground">
-              Sélectionné:{" "}
+              {tr.fpDialog.selectedLabel}{" "}
               <span className="font-semibold text-foreground">
                 {locale === "fr"
                   ? FINGERS.find((f) => f.index === selectedFingerIndex)?.label
@@ -184,7 +186,7 @@ export function FingerprintEnrollDialog({
               </span>
               {enrolledIndexes.has(selectedFingerIndex) && (
                 <Badge variant="secondary" className="ml-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px]">
-                  Déjà enregistré
+                  {tr.fpDialog.alreadyEnrolled}
                 </Badge>
               )}
             </p>
@@ -233,7 +235,7 @@ export function FingerprintEnrollDialog({
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 <div>
                   <p className="text-sm font-semibold text-primary">{t.biometrics.enrolling}</p>
-                  <p className="text-xs text-muted-foreground">Placez le doigt sur le lecteur...</p>
+                  <p className="text-xs text-muted-foreground">{tr.fpDialog.placeFinger}</p>
                 </div>
               </div>
             )}
@@ -257,7 +259,7 @@ export function FingerprintEnrollDialog({
                   </div>
                   <div className="rounded-lg bg-secondary/40 px-2 py-1.5 text-center">
                     <p className="font-bold text-foreground">{enrollResult.target_readers_count}</p>
-                    <p className="text-muted-foreground">Total</p>
+                    <p className="text-muted-foreground">{tr.fpDialog.total}</p>
                   </div>
                 </div>
                 {enrollResult.finger_quality !== null && (

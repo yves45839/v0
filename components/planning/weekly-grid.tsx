@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
+import { weeklyDict } from "@/lib/i18n/pages/weekly"
 import { getActiveTenantCode } from "@/lib/api/auth"
 import {
   fetchEmployeesDetailed,
@@ -55,9 +56,6 @@ const SHIFT_SPECS: Record<ShiftKind, ShiftSpec> = {
     text: "color-mix(in oklab, var(--destructive) 75%, var(--foreground))",
   },
 }
-
-const DAYS_FR = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
-const DAYS_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 type CellEntry = {
   kind: ShiftKind
@@ -124,24 +122,19 @@ function entriesForDay(day: EmployeeScheduleDay | undefined): CellEntry[] {
 
 function ShiftLegend() {
   const { locale } = useI18n()
-  const items: { kind: ShiftKind; fr: string; en: string }[] = [
-    { kind: "morning", fr: "Matin", en: "Morning" },
-    { kind: "day", fr: "Journée", en: "Day" },
-    { kind: "evening", fr: "Soir", en: "Evening" },
-    { kind: "night", fr: "Nuit", en: "Night" },
-    { kind: "leave", fr: "Congé", en: "Leave" },
-  ]
+  const tr = weeklyDict[locale]
+  const kinds: ShiftKind[] = ["morning", "day", "evening", "night", "leave"]
   return (
     <div className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
-      {items.map((it) => {
-        const spec = SHIFT_SPECS[it.kind]
+      {kinds.map((kind) => {
+        const spec = SHIFT_SPECS[kind]
         return (
-          <span key={it.kind} className="inline-flex items-center gap-1.5">
+          <span key={kind} className="inline-flex items-center gap-1.5">
             <span
               className="h-2.5 w-2.5 rounded-sm border"
               style={{ background: spec.bg, borderColor: spec.border }}
             />
-            <span>{locale === "en" ? it.en : it.fr}</span>
+            <span>{tr.legend[kind]}</span>
           </span>
         )
       })}
@@ -151,6 +144,7 @@ function ShiftLegend() {
 
 export function WeeklyPlanningGrid() {
   const { locale } = useI18n()
+  const tr = weeklyDict[locale]
   const dateLocale = locale === "en" ? enUS : fr
   const [weekStart, setWeekStart] = useState<Date>(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
@@ -286,7 +280,11 @@ export function WeeklyPlanningGrid() {
 
   const weekEnd = weekDates[6]
   const weekLabel = `${format(weekDates[0], "d MMM", { locale: dateLocale })} — ${format(weekEnd, "d MMM yyyy", { locale: dateLocale })}`
-  const days = locale === "en" ? DAYS_EN : DAYS_FR
+  // Noms de jours localisés via date-fns (jamais de tableau codé en dur).
+  const days = weekDates.map((date) => {
+    const label = format(date, "EEE", { locale: dateLocale }).replace(/\.$/, "")
+    return label.charAt(0).toUpperCase() + label.slice(1)
+  })
   const isCurrentWeek =
     format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd") === weekStartStr
 
@@ -298,16 +296,12 @@ export function WeeklyPlanningGrid() {
             className="m-0 text-xl font-semibold tracking-tight md:text-2xl"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            {locale === "en" ? "Weekly schedule" : "Planning hebdomadaire"}
+            {tr.title}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {loading
-              ? locale === "en"
-                ? "Loading schedule…"
-                : "Chargement du planning…"
-              : locale === "en"
-                ? `${rows.length} people scheduled${totalActive > MAX_DISPLAYED ? ` · display limited to ${MAX_DISPLAYED} of ${totalActive}` : ""}`
-                : `${rows.length} personnes planifiées${totalActive > MAX_DISPLAYED ? ` · affichage limité à ${MAX_DISPLAYED} sur ${totalActive}` : ""}`}
+              ? tr.loadingSubtitle
+              : `${tr.scheduledCount(rows.length)}${totalActive > MAX_DISPLAYED ? tr.displayLimited(MAX_DISPLAYED, totalActive) : ""}`}
           </p>
         </div>
       </header>
@@ -319,7 +313,7 @@ export function WeeklyPlanningGrid() {
             size="icon"
             className="h-8 w-8"
             onClick={() => setWeekStart((w) => addWeeks(w, -1))}
-            aria-label={locale === "en" ? "Previous week" : "Semaine précédente"}
+            aria-label={tr.prevWeek}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -327,14 +321,14 @@ export function WeeklyPlanningGrid() {
             className="px-2 text-sm font-semibold tracking-tight"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            {locale === "en" ? "Week of" : "Semaine du"} {weekLabel}
+            {tr.weekOf} {weekLabel}
           </p>
           <Button
             variant="outline"
             size="icon"
             className="h-8 w-8"
             onClick={() => setWeekStart((w) => addWeeks(w, 1))}
-            aria-label={locale === "en" ? "Next week" : "Semaine suivante"}
+            aria-label={tr.nextWeek}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -345,7 +339,7 @@ export function WeeklyPlanningGrid() {
               className="ml-1 h-8"
               onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
             >
-              {locale === "en" ? "This week" : "Cette semaine"}
+              {tr.thisWeek}
             </Button>
           )}
         </div>
@@ -355,12 +349,12 @@ export function WeeklyPlanningGrid() {
       {loading ? (
         <div className="flex items-center justify-center gap-2 rounded-xl border border-border/70 bg-card px-6 py-16 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          {locale === "en" ? "Loading weekly schedule…" : "Chargement du planning hebdomadaire…"}
+          {tr.loadingGrid}
         </div>
       ) : error ? (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-6 py-12 text-center">
           <p className="text-sm font-semibold text-destructive">
-            {locale === "en" ? "Unable to load the schedule" : "Impossible de charger le planning"}
+            {tr.loadError}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{error}</p>
           <Button
@@ -369,19 +363,15 @@ export function WeeklyPlanningGrid() {
             className="mt-4 h-8"
             onClick={() => setReloadKey((k) => k + 1)}
           >
-            {locale === "en" ? "Retry" : "Réessayer"}
+            {tr.retry}
           </Button>
         </div>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-border/70 bg-card px-6 py-16 text-center">
           <p className="text-sm font-semibold text-foreground">
-            {locale === "en" ? "No active employees." : "Aucun employé actif."}
+            {tr.emptyTitle}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {locale === "en"
-              ? "Add employees to see their weekly schedule here."
-              : "Ajoutez des employés pour afficher leur planning hebdomadaire ici."}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{tr.emptyHint}</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-sm">
@@ -390,7 +380,7 @@ export function WeeklyPlanningGrid() {
             style={{ gridTemplateColumns: "180px repeat(7, 1fr)" }}
           >
             <div className="border-b border-r border-border/70 bg-secondary/40 px-3.5 py-3 text-xs font-semibold text-muted-foreground">
-              {locale === "en" ? "Team member" : "Collaborateur"}
+              {tr.teamMember}
             </div>
             {weekDates.map((date, i) => (
               <div
@@ -435,7 +425,7 @@ export function WeeklyPlanningGrid() {
                     <p className="truncate text-[10px] text-muted-foreground">
                       {row.employee.position ||
                         row.employee.effective_planning?.name ||
-                        (locale === "en" ? "No role" : "Sans poste")}{" "}
+                        tr.noRole}{" "}
                       · <span className="font-mono">{formatDuration(row.weekMinutes)}</span>
                     </p>
                   </div>
@@ -463,7 +453,7 @@ export function WeeklyPlanningGrid() {
                             color: SHIFT_SPECS.leave.text,
                           }}
                         >
-                          {locale === "en" ? "Leave" : "Congé"}
+                          {tr.leave}
                         </div>
                       ) : cell.entries.length > 0 ? (
                         cell.entries.map((entry, ei) => (
@@ -492,7 +482,7 @@ export function WeeklyPlanningGrid() {
             ))}
 
             <div className="flex items-center gap-2 border-r border-border/70 bg-secondary/40 px-3.5 py-3 text-xs font-semibold text-foreground">
-              {locale === "en" ? `Coverage / ${rows.length}` : `Couverture / ${rows.length}`}
+              {tr.coverage(rows.length)}
             </div>
             {coverage.map((c, i) => {
               const total = rows.length || 1

@@ -131,7 +131,7 @@ export default function AlertsPage() {
     if (showLoader) setLoading(true)
     setRefreshing(true)
     try {
-      const { alerts: nextAlerts, errors } = await deriveAlerts()
+      const { alerts: nextAlerts, errors } = await deriveAlerts(locale)
       setAlerts(nextAlerts)
       setSourceErrors(errors)
       setLastUpdated(new Date())
@@ -139,7 +139,7 @@ export default function AlertsPage() {
       setRefreshing(false)
       if (showLoader) setLoading(false)
     }
-  }, [])
+  }, [locale])
 
   useEffect(() => {
     void loadAlerts(true)

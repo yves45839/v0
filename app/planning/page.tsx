@@ -48,6 +48,12 @@ import {
   updateWorkShift,
 } from "@/lib/api/employees"
 import { getActiveTenantCode } from "@/lib/api/auth"
+import { useI18n } from "@/lib/i18n/context"
+import {
+  buildWeekdayLabels,
+  planningPageDict,
+  type PlanningPageErrorCode,
+} from "@/lib/i18n/pages/planning-page"
 import {
   CalendarClock,
   CalendarDays,
@@ -69,15 +75,13 @@ import { toast } from "sonner"
 function getEmployeeTenantCode(): string {
   return getActiveTenantCode()
 }
-const WEEK_DAYS = [
-  { key: 0, label: "Lundi" },
-  { key: 1, label: "Mardi" },
-  { key: 2, label: "Mercredi" },
-  { key: 3, label: "Jeudi" },
-  { key: 4, label: "Vendredi" },
-  { key: 5, label: "Samedi" },
-  { key: 6, label: "Dimanche" },
-]
+const WEEK_DAY_KEYS = [0, 1, 2, 3, 4, 5, 6]
+
+type PlanningSlotLabels = {
+  rest: string
+  shift: string
+  slot: string
+}
 
 const COMMON_TIMEZONES = [
   "UTC",
@@ -301,7 +305,9 @@ function pickPrimaryShift(shiftList: WorkShiftApiItem[]) {
 
 function buildPlanningEntriesFromDailySlots(
   dailySlots: Record<number, WeeklySlotForm>,
-  workShiftsById: Map<number, WorkShiftApiItem>
+  workShiftsById: Map<number, WorkShiftApiItem>,
+  dayLabels: string[],
+  labels: PlanningSlotLabels
 ): PlanningEntryApiItem[] {
   const entries: PlanningEntryApiItem[] = []
 
@@ -315,7 +321,7 @@ function buildPlanningEntriesFromDailySlots(
         end_date: null,
         work_shift: null,
         is_rest_day: true,
-        label: "Repos",
+        label: labels.rest,
         metadata: {},
       })
       return
@@ -329,7 +335,7 @@ function buildPlanningEntriesFromDailySlots(
         end_date: null,
         work_shift: shiftId,
         is_rest_day: false,
-        label: workShiftsById.get(shiftId)?.name ?? WEEK_DAYS[day]?.label ?? "Quart",
+        label: workShiftsById.get(shiftId)?.name ?? dayLabels[day] ?? labels.shift,
         metadata: {},
       })
     })
@@ -459,7 +465,7 @@ function buildWizardPlanningCode(name: string) {
   return `${baseCode}-${Date.now().toString().slice(-5)}`
 }
 
-function createRestEntry(day: number): PlanningEntryApiItem {
+function createRestEntry(day: number, restLabel: string): PlanningEntryApiItem {
   return {
     day_of_week: day,
     sequence_index: null,
@@ -467,7 +473,7 @@ function createRestEntry(day: number): PlanningEntryApiItem {
     end_date: null,
     work_shift: null,
     is_rest_day: true,
-    label: "Repos",
+    label: restLabel,
     metadata: {},
   }
 }
@@ -522,7 +528,8 @@ function applyCaseBindingsToDays(
 function buildEntriesFromWizardConfig(
   payload: PlanningCreationWizardPayload,
   weekdayCaseBindings: WizardShiftBinding[],
-  weekendCaseBindings: WizardShiftBinding[]
+  weekendCaseBindings: WizardShiftBinding[],
+  restLabel: string
 ) {
   const entriesByDay: Record<number, PlanningEntryApiItem[]> = {
     0: [],
@@ -579,8 +586,8 @@ function buildEntriesFromWizardConfig(
     }
   }
 
-  return WEEK_DAYS.flatMap((day) =>
-    entriesByDay[day.key].length > 0 ? entriesByDay[day.key] : [createRestEntry(day.key)]
+  return WEEK_DAY_KEYS.flatMap((dayKey) =>
+    entriesByDay[dayKey].length > 0 ? entriesByDay[dayKey] : [createRestEntry(dayKey, restLabel)]
   )
 }
 
@@ -661,10 +668,11 @@ function getMonthGrid(days: EmployeeScheduleApiResponse["days"]) {
 
 function getEmployeeDepartment(
   employee: EmployeeApiItem | null,
-  departmentsById: Map<number, string>
+  departmentsById: Map<number, string>,
+  noDepartmentLabel: string
 ) {
-  if (!employee?.department) return "Sans departement"
-  return departmentsById.get(employee.department) ?? "Sans departement"
+  if (!employee?.department) return noDepartmentLabel
+  return departmentsById.get(employee.department) ?? noDepartmentLabel
 }
 
 function getSlotBadgeClass(slotType: "work" | "shift" | "rest") {
@@ -822,12 +830,14 @@ function slotMinutes(timeRange: string | null) {
 
 function computePlanningStats(
   planning: PlanningApiItem,
-  shiftsById: Map<number, WorkShiftApiItem>
+  shiftsById: Map<number, WorkShiftApiItem>,
+  dayLabels: string[],
+  labels: PlanningSlotLabels
 ) {
-  const days = WEEK_DAYS.map((d) => ({
-    key: d.key,
-    label: d.label,
-    slots: getPlanningDayEntries(planning, d.key, shiftsById),
+  const days = WEEK_DAY_KEYS.map((key) => ({
+    key,
+    label: dayLabels[key] ?? "",
+    slots: getPlanningDayEntries(planning, key, shiftsById, labels),
   }))
   const uniqueShifts = new Set<string>()
   let workingDays = 0
@@ -854,7 +864,8 @@ function formatHoursLabel(totalMinutes: number) {
 function getPlanningDayEntries(
   planning: PlanningApiItem,
   dayOfWeek: number,
-  shiftsById: Map<number, WorkShiftApiItem>
+  shiftsById: Map<number, WorkShiftApiItem>,
+  labels: PlanningSlotLabels
 ): PlanningSlotChip[] {
   const weeklyEntries = (planning.entries ?? [])
     .filter(
@@ -874,7 +885,7 @@ function getPlanningDayEntries(
       if (entry.is_rest_day) {
         return {
           key: `entry-${entry.id ?? `${dayOfWeek}-rest`}`,
-          label: entry.label || "Repos",
+          label: labels.rest,
           slotType: "rest" as const,
           timeRange: null,
         }
@@ -884,7 +895,7 @@ function getPlanningDayEntries(
       const shift = workShiftId ? shiftsById.get(workShiftId) : null
       return {
         key: `entry-${entry.id ?? `${dayOfWeek}-${workShiftId ?? "unknown"}`}`,
-        label: shift?.name ?? entry.label ?? "Quart",
+        label: shift?.name ?? entry.label ?? labels.shift,
         slotType: "shift" as const,
         timeRange: `${formatTime(shift?.start_time)}-${formatTime(shift?.end_time)}`,
       }
@@ -895,7 +906,7 @@ function getPlanningDayEntries(
     .filter((slot) => slot.day_of_week === dayOfWeek)
     .map((slot, index): PlanningSlotChip => ({
       key: `slot-${dayOfWeek}-${index}`,
-      label: slot.label || "Slot",
+      label: slot.label || labels.slot,
       slotType: slot.slot_type,
       timeRange: `${formatTime(slot.start_time)}-${formatTime(slot.end_time)}`,
     }))
@@ -904,42 +915,12 @@ function getPlanningDayEntries(
 const HOUR_MARKERS_4H = [0, 4, 8, 12, 16, 20, 24]
 const HOUR_MARKERS_6H = [0, 6, 12, 18, 24]
 
-const PLANNING_ERROR_MESSAGES = {
-  API_NOT_CONFIGURED: "L'API n'est pas configurée. Vérifiez les variables d'environnement.",
-  EMP_API_DISABLED: "L'API employees n'est pas active.",
-  LOAD_BASE_FAILED: "Erreur de chargement du planning.",
-  LOAD_SCHEDULE_FAILED: "Erreur de chargement du calendrier.",
-  SHIFT_TENANT_MISSING: "Tenant introuvable pour créer le quart.",
-  SHIFT_NAME_REQUIRED: "Le nom du quart est obligatoire.",
-  SHIFT_SERVICE_TIME_INVALID: "Les heures de service doivent être au format 24h HH:MM.",
-  SHIFT_DURATION_TOO_SHORT: "La durée du quart doit être d'au moins 15 minutes.",
-  SHIFT_BREAK_INCOMPLETE: "Renseignez la pause complète : début et fin.",
-  SHIFT_BREAK_TIME_INVALID: "Les heures de pause doivent être au format 24h HH:MM.",
-  SHIFT_BREAK_OUTSIDE_SERVICE: "La pause doit être comprise dans la plage de service du quart.",
-  SHIFT_OVERTIME_INCOMPLETE: "Renseignez les heures supplémentaires complètes : début et fin.",
-  SHIFT_OVERTIME_TIME_INVALID: "Les heures supplémentaires doivent être au format 24h HH:MM.",
-  SHIFT_LATE_ALLOWABLE_INVALID: "Le retard toléré doit être un entier positif (en minutes).",
-  SHIFT_EARLY_LEAVE_ALLOWABLE_INVALID: "La marge de départ anticipé doit être un entier positif (en minutes).",
-  SHIFT_CREATE_FAILED: "Erreur de création du quart.",
-  SHIFT_UPDATE_FAILED: "Erreur de modification du quart.",
-  PLANNING_TENANT_MISSING: "Tenant introuvable pour creer le planning.",
-  PLANNING_NAME_REQUIRED: "Le nom du planning est obligatoire.",
-  PLANNING_ENTRIES_REQUIRED: "Ajoute au moins un quart ou un jour de repos dans l'emploi de temps.",
-  PLANNING_CREATE_FAILED: "Erreur de creation du planning.",
-  PLANNING_UPDATE_FAILED: "Erreur de modification du planning.",
-  SHIFT_DELETE_FAILED: "Erreur de suppression du quart.",
-  ASSIGN_PLANNING_FAILED: "Erreur d'assignation du planning.",
-  ASSIGN_DATE_RANGE_INVALID: "La date de fin doit etre superieure ou egale a la date de debut.",
-  PLANNING_DELETE_FAILED: "Erreur de suppression de l'emploi de temps.",
-  WIZARD_TENANT_MISSING: "Tenant introuvable pour creer le planning depuis le wizard.",
-  WIZARD_CREATE_FAILED: "Erreur lors de la creation du planning depuis le wizard.",
-} as const
-
-type PlanningErrorCode = keyof typeof PLANNING_ERROR_MESSAGES
+type PlanningErrorCode = PlanningPageErrorCode
 
 type PlanningUiError = {
   code: PlanningErrorCode
-  message: string
+  // Optional backend detail; when null, the localized message for `code` is shown.
+  detail: string | null
   scope: "global" | "shift_dialog" | "planning_dialog"
 }
 
@@ -953,6 +934,13 @@ function getErrorDetail(error: unknown) {
 
 export default function PlanningPage() {
   const searchParams = useSearchParams()
+  const { locale, formatDate, localeTag } = useI18n()
+  const tr = planningPageDict[locale]
+  const weekDayLabels = useMemo(() => buildWeekdayLabels(formatDate, "long"), [formatDate])
+  const weekDays = useMemo(
+    () => WEEK_DAY_KEYS.map((key) => ({ key, label: weekDayLabels[key] ?? "" })),
+    [weekDayLabels]
+  )
   const [activeView, setActiveView] = useState<PlanningView | null>("team")
   const [employees, setEmployees] = useState<EmployeeApiItem[]>([])
   const [departments, setDepartments] = useState<DepartmentApiItem[]>([])
@@ -1016,7 +1004,7 @@ export default function PlanningPage() {
     ) => {
       setError({
         code,
-        message: detail && detail.trim().length > 0 ? detail : PLANNING_ERROR_MESSAGES[code],
+        detail: detail && detail.trim().length > 0 ? detail : null,
         scope,
       })
     },
@@ -1069,34 +1057,34 @@ export default function PlanningPage() {
     () => [
       {
         key: "team" as const,
-        label: "Planning équipe",
-        helper: `${employees.length} employé${employees.length > 1 ? "s" : ""}`,
+        label: tr.navCards.team,
+        helper: tr.navCards.teamHelper(employees.length),
         icon: Users,
         action: () => focusView("team"),
       },
       {
         key: "schedule" as const,
-        label: "Calendrier individuel",
-        helper: "Vue par employé",
+        label: tr.navCards.schedule,
+        helper: tr.navCards.scheduleHelper,
         icon: CalendarRange,
         action: () => focusView("schedule"),
       },
       {
         key: "timetable" as const,
-        label: "Emploi de temps",
-        helper: `${plannings.length} existant${plannings.length > 1 ? "s" : ""}`,
+        label: tr.navCards.timetable,
+        helper: tr.navCards.timetableHelper(plannings.length),
         icon: Plus,
         action: () => focusView("timetable"),
       },
       {
         key: "shift" as const,
-        label: "Quart",
-        helper: `${workShifts.length} existant${workShifts.length > 1 ? "s" : ""}`,
+        label: tr.navCards.shift,
+        helper: tr.navCards.shiftHelper(workShifts.length),
         icon: Shapes,
         action: () => focusView("shift"),
       },
     ],
-    [focusView, employees.length, plannings.length, workShifts.length]
+    [focusView, employees.length, plannings.length, workShifts.length, tr]
   )
 
   const timezoneOptions = useMemo(() => {
@@ -1140,10 +1128,14 @@ export default function PlanningPage() {
 
     return plannings.map((planning) => {
       const weekdayModes = WEEKDAY_DAY_KEYS.map((day) =>
-        getPlanningDayEntries(planning, day, workShiftsById).some((entry) => entry.slotType !== "rest")
+        getPlanningDayEntries(planning, day, workShiftsById, tr.labels).some(
+          (entry) => entry.slotType !== "rest"
+        )
       )
       const weekendModes = WEEKEND_DAY_KEYS.map((day) =>
-        getPlanningDayEntries(planning, day, workShiftsById).some((entry) => entry.slotType !== "rest")
+        getPlanningDayEntries(planning, day, workShiftsById, tr.labels).some(
+          (entry) => entry.slotType !== "rest"
+        )
       )
       const weekdaysWithProgram = weekdayModes.filter(Boolean).length
       const weekendWithProgram = weekendModes.filter(Boolean).length
@@ -1160,7 +1152,7 @@ export default function PlanningPage() {
         assignedEmployees: assignedByPlanning.get(planning.id) ?? 0,
       }
     })
-  }, [employees, plannings, workShiftsById])
+  }, [employees, plannings, workShiftsById, tr])
 
   const planningPreviewRecap = useMemo(() => {
     if (!planningPreviewTarget) return null
@@ -1169,9 +1161,9 @@ export default function PlanningPage() {
   const planningPreviewDayEntries = useMemo(() => {
     if (!planningPreviewTarget) return []
 
-    const weekly = WEEK_DAYS.map((day) => ({
+    const weekly = weekDays.map((day) => ({
       day,
-      entries: getPlanningDayEntries(planningPreviewTarget, day.key, workShiftsById),
+      entries: getPlanningDayEntries(planningPreviewTarget, day.key, workShiftsById, tr.labels),
     }))
     const hasWeekly = weekly.some((item) => item.entries.length > 0)
     if (hasWeekly) {
@@ -1179,7 +1171,7 @@ export default function PlanningPage() {
     }
 
     const derivedByDay = new Map<number, PlanningSlotChip[]>()
-    WEEK_DAYS.forEach((day) => derivedByDay.set(day.key, []))
+    weekDays.forEach((day) => derivedByDay.set(day.key, []))
 
     const addDerivedSlot = (
       dayKey: number,
@@ -1196,7 +1188,9 @@ export default function PlanningPage() {
 
     ;(planningPreviewTarget.entries ?? []).forEach((entry, index) => {
       const shift = entry.work_shift ? workShiftsById.get(entry.work_shift) : null
-      const label = shift?.name ?? entry.label ?? (entry.is_rest_day ? "Repos" : "Quart")
+      const label = entry.is_rest_day
+        ? tr.labels.rest
+        : shift?.name ?? entry.label ?? tr.labels.shift
       const timeRange = shift ? `${formatTime(shift.start_time)}-${formatTime(shift.end_time)}` : null
       const slotType = entry.is_rest_day ? "rest" : "shift"
 
@@ -1224,11 +1218,11 @@ export default function PlanningPage() {
       addDerivedSlot(fallbackDay, { label, timeRange, slotType })
     })
 
-    return WEEK_DAYS.map((day) => ({
+    return weekDays.map((day) => ({
       day,
       entries: derivedByDay.get(day.key) ?? [],
     }))
-  }, [planningPreviewTarget, workShiftsById])
+  }, [planningPreviewTarget, workShiftsById, weekDays, tr])
   const planningPreviewHasWeeklyEntries = useMemo(
     () => planningPreviewDayEntries.some((item) => item.entries.length > 0),
     [planningPreviewDayEntries]
@@ -1245,7 +1239,9 @@ export default function PlanningPage() {
       )
       .map((entry, index) => {
         const shift = entry.work_shift ? workShiftsById.get(entry.work_shift) : null
-        const label = shift?.name ?? entry.label ?? (entry.is_rest_day ? "Repos" : "Entree")
+        const label = entry.is_rest_day
+          ? tr.labels.rest
+          : shift?.name ?? entry.label ?? tr.labels.entry
         const timeRange = shift ? `${formatTime(shift.start_time)}-${formatTime(shift.end_time)}` : null
         return {
           key: `${entry.id ?? `non-weekly-${index}`}`,
@@ -1263,7 +1259,7 @@ export default function PlanningPage() {
         if (leftSeq !== rightSeq) return leftSeq - rightSeq
         return left.key.localeCompare(right.key)
       })
-  }, [planningPreviewTarget, workShiftsById])
+  }, [planningPreviewTarget, workShiftsById, tr])
 
   const planningListPageSize = 3
   const planningListTotalPages = Math.max(1, Math.ceil(planningRecap.length / planningListPageSize))
@@ -1760,7 +1756,7 @@ export default function PlanningPage() {
 
       closeShiftDialog(false)
       await loadBaseData()
-      toast.success(editingShift ? "Quart de travail modifié" : "Quart de travail créé")
+      toast.success(editingShift ? tr.toasts.shiftUpdated : tr.toasts.shiftCreated)
     } catch (saveError) {
       raiseError(
         editingShift ? "SHIFT_UPDATE_FAILED" : "SHIFT_CREATE_FAILED",
@@ -1782,7 +1778,12 @@ export default function PlanningPage() {
       return
     }
 
-    const recurringEntries = buildPlanningEntriesFromDailySlots(newPlanning.dailySlots, workShiftsById)
+    const recurringEntries = buildPlanningEntriesFromDailySlots(
+      newPlanning.dailySlots,
+      workShiftsById,
+      weekDayLabels,
+      tr.labels
+    )
 
     const codeFromInput = newPlanning.code.trim()
     const generatedCode = `PLN-${newPlanning.name
@@ -1825,7 +1826,7 @@ export default function PlanningPage() {
       closePlanningDialog(false)
       await loadBaseData()
       await loadSchedule()
-      toast.success(editingPlanning ? "Planning modifié" : "Planning créé")
+      toast.success(editingPlanning ? tr.toasts.planningUpdated : tr.toasts.planningCreated)
     } catch (saveError) {
       raiseError(
         editingPlanning ? "PLANNING_UPDATE_FAILED" : "PLANNING_CREATE_FAILED",
@@ -1855,7 +1856,7 @@ export default function PlanningPage() {
         const detail = deleteError instanceof Error ? deleteError.message : ""
         if (!forceShiftDelete && detail.includes("force=true")) {
           setForceShiftDelete(true)
-          toast.warning("Ce quart est lié à des éléments actifs. Activez la suppression forcée pour continuer.")
+          toast.warning(tr.toasts.shiftLinkedWarning)
           return
         }
         throw deleteError
@@ -1863,12 +1864,12 @@ export default function PlanningPage() {
 
       await loadBaseData()
       await loadSchedule()
-      toast.success(`Quart "${shift.name}" supprimé`)
+      toast.success(tr.toasts.shiftDeleted(shift.name))
       setPendingShiftDelete(null)
       setForceShiftDelete(false)
     } catch (deleteError) {
       raiseError("SHIFT_DELETE_FAILED", getErrorDetail(deleteError))
-      toast.error("Erreur lors de la suppression du quart")
+      toast.error(tr.toasts.shiftDeleteError)
     } finally {
       setDeletingShiftId(null)
     }
@@ -1892,7 +1893,7 @@ export default function PlanningPage() {
         const detail = deleteError instanceof Error ? deleteError.message : ""
         if (!forcePlanningDelete && detail.includes("force=true")) {
           setForcePlanningDelete(true)
-          toast.warning("Ce planning est lié à des affectations. Activez la suppression forcée pour continuer.")
+          toast.warning(tr.toasts.planningLinkedWarning)
           return
         }
         throw deleteError
@@ -1900,12 +1901,12 @@ export default function PlanningPage() {
 
       await loadBaseData()
       await loadSchedule()
-      toast.success(`Planning "${planning.name}" supprimé`)
+      toast.success(tr.toasts.planningDeleted(planning.name))
       setPendingPlanningDelete(null)
       setForcePlanningDelete(false)
     } catch (deleteError) {
       raiseError("PLANNING_DELETE_FAILED", getErrorDetail(deleteError))
-      toast.error("Erreur lors de la suppression du planning")
+      toast.error(tr.toasts.planningDeleteError)
     } finally {
       setDeletingPlanningId(null)
     }
@@ -1973,10 +1974,10 @@ export default function PlanningPage() {
         await loadBaseData()
       }
       closeAssignPlanningDialog(false)
-      toast.success("Planning assigné avec succès")
+      toast.success(tr.toasts.planningAssigned)
     } catch (assignError) {
       raiseError("ASSIGN_PLANNING_FAILED", getErrorDetail(assignError))
-      toast.error("Erreur lors de l'assignation du planning")
+      toast.error(tr.toasts.planningAssignError)
     } finally {
       setIsAssigningPlanning(false)
     }
@@ -2030,10 +2031,10 @@ export default function PlanningPage() {
     if (!selectedShiftId) return
     setNewPlanning((prev) => {
       const nextDailySlots = { ...prev.dailySlots }
-      WEEK_DAYS.forEach((day) => {
-        nextDailySlots[day.key] = {
-          ...nextDailySlots[day.key],
-          shiftIds: nextDailySlots[day.key].shiftIds.filter((shiftId) => shiftId !== selectedShiftId),
+      WEEK_DAY_KEYS.forEach((dayKey) => {
+        nextDailySlots[dayKey] = {
+          ...nextDailySlots[dayKey],
+          shiftIds: nextDailySlots[dayKey].shiftIds.filter((shiftId) => shiftId !== selectedShiftId),
         }
       })
       return {
@@ -2095,8 +2096,8 @@ export default function PlanningPage() {
 
     if (!resolvedTenantId) {
       raiseError("WIZARD_TENANT_MISSING")
-      toast.error("Impossible de creer le planning: tenant introuvable.")
-      throw new Error("Tenant introuvable")
+      toast.error(tr.toasts.wizardTenantMissing)
+      throw new Error(tr.toasts.wizardTenantMissing)
     }
 
     setIsCreatingWizardPlanning(true)
@@ -2122,7 +2123,7 @@ export default function PlanningPage() {
               tenant: resolvedTenantId,
               name: `${basePlanningName} - ${item.name.trim()} ${scope === "weekday" ? "S" : "WE"}${index + 1}-${stamp}`,
               code: `WZD-${scope === "weekday" ? "W" : "E"}-${stamp}-${String(index + 1).padStart(2, "0")}`,
-              description: `Cas ${scope === "weekday" ? "semaine" : "week-end"} genere via wizard planning.`,
+              description: tr.wizardShiftDescription(scope),
               start_time: item.startTime.trim(),
               end_time: item.endTime.trim(),
               break_start_time: null,
@@ -2155,7 +2156,12 @@ export default function PlanningPage() {
           ? await createShiftBindings(payload.weekendCases, "weekend")
           : []
 
-      const entries = buildEntriesFromWizardConfig(payload, weekdayCaseBindings, weekendCaseBindings)
+      const entries = buildEntriesFromWizardConfig(
+        payload,
+        weekdayCaseBindings,
+        weekendCaseBindings,
+        tr.labels.rest
+      )
 
       const createdPlanning = await createPlanning({
         tenant: resolvedTenantId,
@@ -2180,7 +2186,7 @@ export default function PlanningPage() {
 
       let assignedCount = 0
       let failedCount = 0
-      let assignmentLabel = "utilisateur(s)"
+      let assignmentLabel = tr.toasts.scopeUsers
 
       if (payload.assignmentScope === "employees" && payload.assignEmployeeIds.length > 0) {
         const assignResults = await Promise.allSettled(
@@ -2199,26 +2205,26 @@ export default function PlanningPage() {
         assignedCount = assignResults.filter((result) => result.status === "fulfilled").length
         failedCount = assignResults.length - assignedCount
         assignmentLabel = payload.includeSubDepartments
-          ? "departement(s) et sous-departements"
-          : "departement(s)"
+          ? tr.toasts.scopeDepartmentsWithSub
+          : tr.toasts.scopeDepartments
       }
 
       if (failedCount > 0) {
-        toast.warning(`${failedCount} affectation(s) ${assignmentLabel} n'ont pas pu etre appliquees.`)
+        toast.warning(tr.toasts.wizardAssignFailures(failedCount, assignmentLabel))
       }
 
       await loadBaseData()
       await loadSchedule()
 
-      toast.success("Planning cree avec succes", {
+      toast.success(tr.toasts.wizardCreated, {
         description:
           assignedCount > 0
-            ? `${assignedCount} ${assignmentLabel} affecte(s) automatiquement.`
-            : "Le planning hebdomadaire est pret.",
+            ? tr.toasts.wizardCreatedAssigned(assignedCount, assignmentLabel)
+            : tr.toasts.wizardCreatedReady,
       })
     } catch (wizardError) {
       raiseError("WIZARD_CREATE_FAILED", getErrorDetail(wizardError))
-      toast.error("Erreur lors de la creation du planning via le wizard")
+      toast.error(tr.toasts.wizardCreateError)
       throw wizardError
     } finally {
       setIsCreatingWizardPlanning(false)
@@ -2239,13 +2245,13 @@ export default function PlanningPage() {
           <section className="flex flex-col gap-3 border border-[#1c2133] bg-[#111318] px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">
-                Pilotage du temps
+                {tr.header.eyebrow}
               </p>
               <h1 className="mt-1 font-display text-[22px] font-bold uppercase leading-none tracking-[0.08em] text-[#e2e8f0]">
-                Planning
+                {tr.header.title}
               </h1>
               <p className="mt-1 max-w-2xl text-xs text-[#7a8599]">
-                Quarts, emplois de temps et affectations operationnelles.
+                {tr.header.subtitle}
               </p>
             </div>
 
@@ -2253,8 +2259,8 @@ export default function PlanningPage() {
               <Button
                 variant="outline"
                 size="sm"
-                aria-label="Synchroniser"
-                title="Synchroniser"
+                aria-label={tr.header.sync}
+                title={tr.header.sync}
                 className="h-8 w-8 rounded-none border-[#1c2133] bg-[#1a1f2e] p-0 text-[#7a8599] hover:border-[var(--info)]/60 hover:text-[var(--info)]"
                 onClick={() => void loadBaseData()}
                 disabled={loading}
@@ -2268,7 +2274,7 @@ export default function PlanningPage() {
                 onClick={openCreateShiftDialog}
               >
                 <Shapes className="mr-2 h-4 w-4" />
-                Quart
+                {tr.header.shiftButton}
               </Button>
               <Button
                 size="sm"
@@ -2276,7 +2282,7 @@ export default function PlanningPage() {
                 onClick={() => setWizardOpen(true)}
               >
                 <Plus className="mr-2 h-4 w-4" />
-                Nouveau planning
+                {tr.header.newPlanning}
               </Button>
             </div>
           </section>
@@ -2284,23 +2290,27 @@ export default function PlanningPage() {
           {/* ── Mini stat strip ── */}
           <section className="grid gap-2 sm:grid-cols-3">
             <PlanningMetricCard
-              label="Plannings"
+              label={tr.metrics.plannings}
               value={plannings.length}
-              note={plannings.length > 0 ? `${plannings.length} actif${plannings.length > 1 ? "s" : ""}` : "A creer"}
+              note={
+                plannings.length > 0
+                  ? tr.metrics.planningsActive(plannings.length)
+                  : tr.metrics.planningsEmpty
+              }
               tone="amber"
               icon={CalendarRange}
             />
             <PlanningMetricCard
-              label="Quarts"
+              label={tr.metrics.shifts}
               value={workShifts.length}
-              note={workShifts.length > 0 ? "Reutilisables" : "Aucun"}
+              note={workShifts.length > 0 ? tr.metrics.shiftsReusable : tr.metrics.shiftsNone}
               tone="green"
               icon={Shapes}
             />
             <PlanningMetricCard
-              label="Sans planning"
+              label={tr.metrics.withoutPlanning}
               value={employees.filter((emp) => !emp.effective_planning?.id).length}
-              note={`/ ${employees.length} personnes`}
+              note={tr.metrics.ofPeople(employees.length)}
               tone="red"
               icon={Users}
             />
@@ -2311,7 +2321,9 @@ export default function PlanningPage() {
             <div role="alert" className="border border-[var(--destructive)]/40 bg-[#2a0e0e]/40 px-4 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm text-[var(--destructive)]">{error.message}</p>
+                  <p className="text-sm text-[var(--destructive)]">
+                    {error.detail ?? tr.errors[error.code]}
+                  </p>
                 </div>
                 <Button
                   type="button"
@@ -2320,7 +2332,7 @@ export default function PlanningPage() {
                   className="h-7 rounded-none border border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[var(--destructive)]"
                   onClick={() => setError(null)}
                 >
-                  Fermer
+                  {tr.close}
                 </Button>
               </div>
             </div>
@@ -2398,12 +2410,14 @@ export default function PlanningPage() {
                   <CalendarRange className="size-4" />
                 </div>
                 <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">Catalogue</p>
+                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">
+                    {tr.timetableSection.eyebrow}
+                  </p>
                   <h2 className="mt-1 font-display text-[15px] font-semibold uppercase leading-none tracking-[0.06em] text-[#e2e8f0]">
-                    Emplois de temps
+                    {tr.timetableSection.title}
                   </h2>
                   <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Cliquer une ligne pour apercu &middot; bouton pour assigner
+                    {tr.timetableSection.hint}
                   </p>
                 </div>
               </div>
@@ -2415,7 +2429,7 @@ export default function PlanningPage() {
                   onClick={openCreatePlanningDialog}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Ajouter
+                  {tr.timetableSection.add}
                 </Button>
               </div>
             </div>
@@ -2435,10 +2449,10 @@ export default function PlanningPage() {
                     <CalendarRange className="size-6" />
                   </div>
                   <p className="font-display text-sm font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                    Aucun emploi du temps
+                    {tr.timetableSection.emptyTitle}
                   </p>
                   <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                    Creez un cycle pour commencer
+                    {tr.timetableSection.emptyHint}
                   </p>
                 </div>
               ) : (
@@ -2448,25 +2462,30 @@ export default function PlanningPage() {
                       <thead>
                         <tr className="border-b border-[#1c2133]">
                           <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                            Planning
+                            {tr.timetableSection.colPlanning}
                           </th>
                           <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                            Heures/sem
+                            {tr.timetableSection.colHoursPerWeek}
                           </th>
                           <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                            Couverture
+                            {tr.timetableSection.colCoverage}
                           </th>
                           <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                            Affectes
+                            {tr.timetableSection.colAssigned}
                           </th>
                           <th className="px-3 py-2 text-right font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                            Actions
+                            {tr.timetableSection.colActions}
                           </th>
                         </tr>
                       </thead>
                       <tbody>
                         {paginatedPlanningRecap.map((item) => {
-                          const stats = computePlanningStats(item.planning, workShiftsById)
+                          const stats = computePlanningStats(
+                            item.planning,
+                            workShiftsById,
+                            weekDayLabels,
+                            tr.labels
+                          )
                           return (
                             <tr
                               key={`recap-${item.planning.id}`}
@@ -2491,8 +2510,8 @@ export default function PlanningPage() {
                                   </span>
                                 </div>
                                 <p className="mt-0.5 font-mono text-[10px] tracking-normal text-[#4a5568] normal-case">
-                                  {item.planning.code || "sans-code"} &middot; {item.shiftCount} quart
-                                  {item.shiftCount > 1 ? "s" : ""}
+                                  {item.planning.code || tr.timetableSection.noCode} &middot;{" "}
+                                  {tr.timetableSection.shiftCount(item.shiftCount)}
                                 </p>
                               </td>
                               <td className="px-3 py-2.5 font-mono text-sm tabular-nums text-[#e2e8f0]">
@@ -2507,7 +2526,7 @@ export default function PlanningPage() {
                                     return (
                                       <div
                                         key={`mini-${item.planning.id}-${day.key}`}
-                                        title={`${day.label}: ${day.slots.length === 0 ? "Aucun" : day.slots.map((s) => s.label + (s.timeRange ? " " + s.timeRange : "")).join(", ")}`}
+                                        title={`${day.label}: ${day.slots.length === 0 ? tr.timetableSection.dayTitleNone : day.slots.map((s) => s.label + (s.timeRange ? " " + s.timeRange : "")).join(", ")}`}
                                         className={cn(
                                           "size-2.5 border",
                                           slot ? SHIFT_KIND_DOT_INDUSTRIAL[kind] : "bg-transparent border-[#1c2133]",
@@ -2519,7 +2538,10 @@ export default function PlanningPage() {
                                   })}
                                 </div>
                                 <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.1em] text-[#4a5568] tabular-nums">
-                                  {item.weekdaysWithProgram}/5 sem &middot; {item.weekendWithProgram}/2 we
+                                  {tr.timetableSection.coverageSummary(
+                                    item.weekdaysWithProgram,
+                                    item.weekendWithProgram
+                                  )}
                                 </p>
                               </td>
                               <td className="px-3 py-2.5 font-display text-sm font-semibold tabular-nums text-[#e2e8f0]">
@@ -2536,7 +2558,7 @@ export default function PlanningPage() {
                                       openAssignPlanningDialog(item.planning)
                                     }}
                                   >
-                                    Assigner
+                                    {tr.timetableSection.assign}
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -2577,7 +2599,7 @@ export default function PlanningPage() {
                   {planningListTotalPages > 1 ? (
                     <div className="mt-2 flex items-center justify-between border border-[#1c2133] bg-[#0b0d13] px-3 py-2">
                       <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568] tabular-nums">
-                        {planningRecap.length} planning{planningRecap.length > 1 ? "s" : ""}
+                        {tr.timetableSection.planningCount(planningRecap.length)}
                       </p>
                       <div className="flex items-center gap-1.5">
                         <Button
@@ -2625,12 +2647,14 @@ export default function PlanningPage() {
                   <Shapes className="size-4" />
                 </div>
                 <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">Reference</p>
+                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">
+                    {tr.shiftSection.eyebrow}
+                  </p>
                   <h2 className="mt-1 font-display text-[15px] font-semibold uppercase leading-none tracking-[0.06em] text-[#e2e8f0]">
-                    Quarts de travail
+                    {tr.shiftSection.title}
                   </h2>
                   <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Modeles reutilisables dans les plannings
+                    {tr.shiftSection.hint}
                   </p>
                 </div>
               </div>
@@ -2641,7 +2665,7 @@ export default function PlanningPage() {
                 onClick={openCreateShiftDialog}
               >
                 <Plus className="mr-2 h-4 w-4" />
-                Ajouter
+                {tr.shiftSection.add}
               </Button>
             </div>
 
@@ -2658,10 +2682,10 @@ export default function PlanningPage() {
                     <Shapes className="size-6" />
                   </div>
                   <p className="font-display text-sm font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                    Aucun quart de travail
+                    {tr.shiftSection.emptyTitle}
                   </p>
                   <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                    Creez un quart pour commencer
+                    {tr.shiftSection.emptyHint}
                   </p>
                 </div>
               ) : (
@@ -2670,25 +2694,25 @@ export default function PlanningPage() {
                     <thead>
                       <tr className="border-b border-[#1c2133]">
                         <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          Quart
+                          {tr.shiftSection.colShift}
                         </th>
                         <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          Horaire
+                          {tr.shiftSection.colTime}
                         </th>
                         <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          Pause
+                          {tr.shiftSection.colBreak}
                         </th>
                         <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          H.S.
+                          {tr.shiftSection.colOvertime}
                         </th>
                         <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          Retard
+                          {tr.shiftSection.colLate}
                         </th>
                         <th className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          Depart
+                          {tr.shiftSection.colEarly}
                         </th>
                         <th className="px-3 py-2 text-right font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          Actions
+                          {tr.shiftSection.colActions}
                         </th>
                       </tr>
                     </thead>
@@ -2703,7 +2727,7 @@ export default function PlanningPage() {
                               {shift.name}
                             </p>
                             <p className="mt-0.5 font-mono text-[10px] tracking-normal text-[#4a5568] normal-case">
-                              {shift.code || "sans-code"}
+                              {shift.code || tr.shiftSection.noCode}
                             </p>
                           </td>
                           <td className="px-3 py-2.5">
@@ -2717,13 +2741,13 @@ export default function PlanningPage() {
                               : <span className="text-[#4a5568]">—</span>}
                           </td>
                           <td className="px-3 py-2.5 font-mono text-xs tabular-nums text-[#7a8599]">
-                            {shift.overtime_minutes ? `${shift.overtime_minutes} min` : <span className="text-[#4a5568]">—</span>}
+                            {shift.overtime_minutes ? tr.shiftSection.minutes(shift.overtime_minutes) : <span className="text-[#4a5568]">—</span>}
                           </td>
                           <td className="px-3 py-2.5 font-mono text-xs tabular-nums text-[#7a8599]">
-                            {shift.late_allowable_minutes ?? 0} min
+                            {tr.shiftSection.minutes(shift.late_allowable_minutes ?? 0)}
                           </td>
                           <td className="px-3 py-2.5 font-mono text-xs tabular-nums text-[#7a8599]">
-                            {shift.early_leave_allowable_minutes ?? 0} min
+                            {tr.shiftSection.minutes(shift.early_leave_allowable_minutes ?? 0)}
                           </td>
                           <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
@@ -2769,9 +2793,9 @@ export default function PlanningPage() {
           >
             <div className="h-[2px] w-full bg-[var(--warning)]" />
             <PlanningSectionHeader
-              eyebrow="Calendrier"
-              title="Planning individuel"
-              subtitle="Vue mensuelle par employe"
+              eyebrow={tr.scheduleSection.eyebrow}
+              title={tr.scheduleSection.title}
+              subtitle={tr.scheduleSection.subtitle}
               tone="amber"
               icon={CalendarDays}
               actions={
@@ -2785,7 +2809,7 @@ export default function PlanningPage() {
                       <option key={employee.id} value={employee.id} className="bg-[#0b0d13] normal-case">
                         {(employee.name || employee.employee_no) +
                           " – " +
-                          getEmployeeDepartment(employee, departmentsById)}
+                          getEmployeeDepartment(employee, departmentsById, tr.noDepartment)}
                       </option>
                     ))}
                   </select>
@@ -2796,7 +2820,7 @@ export default function PlanningPage() {
                       size="sm"
                       className="h-8 w-8 rounded-none border-[#1c2133] bg-[#1a1f2e] p-0 text-[#7a8599] hover:border-[var(--warning)]/60 hover:text-[var(--warning)]"
                       onClick={() => shiftMonth(-1)}
-                      aria-label="Mois precedent"
+                      aria-label={tr.scheduleSection.prevMonth}
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
@@ -2812,7 +2836,7 @@ export default function PlanningPage() {
                       size="sm"
                       className="h-8 w-8 rounded-none border-[#1c2133] bg-[#1a1f2e] p-0 text-[#7a8599] hover:border-[var(--warning)]/60 hover:text-[var(--warning)]"
                       onClick={() => shiftMonth(1)}
-                      aria-label="Mois suivant"
+                      aria-label={tr.scheduleSection.nextMonth}
                     >
                       <ChevronRight className="h-4 w-4" />
                     </Button>
@@ -2824,7 +2848,7 @@ export default function PlanningPage() {
                       className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--warning)]/60 hover:text-[var(--warning)]"
                       onClick={goCurrentMonth}
                     >
-                      Aujourd&apos;hui
+                      {tr.scheduleSection.today}
                     </Button>
                     <Button
                       variant="outline"
@@ -2843,32 +2867,38 @@ export default function PlanningPage() {
                 <div className="mb-3 grid gap-2 lg:grid-cols-3">
                   <article className="relative border border-[#1c2133] bg-[#0b0d13] p-3">
                     <div className="absolute left-0 top-0 h-full w-[3px] bg-[var(--warning)]" />
-                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">Employe</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">
+                      {tr.scheduleSection.employee}
+                    </p>
                     <p className="mt-1 font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
                       {selectedEmployee.name || selectedEmployee.employee_no}
                     </p>
                     <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599]">
-                      {getEmployeeDepartment(selectedEmployee, departmentsById)}
+                      {getEmployeeDepartment(selectedEmployee, departmentsById, tr.noDepartment)}
                     </p>
                   </article>
                   <article className="relative border border-[#1c2133] bg-[#0b0d13] p-3">
                     <div className="absolute left-0 top-0 h-full w-[3px] bg-[var(--info)]" />
-                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">Planning effectif</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">
+                      {tr.scheduleSection.effectivePlanning}
+                    </p>
                     <p className="mt-1 font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                      {schedule?.planning?.name ?? "Aucun planning"}
+                      {schedule?.planning?.name ?? tr.scheduleSection.noPlanning}
                     </p>
                     <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599]">
-                      {selectedEmployee.effective_work_shift?.name ?? "Aucun quart principal"}
+                      {selectedEmployee.effective_work_shift?.name ?? tr.scheduleSection.noMainShift}
                     </p>
                   </article>
                   <article className="relative border border-[#1c2133] bg-[#0b0d13] p-3">
                     <div className="absolute left-0 top-0 h-full w-[3px] bg-[#a78bfa]" />
-                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">Resume</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">
+                      {tr.scheduleSection.summary}
+                    </p>
                     <p className="mt-1 font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0] tabular-nums">
                       {schedule?.summary ? formatMinutes(schedule.summary.planned_minutes) : "--"}
                     </p>
                     <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] tabular-nums">
-                      {schedule?.summary?.working_days ?? 0} jour(s) travailles
+                      {tr.scheduleSection.workedDays(schedule?.summary?.working_days ?? 0)}
                     </p>
                   </article>
                 </div>
@@ -2895,19 +2925,19 @@ export default function PlanningPage() {
                     <CalendarDays className="size-6" />
                   </div>
                   <p className="font-display text-sm font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                    Aucun calendrier disponible
+                    {tr.scheduleSection.emptyTitle}
                   </p>
                   <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                    Selectionnez un employe et un mois
+                    {tr.scheduleSection.emptyHint}
                   </p>
                 </div>
               ) : (
                 <div className="grid gap-2 2xl:grid-cols-[minmax(0,1fr)_280px]">
                   <div className="min-w-0">
                     <div className="mb-2 hidden grid-cols-7 gap-1.5 text-center font-mono text-[9px] uppercase tracking-[0.14em] text-[#4a5568] md:grid">
-                      {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((label) => (
-                        <div key={label} className="border border-[#1c2133] bg-[#0b0d13] px-2 py-2">
-                          {label}
+                      {weekDayLabels.map((label, index) => (
+                        <div key={`dow-${index}`} className="border border-[#1c2133] bg-[#0b0d13] px-2 py-2">
+                          {label.slice(0, 3)}
                         </div>
                       ))}
                     </div>
@@ -2928,7 +2958,7 @@ export default function PlanningPage() {
                                     )
                                     .join("\n")
                                 : day.is_rest_day
-                                  ? "Repos"
+                                  ? tr.labels.rest
                                   : undefined
                             }
                             className={cn(
@@ -2950,7 +2980,7 @@ export default function PlanningPage() {
                                 {new Date(`${day.date}T00:00:00`).getDate()}
                               </span>
                               <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#4a5568]">
-                                {day.day_name.slice(0, 3)}
+                                {formatDate(`${day.date}T00:00:00`, { weekday: "long" }).slice(0, 3)}
                               </span>
                             </div>
 
@@ -2979,13 +3009,13 @@ export default function PlanningPage() {
                                   })}
                                   {day.shifts.length > 2 ? (
                                     <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#4a5568]">
-                                      +{day.shifts.length - 2} autre{day.shifts.length - 2 > 1 ? "s" : ""}
+                                      {tr.scheduleSection.more(day.shifts.length - 2)}
                                     </span>
                                   ) : null}
                                 </>
                               ) : (
                                 <div className="pt-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#4a5568]">
-                                  {day.is_rest_day ? "Repos" : "—"}
+                                  {day.is_rest_day ? tr.labels.rest : "—"}
                                 </div>
                               )}
                             </div>
@@ -3002,27 +3032,33 @@ export default function PlanningPage() {
 
                   <aside className="relative border border-[#1c2133] bg-[#0b0d13] p-3">
                     <div className="absolute left-0 top-0 h-full w-[3px] bg-[var(--warning)]" />
-                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">Jour selectionne</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#4a5568]">
+                      {tr.scheduleSection.selectedDay}
+                    </p>
                     {selectedDay ? (
                       <div className="mt-2 space-y-3">
                         <div>
                           <div className="font-display text-base font-bold tabular-nums text-[#e2e8f0]">
-                            {selectedDay.date}
+                            {formatDate(`${selectedDay.date}T00:00:00`)}
                           </div>
                           <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599]">
-                            {selectedDay.day_name}
+                            {formatDate(`${selectedDay.date}T00:00:00`, { weekday: "long" })}
                           </div>
                         </div>
 
                         <div className="border border-[#1c2133] bg-[#111318] p-2.5">
-                          <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Heures</p>
+                          <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
+                            {tr.scheduleSection.hours}
+                          </p>
                           <p className="mt-1 font-display text-sm font-bold tabular-nums text-[var(--warning)]">
                             {formatMinutes(selectedDay.planned_minutes)}
                           </p>
                         </div>
 
                         <div className="space-y-2">
-                          <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Quarts</p>
+                          <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
+                            {tr.scheduleSection.shifts}
+                          </p>
                           {selectedDay.shifts.length ? (
                             selectedDay.shifts.map((shift) => (
                               <div
@@ -3036,20 +3072,20 @@ export default function PlanningPage() {
                                   {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
                                 </p>
                                 <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.1em] text-[#4a5568]">
-                                  Net : {formatMinutes(shift.net_minutes)}
+                                  {tr.scheduleSection.net} {formatMinutes(shift.net_minutes)}
                                 </p>
                               </div>
                             ))
                           ) : (
                             <div className="border border-dashed border-[#1c2133] px-3 py-3 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                              Aucun quart ce jour.
+                              {tr.scheduleSection.noShiftThisDay}
                             </div>
                           )}
                         </div>
                       </div>
                     ) : (
                       <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                        Selectionnez un jour dans le calendrier.
+                        {tr.scheduleSection.pickADay}
                       </p>
                     )}
                   </aside>
@@ -3063,10 +3099,10 @@ export default function PlanningPage() {
             <DialogContent className="max-w-2xl rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  Assigner le planning {assignPlanningTarget ? `"${assignPlanningTarget.name}"` : ""}
+                  {tr.assignDialog.title(assignPlanningTarget?.name ?? "")}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Choisissez departements ou personnes, puis confirmez.
+                  {tr.assignDialog.description}
                 </DialogDescription>
               </DialogHeader>
 
@@ -3074,14 +3110,17 @@ export default function PlanningPage() {
                 {error?.scope === "global" &&
                 (error.code === "ASSIGN_PLANNING_FAILED" || error.code === "ASSIGN_DATE_RANGE_INVALID") ? (
                   <div role="alert" className="border border-[var(--destructive)]/40 bg-[#2a0e0e]/40 px-3 py-2">
-                    <p className="text-sm text-[var(--destructive)]">{error.message}</p>
+                    <p className="text-sm text-[var(--destructive)]">{error.detail ?? tr.errors[error.code]}</p>
                   </div>
                 ) : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center border border-[#1c2133] bg-[#0b0d13] p-1">
                     {(["employees", "departments"] as const).map((mode) => {
-                      const labels = { employees: "Personnes", departments: "Departements" } as const
+                      const labels = {
+                        employees: tr.assignDialog.people,
+                        departments: tr.assignDialog.departments,
+                      } as const
                       const isSelected = assignMode === mode
                       return (
                         <button
@@ -3112,7 +3151,7 @@ export default function PlanningPage() {
                         setSelectedAssignEmployeeIds(filteredAssignEmployees.map((employee) => employee.id))
                       }}
                     >
-                      Tout selectionner
+                      {tr.assignDialog.selectAll}
                     </Button>
                     <Button
                       type="button"
@@ -3127,14 +3166,16 @@ export default function PlanningPage() {
                         setSelectedAssignEmployeeIds([])
                       }}
                     >
-                      Tout vider
+                      {tr.assignDialog.clearAll}
                     </Button>
                   </div>
                 </div>
 
                 <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
                   <div className="mb-2 flex items-center justify-between">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#4a5568]">Plage d&apos;assignation</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#4a5568]">
+                      {tr.assignDialog.dateRange}
+                    </p>
                     <Button
                       type="button"
                       variant="ghost"
@@ -3145,12 +3186,14 @@ export default function PlanningPage() {
                         setAssignEndDate("")
                       }}
                     >
-                      Vider
+                      {tr.assignDialog.clear}
                     </Button>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="space-y-1">
-                      <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Date debut</label>
+                      <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                        {tr.assignDialog.startDate}
+                      </label>
                       <Input
                         type="date"
                         value={assignStartDate}
@@ -3159,7 +3202,9 @@ export default function PlanningPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Date fin</label>
+                      <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                        {tr.assignDialog.endDate}
+                      </label>
                       <Input
                         type="date"
                         value={assignEndDate}
@@ -3169,7 +3214,7 @@ export default function PlanningPage() {
                     </div>
                   </div>
                   <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                    Laissez vide pour assignation immediate sans borne.
+                    {tr.assignDialog.emptyRangeHint}
                   </p>
                 </div>
 
@@ -3178,14 +3223,22 @@ export default function PlanningPage() {
                     value={assignSearch}
                     onChange={(event) => setAssignSearch(event.target.value)}
                     placeholder={
-                      assignMode === "departments" ? "Rechercher un departement..." : "Rechercher une personne..."
+                      assignMode === "departments"
+                        ? tr.assignDialog.searchDepartment
+                        : tr.assignDialog.searchPerson
                     }
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                   />
                   <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] tabular-nums">
                     {assignMode === "departments"
-                      ? `${selectedAssignDepartmentIds.length} selectionne(s) / ${filteredAssignDepartments.length} affiche(s)`
-                      : `${selectedAssignEmployeeIds.length} selectionne(s) / ${filteredAssignEmployees.length} affiche(s)`}
+                      ? tr.assignDialog.selectionSummary(
+                          selectedAssignDepartmentIds.length,
+                          filteredAssignDepartments.length
+                        )
+                      : tr.assignDialog.selectionSummary(
+                          selectedAssignEmployeeIds.length,
+                          filteredAssignEmployees.length
+                        )}
                   </p>
                 </div>
 
@@ -3197,7 +3250,7 @@ export default function PlanningPage() {
                         checked={includeSubDepartments}
                         onChange={(event) => setIncludeSubDepartments(event.target.checked)}
                       />
-                      Inclure les sous-departements
+                      {tr.assignDialog.includeSubDepartments}
                     </label>
                     <div className="max-h-72 space-y-1 overflow-y-auto border border-[#1c2133] bg-[#0b0d13] p-2">
                       {filteredAssignDepartments.map((department) => (
@@ -3215,11 +3268,11 @@ export default function PlanningPage() {
                       ))}
                       {departments.length === 0 ? (
                         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                          Aucun departement disponible.
+                          {tr.assignDialog.noDepartments}
                         </p>
                       ) : filteredAssignDepartments.length === 0 ? (
                         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                          Aucun departement ne correspond a la recherche.
+                          {tr.assignDialog.noDepartmentMatch}
                         </p>
                       ) : null}
                     </div>
@@ -3239,20 +3292,18 @@ export default function PlanningPage() {
                         <span className="text-[#e2e8f0]">
                           {employee.name || employee.employee_no}
                           <span className="ml-1 font-mono text-[10px] text-[#7a8599]">
-                            {employee.effective_planning?.name
-                              ? `(actuel: ${employee.effective_planning.name})`
-                              : "(actuel: aucun)"}
+                            {tr.assignDialog.currentPlanning(employee.effective_planning?.name ?? null)}
                           </span>
                         </span>
                       </label>
                     ))}
                     {employees.length === 0 ? (
                       <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                        Aucune personne disponible.
+                        {tr.assignDialog.noPeople}
                       </p>
                     ) : filteredAssignEmployees.length === 0 ? (
                       <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                        Aucune personne ne correspond a la recherche.
+                        {tr.assignDialog.noPersonMatch}
                       </p>
                     ) : null}
                   </div>
@@ -3266,7 +3317,7 @@ export default function PlanningPage() {
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                   disabled={isAssigningPlanning}
                 >
-                  Annuler
+                  {tr.assignDialog.cancel}
                 </Button>
                 <Button
                   className="h-9 rounded-none border border-[var(--brand-accent)] bg-[var(--brand-accent)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--brand-accent)]"
@@ -3279,7 +3330,7 @@ export default function PlanningPage() {
                   }
                 >
                   {isAssigningPlanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Attribuer maintenant
+                  {tr.assignDialog.assignNow}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -3289,10 +3340,10 @@ export default function PlanningPage() {
             <DialogContent className="max-w-3xl rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  Apercu du planning {planningPreviewTarget ? `"${planningPreviewTarget.name}"` : ""}
+                  {tr.previewDialog.title(planningPreviewTarget?.name ?? "")}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Verifiez les details avant de modifier ou d&apos;assigner.
+                  {tr.previewDialog.description}
                 </DialogDescription>
               </DialogHeader>
 
@@ -3300,25 +3351,33 @@ export default function PlanningPage() {
                 <div className="space-y-3 py-1">
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="border border-[#1c2133] bg-[#0b0d13] p-2.5">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Code</p>
+                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
+                        {tr.previewDialog.code}
+                      </p>
                       <p className="mt-1 font-display text-sm font-semibold text-[#e2e8f0]">
-                        {planningPreviewTarget.code || "SANS CODE"}
+                        {planningPreviewTarget.code || tr.previewDialog.noCode}
                       </p>
                     </div>
                     <div className="border border-[#1c2133] bg-[#0b0d13] p-2.5">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Fuseau</p>
+                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
+                        {tr.previewDialog.timezone}
+                      </p>
                       <p className="mt-1 font-display text-sm font-semibold text-[#e2e8f0]">
                         {planningPreviewTarget.timezone || "UTC"}
                       </p>
                     </div>
                     <div className="border border-[#1c2133] bg-[#0b0d13] p-2.5">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Semaine active</p>
+                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
+                        {tr.previewDialog.weekActive}
+                      </p>
                       <p className="mt-1 font-display text-sm font-semibold text-[#e2e8f0] tabular-nums">
                         {planningPreviewRecap ? `${planningPreviewRecap.weekdaysWithProgram}/5` : "--"}
                       </p>
                     </div>
                     <div className="border border-[#1c2133] bg-[#0b0d13] p-2.5">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Week-end actif</p>
+                      <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
+                        {tr.previewDialog.weekendActive}
+                      </p>
                       <p className="mt-1 font-display text-sm font-semibold text-[#e2e8f0] tabular-nums">
                         {planningPreviewRecap ? `${planningPreviewRecap.weekendWithProgram}/2` : "--"}
                       </p>
@@ -3327,7 +3386,7 @@ export default function PlanningPage() {
 
                   <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
                     <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[#7a8599]">
-                      Quarts applicables par jour
+                      {tr.previewDialog.shiftsPerDay}
                     </p>
                     {planningPreviewHasWeeklyEntries ? (
                       <div className="grid gap-2 md:grid-cols-2">
@@ -3355,7 +3414,7 @@ export default function PlanningPage() {
                                 })
                               ) : (
                                 <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#4a5568]">
-                                  Aucun quart applicable
+                                  {tr.previewDialog.noApplicableShift}
                                 </span>
                               )}
                               {entries.length > 4 ? (
@@ -3370,7 +3429,7 @@ export default function PlanningPage() {
                     ) : planningPreviewNonWeeklyEntries.length > 0 ? (
                       <div className="space-y-2">
                         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                          Ce planning fonctionne en cycle/periode. Apercu des entrees:
+                          {tr.previewDialog.cycleIntro}
                         </p>
                         <div className="grid gap-2 md:grid-cols-2">
                           {planningPreviewNonWeeklyEntries.slice(0, 12).map((entry) => (
@@ -3383,10 +3442,22 @@ export default function PlanningPage() {
                                 {entry.timeRange ? ` ${entry.timeRange}` : ""}
                               </p>
                               <div className="mt-1 flex flex-wrap gap-2 font-mono text-[10px] text-[#7a8599]">
-                                {entry.sequenceIndex != null ? <span>Sequence: {entry.sequenceIndex + 1}</span> : null}
-                                {entry.startDate ? <span>Debut: {entry.startDate}</span> : null}
-                                {entry.endDate ? <span>Fin: {entry.endDate}</span> : null}
-                                {entry.isRestDay ? <span>Repos</span> : null}
+                                {entry.sequenceIndex != null ? (
+                                  <span>
+                                    {tr.previewDialog.sequence} {entry.sequenceIndex + 1}
+                                  </span>
+                                ) : null}
+                                {entry.startDate ? (
+                                  <span>
+                                    {tr.previewDialog.start} {formatDate(`${entry.startDate}T00:00:00`)}
+                                  </span>
+                                ) : null}
+                                {entry.endDate ? (
+                                  <span>
+                                    {tr.previewDialog.end} {formatDate(`${entry.endDate}T00:00:00`)}
+                                  </span>
+                                ) : null}
+                                {entry.isRestDay ? <span>{tr.previewDialog.rest}</span> : null}
                               </div>
                             </div>
                           ))}
@@ -3394,7 +3465,7 @@ export default function PlanningPage() {
                       </div>
                     ) : (
                       <div className="border border-dashed border-[#1c2133] px-3 py-4 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                        Aucune donnee de cycle disponible pour ce planning.
+                        {tr.previewDialog.noCycleData}
                       </div>
                     )}
                   </div>
@@ -3407,7 +3478,7 @@ export default function PlanningPage() {
                   onClick={() => closePlanningPreviewDialog(false)}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Fermer
+                  {tr.previewDialog.close}
                 </Button>
                 <Button
                   variant="outline"
@@ -3419,7 +3490,7 @@ export default function PlanningPage() {
                     openAssignPlanningDialog(planning)
                   }}
                 >
-                  Assigner
+                  {tr.previewDialog.assign}
                 </Button>
                 <Button
                   className="h-9 rounded-none border border-[var(--brand-accent)] bg-[var(--brand-accent)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--brand-accent)]"
@@ -3430,7 +3501,7 @@ export default function PlanningPage() {
                     openEditPlanningDialog(planning)
                   }}
                 >
-                  Modifier
+                  {tr.previewDialog.edit}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -3440,49 +3511,49 @@ export default function PlanningPage() {
             <DialogContent className="max-w-xl rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  {editingShift ? "Modifier un quart de travail" : "Creer un quart de travail"}
+                  {editingShift ? tr.shiftDialog.editTitle : tr.shiftDialog.createTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  {editingShift
-                    ? "Met a jour ce quart reutilisable pour les equipes et les employes."
-                    : "Ajoute un quart reutilisable pour les equipes et les employes."}
+                  {editingShift ? tr.shiftDialog.editDesc : tr.shiftDialog.createDesc}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-3 py-2">
                 {error?.scope === "shift_dialog" && (
                   <div role="alert" className="border border-[var(--destructive)]/40 bg-[#2a0e0e]/40 px-3 py-2">
-                    <p className="text-sm text-[var(--destructive)]">{error.message}</p>
+                    <p className="text-sm text-[var(--destructive)]">{error.detail ?? tr.errors[error.code]}</p>
                   </div>
                 )}
                 <div className="grid gap-2 md:grid-cols-2">
                   <Input
-                    placeholder="Nom du quart"
+                    placeholder={tr.shiftDialog.namePlaceholder}
                     value={newShift.name ?? ""}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, name: event.target.value }))}
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                   />
                   <Input
-                    placeholder="Code"
+                    placeholder={tr.shiftDialog.codePlaceholder}
                     value={newShift.code ?? ""}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, code: event.target.value }))}
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                   />
                 </div>
                 <Input
-                  placeholder="Description"
+                  placeholder={tr.shiftDialog.descriptionPlaceholder}
                   value={newShift.description ?? ""}
                   onChange={(event) => setNewShift((prev) => ({ ...prev, description: event.target.value }))}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1.5">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Debut de service</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                      {tr.shiftDialog.serviceStart}
+                    </p>
                     <Input
                       type="text"
                       inputMode="numeric"
-                      lang="fr-FR"
+                      lang={localeTag}
                       pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
-                      placeholder="Ex: 22, 2200, 22:30"
+                      placeholder={tr.shiftDialog.startExample}
                       value={newShift.start_time ?? ""}
                       onChange={(event) => setNewShift((prev) => ({ ...prev, start_time: event.target.value }))}
                       onBlur={() => normalizeShiftTimeField("start_time")}
@@ -3490,13 +3561,15 @@ export default function PlanningPage() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Fin de service</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                      {tr.shiftDialog.serviceEnd}
+                    </p>
                     <Input
                       type="text"
                       inputMode="numeric"
-                      lang="fr-FR"
+                      lang={localeTag}
                       pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
-                      placeholder="Ex: 6, 0600, 06:00"
+                      placeholder={tr.shiftDialog.endExample}
                       value={newShift.end_time ?? ""}
                       onChange={(event) => setNewShift((prev) => ({ ...prev, end_time: event.target.value }))}
                       onBlur={() => normalizeShiftTimeField("end_time")}
@@ -3508,12 +3581,14 @@ export default function PlanningPage() {
                 {newShift.start_time && newShift.end_time && newShift.end_time <= newShift.start_time ? (
                   <p className="flex items-center gap-1.5 font-mono text-[10px] text-[#a78bfa]">
                     <span>↩</span>
-                    <span>Quart de nuit — la fin est le lendemain</span>
+                    <span>{tr.shiftDialog.nightShiftNote}</span>
                   </p>
                 ) : null}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Pause</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                      {tr.shiftDialog.break}
+                    </p>
                     <Switch
                       checked={newShift.break_enabled}
                       onCheckedChange={(checked) =>
@@ -3529,13 +3604,15 @@ export default function PlanningPage() {
                   {newShift.break_enabled ? (
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1.5">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Debut pause</p>
+                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                          {tr.shiftDialog.breakStart}
+                        </p>
                         <Input
                           type="text"
                           inputMode="numeric"
-                          lang="fr-FR"
+                          lang={localeTag}
                           pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
-                          placeholder="Ex: 12, 1230, 12:30"
+                          placeholder={tr.shiftDialog.breakStartExample}
                           value={newShift.break_start_time ?? ""}
                           onChange={(event) =>
                             setNewShift((prev) => ({ ...prev, break_start_time: event.target.value }))
@@ -3545,13 +3622,15 @@ export default function PlanningPage() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Fin pause</p>
+                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                          {tr.shiftDialog.breakEnd}
+                        </p>
                         <Input
                           type="text"
                           inputMode="numeric"
-                          lang="fr-FR"
+                          lang={localeTag}
                           pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
-                          placeholder="Ex: 13, 1300, 13:00"
+                          placeholder={tr.shiftDialog.breakEndExample}
                           value={newShift.break_end_time ?? ""}
                           onChange={(event) =>
                             setNewShift((prev) => ({ ...prev, break_end_time: event.target.value }))
@@ -3565,7 +3644,9 @@ export default function PlanningPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Heures supplementaires</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                      {tr.shiftDialog.overtime}
+                    </p>
                     <Switch
                       checked={newShift.overtime_enabled}
                       onCheckedChange={(checked) =>
@@ -3585,34 +3666,38 @@ export default function PlanningPage() {
                   {newShift.overtime_enabled ? (
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1.5">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Debut H.S.</p>
+                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                          {tr.shiftDialog.overtimeStart}
+                        </p>
                         <Input
                           type="text"
                           inputMode="numeric"
-                          lang="fr-FR"
+                          lang={localeTag}
                           pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
                           value={newShift.overtime_start_time ?? ""}
                           onChange={(event) =>
                             setNewShift((prev) => ({ ...prev, overtime_start_time: event.target.value }))
                           }
                           onBlur={() => normalizeShiftTimeField("overtime_start_time")}
-                          placeholder="Ex: 18, 1830, 18:30"
+                          placeholder={tr.shiftDialog.overtimeStartExample}
                           className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[#e2e8f0] tabular-nums placeholder:text-[#4a5568]"
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Fin H.S.</p>
+                        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                          {tr.shiftDialog.overtimeEnd}
+                        </p>
                         <Input
                           type="text"
                           inputMode="numeric"
-                          lang="fr-FR"
+                          lang={localeTag}
                           pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
                           value={newShift.overtime_end_time ?? ""}
                           onChange={(event) =>
                             setNewShift((prev) => ({ ...prev, overtime_end_time: event.target.value }))
                           }
                           onBlur={() => normalizeShiftTimeField("overtime_end_time")}
-                          placeholder="Ex: 20, 2000, 20:00"
+                          placeholder={tr.shiftDialog.overtimeEndExample}
                           className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[#e2e8f0] tabular-nums placeholder:text-[#4a5568]"
                         />
                       </div>
@@ -3621,7 +3706,9 @@ export default function PlanningPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1.5">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Retard tolere</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                      {tr.shiftDialog.lateTolerance}
+                    </p>
                     <div className="flex items-center gap-1.5">
                       <Input
                         type="number"
@@ -3634,11 +3721,15 @@ export default function PlanningPage() {
                         }
                         className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] tabular-nums"
                       />
-                      <span className="shrink-0 font-mono text-[10px] text-[#7a8599]">min</span>
+                      <span className="shrink-0 font-mono text-[10px] text-[#7a8599]">
+                        {tr.shiftDialog.minutesUnit}
+                      </span>
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Marge depart</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
+                      {tr.shiftDialog.earlyLeaveMargin}
+                    </p>
                     <div className="flex items-center gap-1.5">
                       <Input
                         type="number"
@@ -3651,7 +3742,9 @@ export default function PlanningPage() {
                         }
                         className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] tabular-nums"
                       />
-                      <span className="shrink-0 font-mono text-[10px] text-[#7a8599]">min</span>
+                      <span className="shrink-0 font-mono text-[10px] text-[#7a8599]">
+                        {tr.shiftDialog.minutesUnit}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -3663,7 +3756,7 @@ export default function PlanningPage() {
                   disabled={isSavingShift}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Annuler
+                  {tr.shiftDialog.cancel}
                 </Button>
                 <Button
                   className="h-9 rounded-none border border-[var(--brand-accent)] bg-[var(--brand-accent)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--brand-accent)]"
@@ -3671,7 +3764,7 @@ export default function PlanningPage() {
                   disabled={isSavingShift}
                 >
                   {isSavingShift && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {editingShift ? "Mettre a jour" : "Enregistrer"}
+                  {editingShift ? tr.shiftDialog.update : tr.shiftDialog.save}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -3681,29 +3774,27 @@ export default function PlanningPage() {
             <DialogContent className="top-[4vh] w-[min(96vw,1320px)] max-w-[min(96vw,1320px)] max-h-[92vh] translate-y-0 overflow-y-auto rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  {editingPlanning ? "Modifier un planning" : "Creer un planning"}
+                  {editingPlanning ? tr.planningDialog.editTitle : tr.planningDialog.createTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  {editingPlanning
-                    ? "Mets a jour le cycle hebdomadaire de cet emploi de temps."
-                    : "Definis un cycle hebdomadaire qui servira de base aux emplois de temps."}
+                  {editingPlanning ? tr.planningDialog.editDesc : tr.planningDialog.createDesc}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 py-1">
                 {error?.scope === "planning_dialog" && (
                   <div role="alert" className="border border-[var(--destructive)]/40 bg-[#2a0e0e]/40 px-3 py-2">
-                    <p className="text-sm text-[var(--destructive)]">{error.message}</p>
+                    <p className="text-sm text-[var(--destructive)]">{error.detail ?? tr.errors[error.code]}</p>
                   </div>
                 )}
                 <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
                   <Input
-                    placeholder="Nom du planning"
+                    placeholder={tr.planningDialog.namePlaceholder}
                     value={newPlanning.name ?? ""}
                     onChange={(event) => setNewPlanning((prev) => ({ ...prev, name: event.target.value }))}
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                   />
                   <Input
-                    placeholder="Code"
+                    placeholder={tr.planningDialog.codePlaceholder}
                     value={newPlanning.code ?? ""}
                     onChange={(event) => setNewPlanning((prev) => ({ ...prev, code: event.target.value }))}
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
@@ -3711,7 +3802,7 @@ export default function PlanningPage() {
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
                   <Input
-                    placeholder="Description"
+                    placeholder={tr.planningDialog.descriptionPlaceholder}
                     value={newPlanning.description ?? ""}
                     onChange={(event) =>
                       setNewPlanning((prev) => ({ ...prev, description: event.target.value }))
@@ -3724,7 +3815,7 @@ export default function PlanningPage() {
                     className="h-9 rounded-none border border-[#1c2133] bg-[#1a1f2e] px-3 text-sm text-[#e2e8f0]"
                   >
                     <option value="" disabled>
-                      Selectionner un fuseau horaire
+                      {tr.planningDialog.timezonePlaceholder}
                     </option>
                     {timezoneOptions.map((timezone) => (
                       <option key={timezone.value} value={timezone.value} className="bg-[#0b0d13]">
@@ -3761,7 +3852,10 @@ export default function PlanningPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center border border-[#1c2133] bg-[#0b0d13] p-1">
                       {(["builder", "timeline"] as const).map((mode) => {
-                        const labels = { builder: "Edition par jour", timeline: "Apercu timeline" } as const
+                        const labels = {
+                          builder: tr.planningDialog.modeBuilder,
+                          timeline: tr.planningDialog.modeTimeline,
+                        } as const
                         const isSelected = planningEditorMode === mode
                         return (
                           <button
@@ -3780,10 +3874,10 @@ export default function PlanningPage() {
                     </div>
                     <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] tabular-nums">
                       {selectedShiftId
-                        ? `${workShiftsById.get(selectedShiftId)?.name ?? "Quart"} : ${formatTime(
+                        ? `${workShiftsById.get(selectedShiftId)?.name ?? tr.labels.shift} : ${formatTime(
                             workShiftsById.get(selectedShiftId)?.start_time
                           )} – ${formatTime(workShiftsById.get(selectedShiftId)?.end_time)}`
-                        : "Aucun quart selectionne"}
+                        : tr.planningDialog.noShiftSelected}
                     </div>
                   </div>
 
@@ -3795,14 +3889,14 @@ export default function PlanningPage() {
                         disabled={!selectedShiftId}
                         className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] transition hover:text-[var(--destructive)] disabled:opacity-40"
                       >
-                        Supprimer le quart partout
+                        {tr.planningDialog.removeShiftEverywhere}
                       </button>
                       <button
                         type="button"
                         onClick={clearPlanningGrid}
                         className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] transition hover:text-[var(--destructive)]"
                       >
-                        Vider la semaine
+                        {tr.planningDialog.clearWeek}
                       </button>
                     </div>
                   </div>
@@ -3810,10 +3904,10 @@ export default function PlanningPage() {
                   {planningEditorMode === "builder" ? (
                     <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
                       <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[#4a5568]">
-                        Edition par jour - ajoute/supprime sans decalage
+                        {tr.planningDialog.builderHint}
                       </p>
                       <div className="space-y-1.5">
-                        {WEEK_DAYS.map((day) => {
+                        {weekDays.map((day) => {
                           const slot = newPlanning.dailySlots[day.key]
                           const MAX_VISIBLE_DAY_SHIFTS = 2
                           const visibleShiftIds = slot.shiftIds.slice(0, MAX_VISIBLE_DAY_SHIFTS)
@@ -3846,18 +3940,18 @@ export default function PlanningPage() {
                                             return null
                                           }
                                           setCopySelectionDays(
-                                            WEEK_DAYS.map((item) => item.key).filter((key) => key !== day.key)
+                                            WEEK_DAY_KEYS.filter((key) => key !== day.key)
                                           )
                                           return day.key
                                         })
                                       }
                                     >
-                                      Dup
+                                      {tr.planningDialog.duplicate}
                                     </Button>
                                     {copyMenuDay === day.key ? (
                                       <div className="absolute left-0 top-8 z-20 w-56 border border-[#1c2133] bg-[#0b0d13] p-2 shadow-xl">
                                         <div className="grid grid-cols-2 gap-1">
-                                          {WEEK_DAYS.map((targetDay) => {
+                                          {weekDays.map((targetDay) => {
                                             const isSource = targetDay.key === day.key
                                             const checked = copySelectionDays.includes(targetDay.key)
                                             return (
@@ -3893,40 +3987,40 @@ export default function PlanningPage() {
                                             type="button"
                                             onClick={() =>
                                               setCopySelectionDays(
-                                                WEEK_DAYS.map((item) => item.key).filter((key) => key !== day.key)
+                                                WEEK_DAY_KEYS.filter((key) => key !== day.key)
                                               )
                                             }
                                             className="px-1.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7a8599] transition hover:text-[#e2e8f0]"
                                           >
-                                            Tout
+                                            {tr.planningDialog.all}
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => setCopySelectionDays([0, 1, 2, 3, 4].filter((key) => key !== day.key))}
                                             className="px-1.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7a8599] transition hover:text-[#e2e8f0]"
                                           >
-                                            L-V
+                                            {tr.planningDialog.weekdaysShort}
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => setCopySelectionDays([5, 6].filter((key) => key !== day.key))}
                                             className="px-1.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7a8599] transition hover:text-[#e2e8f0]"
                                           >
-                                            W-E
+                                            {tr.planningDialog.weekendShort}
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => applyCopyDaySelection(day.key)}
                                             className="bg-[var(--brand-accent)] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] font-semibold text-[#0b0d13] transition hover:bg-[var(--brand-accent)]"
                                           >
-                                            Appliquer
+                                            {tr.planningDialog.apply}
                                           </button>
                                         </div>
                                       </div>
                                     ) : null}
                                   </div>
                                   <div className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7a8599]">
-                                    <span>R</span>
+                                    <span>{tr.planningDialog.restInitial}</span>
                                     <Switch
                                       checked={slot.isRestDay}
                                       onCheckedChange={(checked) => setDayRestMode(day.key, checked)}
@@ -3944,7 +4038,7 @@ export default function PlanningPage() {
                                   </Button>
                                   {slot.isRestDay ? (
                                     <span className="border border-[var(--destructive)]/30 bg-[#2a0e0e] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--destructive)]">
-                                      Repos
+                                      {tr.planningDialog.rest}
                                     </span>
                                   ) : slot.shiftIds.length ? (
                                     visibleShiftIds.map((shiftId) => {
@@ -3956,7 +4050,7 @@ export default function PlanningPage() {
                                           type="button"
                                           onClick={() => removeShiftFromDay(day.key, shiftId)}
                                           className="min-w-0 border border-[var(--info)]/30 bg-[#0d1e2e] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-[var(--info)] transition hover:border-[var(--destructive)]/60 hover:text-[var(--destructive)]"
-                                          title={`${shift.name} ${formatTime(shift.start_time)}-${formatTime(shift.end_time)} (clic pour retirer)`}
+                                          title={`${shift.name} ${formatTime(shift.start_time)}-${formatTime(shift.end_time)} ${tr.planningDialog.chipRemoveHint}`}
                                         >
                                           <span className="block max-w-47.5 truncate">
                                             {shift.name} {formatTime(shift.start_time)}-{formatTime(shift.end_time)}
@@ -3965,13 +4059,15 @@ export default function PlanningPage() {
                                       )
                                     })
                                   ) : (
-                                    <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#4a5568]">Aucun</span>
+                                    <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#4a5568]">
+                                      {tr.planningDialog.none}
+                                    </span>
                                   )}
                                   {!slot.isRestDay && hiddenShiftIds.length > 0 ? (
                                     <button
                                       type="button"
                                       className="border border-[var(--warning)]/30 bg-[#2a1e06] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--warning)] transition hover:border-[var(--warning)]/60"
-                                      title={hiddenShiftDetails || `${hiddenShiftIds.length} quart(s) supplementaire(s)`}
+                                      title={hiddenShiftDetails || tr.planningDialog.hiddenShifts(hiddenShiftIds.length)}
                                     >
                                       +{hiddenShiftIds.length}
                                     </button>
@@ -3987,7 +4083,7 @@ export default function PlanningPage() {
                     <div className="overflow-x-auto border border-[#1c2133] bg-[#0b0d13] p-3">
                       <div className="min-w-0">
                         <div className="mb-2 grid grid-cols-[56px_minmax(0,1fr)] items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                          <div className="px-1">Heure</div>
+                          <div className="px-1">{tr.planningDialog.hour}</div>
                           <div>
                             <div className="flex items-center justify-between md:hidden">
                               {HOUR_MARKERS_6H.map((hour) => (
@@ -4007,7 +4103,7 @@ export default function PlanningPage() {
                         </div>
 
                         <div className="space-y-2">
-                          {WEEK_DAYS.map((day) => {
+                          {weekDays.map((day) => {
                             const slot = newPlanning.dailySlots[day.key]
                             const previousDayKey = day.key === 0 ? 6 : day.key - 1
                             const previousSlot = newPlanning.dailySlots[previousDayKey]
@@ -4164,7 +4260,7 @@ export default function PlanningPage() {
                   disabled={isSavingPlanning}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Annuler
+                  {tr.planningDialog.cancel}
                 </Button>
                 <Button
                   className="h-9 rounded-none border border-[var(--brand-accent)] bg-[var(--brand-accent)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--brand-accent)]"
@@ -4172,7 +4268,7 @@ export default function PlanningPage() {
                   disabled={isSavingPlanning}
                 >
                   {isSavingPlanning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {editingPlanning ? "Mettre a jour" : "Enregistrer"}
+                  {editingPlanning ? tr.planningDialog.update : tr.planningDialog.save}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -4182,10 +4278,10 @@ export default function PlanningPage() {
             <DialogContent className="max-w-lg rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  Supprimer le quart
+                  {tr.deleteShiftDialog.title}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Voulez-vous vraiment supprimer {pendingShiftDelete ? `"${pendingShiftDelete.name}"` : "ce quart"} ?
+                  {tr.deleteShiftDialog.confirm(pendingShiftDelete?.name ?? null)}
                 </DialogDescription>
               </DialogHeader>
               <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
@@ -4195,7 +4291,7 @@ export default function PlanningPage() {
                     checked={forceShiftDelete}
                     onChange={(event) => setForceShiftDelete(event.target.checked)}
                   />
-                  Forcer la suppression (si lie a des employes/plannings)
+                  {tr.deleteShiftDialog.force}
                 </label>
               </div>
               <DialogFooter>
@@ -4205,7 +4301,7 @@ export default function PlanningPage() {
                   disabled={deletingShiftId !== null}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Annuler
+                  {tr.deleteShiftDialog.cancel}
                 </Button>
                 <Button
                   variant="destructive"
@@ -4214,7 +4310,7 @@ export default function PlanningPage() {
                   className="h-9 rounded-none border border-[var(--destructive)] bg-[var(--destructive)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--destructive)]"
                 >
                   {deletingShiftId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Supprimer
+                  {tr.deleteShiftDialog.delete}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -4224,10 +4320,10 @@ export default function PlanningPage() {
             <DialogContent className="max-w-lg rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  Supprimer le planning
+                  {tr.deletePlanningDialog.title}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Voulez-vous vraiment supprimer {pendingPlanningDelete ? `"${pendingPlanningDelete.name}"` : "ce planning"} ?
+                  {tr.deletePlanningDialog.confirm(pendingPlanningDelete?.name ?? null)}
                 </DialogDescription>
               </DialogHeader>
               <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
@@ -4237,7 +4333,7 @@ export default function PlanningPage() {
                     checked={forcePlanningDelete}
                     onChange={(event) => setForcePlanningDelete(event.target.checked)}
                   />
-                  Forcer la suppression (si lie a des departements/employes)
+                  {tr.deletePlanningDialog.force}
                 </label>
               </div>
               <DialogFooter>
@@ -4247,7 +4343,7 @@ export default function PlanningPage() {
                   disabled={deletingPlanningId !== null}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Annuler
+                  {tr.deletePlanningDialog.cancel}
                 </Button>
                 <Button
                   variant="destructive"
@@ -4256,7 +4352,7 @@ export default function PlanningPage() {
                   className="h-9 rounded-none border border-[var(--destructive)] bg-[var(--destructive)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--destructive)]"
                 >
                   {deletingPlanningId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Supprimer
+                  {tr.deletePlanningDialog.delete}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -4273,7 +4369,7 @@ export default function PlanningPage() {
           id: emp.id,
           name: emp.name,
           employeeNo: emp.employee_no,
-          department: departmentsById.get(emp.department ?? -1) ?? "Sans departement",
+          department: departmentsById.get(emp.department ?? -1) ?? tr.noDepartment,
         })) satisfies PlanningCreationWizardEmployee[]}
         departments={departments.map((department) => ({
           id: department.id,

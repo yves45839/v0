@@ -78,6 +78,8 @@ import {
   Fingerprint,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 
 export type Employee = {
   id: string
@@ -280,6 +282,8 @@ function mapApiEmployeeToUi(
 export default function EmployeesPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { locale, t } = useI18n()
+  const tr = employeesDict[locale]
   const [searchQuery, setSearchQuery] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [accessGroupFilter, setAccessGroupFilter] = useState("all")
@@ -379,7 +383,7 @@ export default function EmployeesPage() {
         )
       )
     } catch (error) {
-      setEmployeesError(error instanceof Error ? error.message : "Erreur de chargement des employes")
+      setEmployeesError(error instanceof Error ? error.message : tr.list.loadError)
       setEmployeeList([])
       setAccessGroups([])
       setDepartments([])
@@ -627,7 +631,7 @@ export default function EmployeesPage() {
       return [payload, ...prev]
     })
     void loadEmployeesData()
-    toast.success(isEdit ? "Employé modifié avec succès" : "Employé ajouté avec succès")
+    toast.success(isEdit ? tr.toasts.employeeUpdated : tr.toasts.employeeAdded)
   }
 
   const handleImportEmployees = useCallback((rows: EmployeeImportRow[]) => {
@@ -652,7 +656,7 @@ export default function EmployeesPage() {
           apiId: existingEmployee?.apiId ?? null,
           tenantId: existingEmployee?.tenantId ?? tenantId,
           employeeId: employeeId || existingEmployee?.employeeId || `EMP-${Date.now()}`,
-          name: row.name.trim() || existingEmployee?.name || "Employe sans nom",
+          name: row.name.trim() || existingEmployee?.name || tr.unnamedEmployee,
           email: row.email.trim() || existingEmployee?.email || "-",
           phone: row.phone.trim() || existingEmployee?.phone || "-",
           departmentId: matchedDepartment?.id ?? existingEmployee?.departmentId ?? null,
@@ -697,10 +701,10 @@ export default function EmployeesPage() {
       return nextEmployees
     })
 
-    toast.success("Import CSV termine", {
-      description: `${createdCount} ajoute(s), ${updatedCount} mis a jour dans la vue front.`,
+    toast.success(tr.toasts.csvImportDone, {
+      description: tr.toasts.csvImportDesc(createdCount, updatedCount),
     })
-  }, [departmentByName, tenantId])
+  }, [departmentByName, tenantId, tr])
 
   const handleEditEmployee = (employee: Employee) => {
     setEditingEmployee(employee)
@@ -733,10 +737,10 @@ export default function EmployeesPage() {
           }
         })
       )
-      toast.success("Groupes d'accès mis à jour")
+      toast.success(tr.toasts.accessGroupsUpdated)
     } catch (error) {
-      setEmployeesError(error instanceof Error ? error.message : "Erreur de mise a jour des groupes d'acces")
-      toast.error("Erreur lors de la mise à jour des groupes d'accès")
+      setEmployeesError(error instanceof Error ? error.message : tr.toasts.accessGroupsUpdateError)
+      toast.error(tr.toasts.accessGroupsUpdateError)
     }
   }
 
@@ -768,10 +772,10 @@ export default function EmployeesPage() {
           }
         })
       )
-      toast.success("Quart de travail attribué avec succès")
+      toast.success(tr.toasts.workShiftAssigned)
     } catch (error) {
-      setEmployeesError(error instanceof Error ? error.message : "Erreur d'attribution du quart de travail")
-      toast.error("Erreur lors de l'attribution du quart de travail")
+      setEmployeesError(error instanceof Error ? error.message : tr.toasts.workShiftAssignError)
+      toast.error(tr.toasts.workShiftAssignError)
     }
   }
 
@@ -814,10 +818,10 @@ export default function EmployeesPage() {
             : prev
         )
       }
-      toast.success(`Département mis à jour pour ${draggedEmployee.name}`)
+      toast.success(tr.dept.updatedFor(draggedEmployee.name))
     } catch (error) {
-      setEmployeesError(error instanceof Error ? error.message : "Erreur de changement de departement")
-      toast.error("Erreur lors du changement de département")
+      setEmployeesError(error instanceof Error ? error.message : tr.dept.changeError)
+      toast.error(tr.dept.changeError)
     } finally {
       setDraggedEmployee(null)
     }
@@ -825,11 +829,11 @@ export default function EmployeesPage() {
 
   const handleCreateWorkShift = async () => {
     if (!tenantId) {
-      setEmployeesError("Tenant introuvable pour creer un quart de travail.")
+      setEmployeesError(tr.shift.tenantMissing)
       return
     }
     if (!newShift.name.trim()) {
-      setEmployeesError("Le nom du quart est obligatoire.")
+      setEmployeesError(tr.shift.nameRequired)
       return
     }
     setIsSavingWorkShift(true)
@@ -837,7 +841,7 @@ export default function EmployeesPage() {
     try {
       const overtimeMinutesRaw = newShift.overtime_minutes.trim()
       if (overtimeMinutesRaw && Number.isNaN(Number(overtimeMinutesRaw))) {
-        setEmployeesError("Les heures supplementaires doivent etre un nombre valide.")
+        setEmployeesError(tr.shift.overtimeInvalid)
         return
       }
 
@@ -857,7 +861,7 @@ export default function EmployeesPage() {
 
       await createWorkShift(payload)
       setCreateShiftOpen(false)
-      toast.success("Quart de travail créé avec succès")
+      toast.success(tr.shift.created)
       setNewShift({
         name: "",
         code: "",
@@ -870,7 +874,7 @@ export default function EmployeesPage() {
       })
       await loadEmployeesData()
     } catch (error) {
-      setEmployeesError(error instanceof Error ? error.message : "Erreur de creation du quart de travail")
+      setEmployeesError(error instanceof Error ? error.message : tr.shift.createError)
     } finally {
       setIsSavingWorkShift(false)
     }
@@ -915,18 +919,18 @@ export default function EmployeesPage() {
     devIndex: string,
   ): Promise<EnrollFingerprintResponse> => {
     const device = devices.find((d) => d.dev_index === devIndex)
-    if (!device) throw new Error("Lecteur introuvable")
+    if (!device) throw new Error(tr.toasts.readerNotFound)
     return enrollFingerprintFromReader(device.id, { employee_id: employeeId, finger_index: fingerIndex })
-  }, [devices])
+  }, [devices, tr])
 
   const handleEnrollFaceViaReader = useCallback(async (
     employeeId: number,
     devIndex: string,
   ): Promise<EnrollFaceResponse> => {
     const device = devices.find((d) => d.dev_index === devIndex)
-    if (!device) throw new Error("Lecteur introuvable")
+    if (!device) throw new Error(tr.toasts.readerNotFound)
     return enrollFaceFromReader(device.id, { employee_id: employeeId })
-  }, [devices])
+  }, [devices, tr])
 
   const handleUploadFacePhoto = useCallback(async (employeeId: number, base64Photo: string) => {
     await updateEmployee(employeeId, { face: { face_data: base64Photo } })
@@ -945,9 +949,7 @@ export default function EmployeesPage() {
         )
       )
       toast.success(
-        targetActive
-          ? `${employee.name} a été réactivé`
-          : `${employee.name} a été désactivé`
+        targetActive ? tr.person.reactivated(employee.name) : tr.person.deactivated(employee.name)
       )
       return
     }
@@ -968,18 +970,14 @@ export default function EmployeesPage() {
         )
       )
       toast.success(
-        targetActive
-          ? `${employee.name} a été réactivé`
-          : `${employee.name} a été désactivé`,
+        targetActive ? tr.person.reactivated(employee.name) : tr.person.deactivated(employee.name),
         {
-          description: targetActive
-            ? "L'employé peut à nouveau pointer."
-            : "L'employé ne pourra plus pointer tant qu'il restera désactivé.",
+          description: targetActive ? tr.person.reactivatedDesc : tr.person.deactivatedDesc,
         }
       )
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Erreur lors du changement d'état"
+        error instanceof Error ? error.message : tr.person.toggleError
       setEmployeesError(message)
       toast.error(message)
     } finally {
@@ -989,13 +987,13 @@ export default function EmployeesPage() {
         return next
       })
     }
-  }, [])
+  }, [tr])
 
   const handleDeleteEmployee = useCallback(async (employee: Employee) => {
     if (!employee.apiId) {
       // Mode démo : suppression locale.
       setEmployeeList((prev) => prev.filter((item) => item.id !== employee.id))
-      toast.success(`${employee.name} a été supprimé`)
+      toast.success(tr.person.deleted(employee.name))
       return
     }
 
@@ -1003,17 +1001,17 @@ export default function EmployeesPage() {
     try {
       await deleteEmployee(employee.apiId)
       setEmployeeList((prev) => prev.filter((item) => item.id !== employee.id))
-      toast.success(`${employee.name} a été supprimé`, {
-        description: "L'employé a été retiré du tenant et des lecteurs liés.",
+      toast.success(tr.person.deleted(employee.name), {
+        description: tr.person.deletedDesc,
       })
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Erreur lors de la suppression"
+        error instanceof Error ? error.message : tr.person.deleteError
       setEmployeesError(message)
       toast.error(message)
       throw error
     }
-  }, [])
+  }, [tr])
 
   const handleOpenCreateDepartment = (organizationId: number, parentId: number | null) => {
     setCreateDepartmentContext({ organizationId, parentId })
@@ -1024,12 +1022,12 @@ export default function EmployeesPage() {
   const handleCreateDepartment = async () => {
     if (!createDepartmentContext) return
     if (!newDepartment.name.trim()) {
-      toast.error("Le nom du département est obligatoire.")
+      toast.error(tr.dept.nameRequired)
       return
     }
     const departmentTenantId = tenantId ?? organizations.find((o) => o.id === createDepartmentContext.organizationId)?.tenant
     if (!departmentTenantId) {
-      toast.error("Tenant introuvable.")
+      toast.error(tr.dept.tenantNotFound)
       return
     }
     setIsSavingDepartment(true)
@@ -1041,10 +1039,10 @@ export default function EmployeesPage() {
         name: newDepartment.name.trim(),
       })
       setCreateDepartmentOpen(false)
-      toast.success("Département créé avec succès")
+      toast.success(tr.dept.created)
       await loadEmployeesData()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Erreur lors de la création du département")
+      toast.error(error instanceof Error ? error.message : tr.dept.createError)
     } finally {
       setIsSavingDepartment(false)
     }
@@ -1062,13 +1060,13 @@ export default function EmployeesPage() {
             <div className="flex flex-col gap-3 border-b border-[#1c2133] px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">
-                  Annuaire operationnel
+                  {tr.header.kicker}
                 </p>
                 <h1 className="mt-1 font-display text-[22px] font-bold uppercase leading-none tracking-[0.08em] text-[#e2e8f0]">
-                  Personnes
+                  {tr.header.title}
                 </h1>
                 <p className="mt-1 max-w-2xl text-xs text-[#7a8599]">
-                  Profils, affectations, badges, biometrie et synchronisation Hikvision.
+                  {tr.header.subtitle}
                 </p>
               </div>
 
@@ -1079,10 +1077,10 @@ export default function EmployeesPage() {
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#f97316]/60 hover:bg-[#1a1f2e] hover:text-[#f97316]"
                   onClick={() => {
                     if (employeeList.length === 0) {
-                      toast.warning("Aucun employe a exporter")
+                      toast.warning(tr.toasts.nothingToExport)
                       return
                     }
-                    const headers = ["Nom", "Prenom", "Matricule", "Departement", "Email", "Telephone"]
+                    const headers = [...tr.toasts.csvHeaders]
                     const rows = employeeList.map((employee) => {
                       const parts = employee.name.trim().split(/\s+/)
                       const firstName = parts.slice(0, -1).join(" ") || parts[0] || ""
@@ -1094,14 +1092,14 @@ export default function EmployeesPage() {
                     const url = URL.createObjectURL(blob)
                     const link = document.createElement("a")
                     link.href = url
-                    link.download = `employes-${new Date().toISOString().slice(0, 10)}.csv`
+                    link.download = `${tr.toasts.csvFilePrefix}-${new Date().toISOString().slice(0, 10)}.csv`
                     link.click()
                     URL.revokeObjectURL(url)
-                    toast.success("Export CSV termine", { description: `${employeeList.length} employes exportes` })
+                    toast.success(tr.toasts.csvExportDone, { description: tr.toasts.csvExportDesc(employeeList.length) })
                   }}
                 >
                   <Download className="mr-2 h-4 w-4" />
-                  Exporter
+                  {tr.header.export}
                 </Button>
                 <Button
                   variant="outline"
@@ -1110,7 +1108,7 @@ export default function EmployeesPage() {
                   onClick={() => setImportDialogOpen(true)}
                 >
                   <Upload className="mr-2 h-4 w-4" />
-                  Importer
+                  {tr.header.import}
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -1120,29 +1118,29 @@ export default function EmployeesPage() {
                       className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#f59e0b]/60 hover:bg-[#1a1f2e] hover:text-[#f59e0b]"
                     >
                       <Clock className="mr-2 h-4 w-4" />
-                      Planning
+                      {tr.header.planning}
                       <ChevronDown className="ml-2 h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Assigner</DropdownMenuLabel>
+                    <DropdownMenuLabel>{tr.header.assign}</DropdownMenuLabel>
                     <DropdownMenuItem onSelect={() => router.push("/planning?action=assign-planning&scope=employees")}>
                       <Users className="mr-2 h-4 w-4" />
-                      Personnes
+                      {tr.header.people}
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => router.push("/planning?action=assign-planning&scope=departments")}>
                       <Building2 className="mr-2 h-4 w-4" />
-                      Departements
+                      {tr.header.departments}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Consulter</DropdownMenuLabel>
+                    <DropdownMenuLabel>{tr.header.view}</DropdownMenuLabel>
                     <DropdownMenuItem onSelect={() => router.push("/planning?view=schedule")}>
                       <CalendarDays className="mr-2 h-4 w-4" />
-                      Planning personnes
+                      {tr.header.peoplePlanning}
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => router.push("/planning?view=timetable")}>
                       <CalendarRange className="mr-2 h-4 w-4" />
-                      Planning departements
+                      {tr.header.departmentPlanning}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -1155,37 +1153,37 @@ export default function EmployeesPage() {
                   }}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Ajouter
+                  {tr.header.add}
                 </Button>
               </div>
             </div>
 
             <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
               <PeopleMetricCard
-                label="Actifs"
+                label={tr.metrics.active}
                 value={activeEmployeesCount}
-                note={`${employeeList.length} profils`}
+                note={tr.metrics.profiles(employeeList.length)}
                 tone="green"
                 icon={UserCheck}
               />
               <PeopleMetricCard
-                label="Inactifs"
+                label={tr.metrics.inactive}
                 value={inactiveEmployeesCount}
-                note="Acces suspendus"
+                note={tr.metrics.accessSuspended}
                 tone="red"
                 icon={UserX}
               />
               <PeopleMetricCard
-                label="Sync attente"
+                label={tr.metrics.pendingSync}
                 value={pendingSyncCount}
-                note="Gateway Hik"
+                note={tr.metrics.hikGateway}
                 tone="amber"
                 icon={ShieldCheck}
               />
               <PeopleMetricCard
-                label="Biometrie"
+                label={tr.metrics.biometrics}
                 value={biometricReadyCount}
-                note="Face ou empreinte"
+                note={tr.metrics.faceOrFingerprint}
                 tone="blue"
                 icon={Fingerprint}
               />
@@ -1217,12 +1215,12 @@ export default function EmployeesPage() {
                   {isLoadingEmployees && (
                     <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/30 px-4 py-3 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      Chargement des employes...
+                      {tr.list.loading}
                     </div>
                   )}
                   {draggedEmployee && (
                     <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-100">
-                      Deplacement en cours pour {draggedEmployee.name}.
+                      {tr.list.movingEmployee(draggedEmployee.name)}
                     </div>
                   )}
                 </div>
@@ -1235,13 +1233,17 @@ export default function EmployeesPage() {
                     <Input
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Rechercher dans tous les attributs..."
+                      placeholder={tr.list.searchPlaceholder}
                       className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] pl-10 text-sm text-[#e2e8f0] placeholder:text-[#4a5568] focus-visible:ring-[#f97316]/35"
                     />
                   </div>
                   <div className="flex items-center gap-1 border border-[#1c2133] bg-[#0b0d13] p-1">
                     {(["all", "active", "inactive"] as const).map((option) => {
-                      const labels = { all: "Tous", active: "Actifs", inactive: "Inactifs" } as const
+                      const labels = {
+                        all: tr.list.filterAll,
+                        active: tr.list.filterActive,
+                        inactive: tr.list.filterInactive,
+                      } as const
                       const isSelected = activeFilter === option
                       return (
                         <button
@@ -1262,11 +1264,14 @@ export default function EmployeesPage() {
                 </div>
                 <div className="flex flex-col gap-1.5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    {filteredEmployees.length} resultat{filteredEmployees.length > 1 ? "s" : ""} dans {selectedScope.label}.
-                    {hasSearch ? " Recherche active." : ""}
+                    {tr.list.results(
+                      filteredEmployees.length,
+                      selectedScope.type === "all" ? tr.list.allEmployees : selectedScope.label
+                    )}
+                    {hasSearch ? tr.list.searchActive : ""}
                   </p>
                   <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                    {"Données en direct"}
+                    {tr.list.liveData}
                   </p>
                 </div>
 
@@ -1387,22 +1392,22 @@ export default function EmployeesPage() {
               <DialogHeader>
                 <DialogTitle>
                   {createDepartmentContext?.parentId
-                    ? "Créer un sous-département"
-                    : "Créer un département"}
+                    ? tr.dept.createSubTitle
+                    : tr.dept.createTitle}
                 </DialogTitle>
                 <DialogDescription>
                   {createDepartmentContext?.parentId
-                    ? `Nouveau sous-département rattaché à ${departments.find((d) => d.id === createDepartmentContext.parentId)?.name ?? "..."}.`
-                    : `Nouveau département rattaché à ${organizations.find((o) => o.id === createDepartmentContext?.organizationId)?.name ?? "..."}.`}
+                    ? tr.dept.createDescChild(departments.find((d) => d.id === createDepartmentContext.parentId)?.name ?? "...")
+                    : tr.dept.createDescRoot(organizations.find((o) => o.id === createDepartmentContext?.organizationId)?.name ?? "...")}
                 </DialogDescription>
               </DialogHeader>
               <div className="py-2">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Nom</label>
+                  <label className="text-sm font-medium">{tr.dept.nameLabel}</label>
                   <Input
                     value={newDepartment.name}
                     onChange={(event) => setNewDepartment((prev) => ({ ...prev, name: event.target.value }))}
-                    placeholder="Ex: Ressources humaines"
+                    placeholder={tr.dept.namePlaceholder}
                     autoFocus
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void handleCreateDepartment()
@@ -1412,11 +1417,11 @@ export default function EmployeesPage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setCreateDepartmentOpen(false)} disabled={isSavingDepartment}>
-                  Annuler
+                  {t.common.cancel}
                 </Button>
                 <Button onClick={() => void handleCreateDepartment()} disabled={isSavingDepartment}>
                   {isSavingDepartment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Créer
+                  {tr.dept.create}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1425,33 +1430,33 @@ export default function EmployeesPage() {
           <Dialog open={createShiftOpen} onOpenChange={setCreateShiftOpen}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Creer un quart de travail</DialogTitle>
+                <DialogTitle>{tr.shift.createTitle}</DialogTitle>
                 <DialogDescription>
-                  Definissez un quart pour l&apos;attribuer ensuite aux employes et departements.
+                  {tr.shift.createDesc}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Nom</label>
+                  <label className="text-sm font-medium">{tr.shift.nameLabel}</label>
                   <Input
                     value={newShift.name}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, name: event.target.value }))}
-                    placeholder="Ex: Quart Matin"
+                    placeholder={tr.shift.namePlaceholder}
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Code (optionnel)</label>
+                  <label className="text-sm font-medium">{tr.shift.codeLabel}</label>
                   <Input
                     value={newShift.code}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, code: event.target.value }))}
-                    placeholder="Ex: Q-MATIN"
+                    placeholder={tr.shift.codePlaceholder}
                   />
                 </div>
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prise de service</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr.shift.serviceHours}</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Heure de debut</label>
+                      <label className="text-sm font-medium">{tr.shift.startTime}</label>
                       <Input
                         type="time"
                         value={newShift.start_time}
@@ -1459,7 +1464,7 @@ export default function EmployeesPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Heure de fin</label>
+                      <label className="text-sm font-medium">{tr.shift.endTime}</label>
                       <Input
                         type="time"
                         value={newShift.end_time}
@@ -1469,10 +1474,10 @@ export default function EmployeesPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pause</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr.shift.breakLabel}</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Heure de debut</label>
+                      <label className="text-sm font-medium">{tr.shift.startTime}</label>
                       <Input
                         type="time"
                         value={newShift.break_start_time}
@@ -1480,7 +1485,7 @@ export default function EmployeesPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Heure de fin</label>
+                      <label className="text-sm font-medium">{tr.shift.endTime}</label>
                       <Input
                         type="time"
                         value={newShift.break_end_time}
@@ -1490,31 +1495,31 @@ export default function EmployeesPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Heures supplementaires (minutes)</label>
+                  <label className="text-sm font-medium">{tr.shift.overtimeLabel}</label>
                   <Input
                     type="number"
                     min="0"
                     value={newShift.overtime_minutes}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, overtime_minutes: event.target.value }))}
-                    placeholder="Ex: 60 (optionnel)"
+                    placeholder={tr.shift.overtimePlaceholder}
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Description</label>
+                  <label className="text-sm font-medium">{tr.shift.descriptionLabel}</label>
                   <Input
                     value={newShift.description}
                     onChange={(event) => setNewShift((prev) => ({ ...prev, description: event.target.value }))}
-                    placeholder="Optionnel"
+                    placeholder={tr.shift.descriptionPlaceholder}
                   />
                 </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setCreateShiftOpen(false)} disabled={isSavingWorkShift}>
-                  Annuler
+                  {t.common.cancel}
                 </Button>
                 <Button onClick={() => void handleCreateWorkShift()} disabled={isSavingWorkShift}>
                   {isSavingWorkShift && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Enregistrer
+                  {t.common.save}
                 </Button>
               </DialogFooter>
             </DialogContent>

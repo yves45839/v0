@@ -65,6 +65,8 @@ import {
   deriveOperationalStatus,
 } from "@/components/employees/employee-status-chip"
 import { EmptyState } from "@/components/ui/empty-state"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 
 type EmployeeTableProps = {
   employees: Employee[]
@@ -106,6 +108,10 @@ export function EmployeeTable({
   onDeleteEmployee,
 }: EmployeeTableProps) {
   const router = useRouter()
+  const { locale, t } = useI18n()
+  const tr = employeesDict[locale]
+  // "Non assigne" est la valeur sentinelle stockée dans les données — traduite à l'affichage.
+  const displayAssigned = (value: string) => (value === "Non assigne" ? tr.notAssigned : value)
   const [groupDialogEmployee, setGroupDialogEmployee] = useState<Employee | null>(null)
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([])
   const [isSavingGroups, setIsSavingGroups] = useState(false)
@@ -231,12 +237,12 @@ export function EmployeeTable({
         <Table className="min-w-[760px] table-fixed xl:min-w-full">
           <TableHeader className="sticky top-0 z-10 bg-[#0b0d13]">
             <TableRow className="border-[#1c2133] hover:bg-transparent">
-              <TableHead className="h-9 w-68 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568] 2xl:w-96">Profil</TableHead>
-              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Matricule</TableHead>
-              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Departement</TableHead>
-              <TableHead className="h-9 w-30 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Quart</TableHead>
-              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Statut</TableHead>
-              <TableHead className="h-9 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">Groupes d&apos;acces</TableHead>
+              <TableHead className="h-9 w-68 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568] 2xl:w-96">{tr.table.headerProfile}</TableHead>
+              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">{tr.table.headerEmployeeNo}</TableHead>
+              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">{tr.table.headerDepartment}</TableHead>
+              <TableHead className="h-9 w-30 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">{tr.table.headerShift}</TableHead>
+              <TableHead className="h-9 w-28 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">{tr.table.headerStatus}</TableHead>
+              <TableHead className="h-9 px-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[#4a5568]">{tr.table.headerAccessGroups}</TableHead>
               <TableHead className="h-9 w-11 px-1"></TableHead>
             </TableRow>
           </TableHeader>
@@ -246,8 +252,8 @@ export function EmployeeTable({
                 <TableCell colSpan={7} className="px-4 py-10">
                   <EmptyState
                     icon={Users}
-                    title="Aucun employé dans cette vue"
-                    description="Ajustez la recherche, les filtres ou le périmètre pour afficher des fiches."
+                    title={tr.table.emptyTitle}
+                    description={tr.table.emptyDesc}
                     variant="bare"
                   />
                 </TableCell>
@@ -260,7 +266,7 @@ export function EmployeeTable({
                   className="group cursor-grab border-[#1c2133] transition-colors hover:bg-[#1a1f2e]/70 active:cursor-grabbing"
                   role="button"
                   tabIndex={0}
-                  aria-label={`Ouvrir la fiche de ${employee.name}`}
+                  aria-label={tr.table.openProfile(employee.name)}
                   style={{ animationDelay: `${Math.min(index * 30, 300)}ms` }}
                   onClick={() => onEmployeeClick(employee)}
                   onKeyDown={(event) => {
@@ -288,13 +294,13 @@ export function EmployeeTable({
                         <div className="flex min-w-0 items-center gap-1.5">
                           <p className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[#e2e8f0]">{employee.name}</p>
                           <div className="flex shrink-0 items-center gap-1">
-                            <span title="Personne dans le lecteur">
+                            <span title={tr.table.inReader}>
                               <Monitor className={cn("h-3 w-3", iconStateClass(employee.deviceIds.length > 0))} />
                             </span>
-                            <span title="Visage present">
+                            <span title={tr.table.facePresent}>
                               <ScanFace className={cn("h-3 w-3", iconStateClass(employee.biometricStatus.hasFacePhoto))} />
                             </span>
-                            <span title="Au moins une carte">
+                            <span title={tr.table.hasCard}>
                               <CreditCard
                                 className={cn(
                                   "h-3 w-3",
@@ -302,7 +308,7 @@ export function EmployeeTable({
                                 )}
                               />
                             </span>
-                            <span title="Au moins une empreinte">
+                            <span title={tr.table.hasFingerprint}>
                               <Fingerprint
                                 className={cn(
                                   "h-3 w-3",
@@ -310,7 +316,7 @@ export function EmployeeTable({
                                 )}
                               />
                             </span>
-                            <span title="Periode de validite">
+                            <span title={tr.table.validityPeriod}>
                               <CalendarCheck className={cn("h-3 w-3", iconStateClass(isEmployeeValidityActive(employee)))} />
                             </span>
                           </div>
@@ -331,13 +337,13 @@ export function EmployeeTable({
                         departmentColors[employee.department] || "border-[#1c2133] bg-[#1a1f2e] text-[#7a8599]"
                       )}
                     >
-                      {employee.department}
+                      {displayAssigned(employee.department)}
                     </Badge>
                   </TableCell>
                   <TableCell className="px-2 py-1.5">
                     <div className="flex min-w-0 items-center gap-1">
                         <Badge variant="outline" className="max-w-24 truncate rounded-none border-[#1c2133] bg-[#0b0d13] px-1.5 py-0 font-mono text-[10px] font-medium text-[#7a8599]">
-                          {employee.workShift}
+                          {displayAssigned(employee.workShift)}
                         </Badge>
                         {employee.workShiftIds.length > 1 && (
                           <Badge variant="secondary" className="rounded-none bg-[#2a1e06] px-1.5 py-0 font-mono text-[10px] font-medium text-[#f59e0b]">
@@ -354,7 +360,7 @@ export function EmployeeTable({
                         }}
                       >
                         <Clock className="mr-1 h-3 w-3" />
-                        Affecter
+                        {tr.table.assignAction}
                       </Button>
                     </div>
                   </TableCell>
@@ -392,7 +398,7 @@ export function EmployeeTable({
                         }}
                       >
                         <ShieldCheck className="mr-1 h-3 w-3" />
-                        Affecter
+                        {tr.table.assignAction}
                       </Button>
                     </div>
                   </TableCell>
@@ -405,7 +411,7 @@ export function EmployeeTable({
                           className="h-7 w-7 rounded-none p-0 text-[#7a8599] opacity-0 transition-opacity hover:bg-[#1a1f2e] hover:text-[#f97316] group-hover:opacity-100 focus-visible:opacity-100"
                         >
                           <MoreHorizontal className="h-3.5 w-3.5" />
-                          <span className="sr-only">Actions</span>
+                          <span className="sr-only">{tr.table.actions}</span>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -416,7 +422,7 @@ export function EmployeeTable({
                           }}
                         >
                           <Eye className="mr-2 h-4 w-4" />
-                          Voir la fiche
+                          {tr.table.viewProfile}
                         </DropdownMenuItem>
                         {onPreviewEmployee && (
                           <DropdownMenuItem
@@ -426,7 +432,7 @@ export function EmployeeTable({
                             }}
                           >
                             <FileText className="mr-2 h-4 w-4" />
-                            Aperçu rapide
+                            {tr.table.quickPreview}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem
@@ -436,7 +442,7 @@ export function EmployeeTable({
                           }}
                         >
                           <Pencil className="mr-2 h-4 w-4" />
-                          Modifier
+                          {t.common.edit}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={(e) => {
@@ -445,7 +451,7 @@ export function EmployeeTable({
                           }}
                         >
                           <Clock className="mr-2 h-4 w-4" />
-                          Quart de travail
+                          {tr.table.workShiftItem}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={(e) => {
@@ -454,14 +460,14 @@ export function EmployeeTable({
                           }}
                         >
                           <ShieldCheck className="mr-2 h-4 w-4" />
-                          Groupes d&apos;acces
+                          {tr.table.accessGroupsItem}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={(e) => {
                           e.stopPropagation()
                           router.push(`/access-logs?person=${encodeURIComponent(employee.employeeId)}`)
                         }}>
                           <FileText className="mr-2 h-4 w-4" />
-                          Voir les logs
+                          {tr.table.viewLogs}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
@@ -478,7 +484,7 @@ export function EmployeeTable({
                           ) : (
                             <UserX className="mr-2 h-4 w-4" />
                           )}
-                          {employee.isActive === false ? "Réactiver" : "Désactiver"}
+                          {employee.isActive === false ? tr.table.reactivate : tr.table.deactivate}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={(e) => {
@@ -488,7 +494,7 @@ export function EmployeeTable({
                           className="text-destructive focus:text-destructive"
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
-                          Supprimer
+                          {t.common.delete}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -502,11 +508,11 @@ export function EmployeeTable({
         {totalEmployees > 0 && (
           <div className="flex flex-col gap-2 border-t border-[#1c2133] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-              Affichage {startIndex + 1}-{endIndex} sur {totalEmployees}
+              {tr.table.showing(startIndex + 1, endIndex, totalEmployees)}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]" htmlFor="employee-page-size">
-                Lignes
+                {tr.table.rows}
               </label>
               <select
                 id="employee-page-size"
@@ -528,10 +534,10 @@ export function EmployeeTable({
                 onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
                 disabled={!canGoPrev}
               >
-                Precedent
+                {tr.table.prev}
               </Button>
               <span className="min-w-20 text-center font-mono text-[10px] uppercase tracking-[0.08em] text-[#4a5568]">
-                Page {currentPage}/{totalPages}
+                {tr.table.pageOf(currentPage, totalPages)}
               </span>
               <Button
                 type="button"
@@ -541,7 +547,7 @@ export function EmployeeTable({
                 onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
                 disabled={!canGoNext}
               >
-                Suivant
+                {tr.table.next}
               </Button>
             </div>
           </div>
@@ -552,7 +558,7 @@ export function EmployeeTable({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Groupes d&apos;acces - {groupDialogEmployee?.name ?? ""}
+              {tr.table.groupDialogTitle(groupDialogEmployee?.name ?? "")}
             </DialogTitle>
           </DialogHeader>
 
@@ -568,18 +574,18 @@ export function EmployeeTable({
             ))}
             {accessGroupOptions.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Aucun groupe disponible pour ce tenant.
+                {tr.table.noGroupsForTenant}
               </p>
             )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={closeGroupDialog} disabled={isSavingGroups}>
-              Annuler
+              {t.common.cancel}
             </Button>
             <Button onClick={() => void handleSaveGroups()} disabled={isSavingGroups || !groupDialogEmployee}>
               {isSavingGroups && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Enregistrer
+              {t.common.save}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -593,15 +599,15 @@ export function EmployeeTable({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer cet employé ?</AlertDialogTitle>
+            <AlertDialogTitle>{tr.table.deleteConfirmTitle}</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteCandidate
-                ? `${deleteCandidate.name} (${deleteCandidate.employeeId}) sera retiré du tenant et de tous les lecteurs liés. Cette action est irréversible.`
+                ? tr.table.deleteConfirmDesc(deleteCandidate.name, deleteCandidate.employeeId)
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>{t.common.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault()
@@ -611,7 +617,7 @@ export function EmployeeTable({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Supprimer
+              {t.common.delete}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -621,13 +627,12 @@ export function EmployeeTable({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Quart de travail - {workShiftDialogEmployee?.name ?? ""}
+              {tr.table.shiftDialogTitle(workShiftDialogEmployee?.name ?? "")}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Selectionnez un ou plusieurs quarts autorises pour cet employe. Le quart le plus proche des pointages
-              pourra ensuite etre retenu comme quart travaille.
+              {tr.table.shiftDialogDesc}
             </p>
             <div className="grid max-h-80 gap-3 overflow-y-auto pr-1">
               {workShiftOptions.map((shift) => (
@@ -641,19 +646,19 @@ export function EmployeeTable({
               ))}
             </div>
             {workShiftOptions.length === 0 && (
-              <p className="text-sm text-muted-foreground">Aucun quart disponible pour ce tenant.</p>
+              <p className="text-sm text-muted-foreground">{tr.table.noShiftsForTenant}</p>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeWorkShiftDialog} disabled={isSavingWorkShift}>
-              Annuler
+              {t.common.cancel}
             </Button>
             <Button
               onClick={() => void handleSaveWorkShift()}
               disabled={isSavingWorkShift || selectedWorkShiftIds.length === 0 || !workShiftDialogEmployee}
             >
               {isSavingWorkShift && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Enregistrer
+              {t.common.save}
             </Button>
           </DialogFooter>
         </DialogContent>

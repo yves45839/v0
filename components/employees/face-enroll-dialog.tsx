@@ -33,6 +33,7 @@ import {
   ImagePlus,
 } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 import { toast } from "sonner"
 import type { GatewayReaderItem, EnrollFaceResponse } from "@/lib/api/employees"
 
@@ -51,7 +52,7 @@ type EnrollState = "idle" | "capturing" | "success" | "error"
 
 const MAX_PHOTO_BYTES = 200 * 1024 // 200 KB
 
-function fileToBase64(file: File): Promise<string> {
+function fileToBase64(file: File, errorMessage: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
@@ -60,7 +61,7 @@ function fileToBase64(file: File): Promise<string> {
       const base64 = result.split(",")[1] ?? result
       resolve(base64)
     }
-    reader.onerror = () => reject(new Error("Erreur lecture fichier"))
+    reader.onerror = () => reject(new Error(errorMessage))
     reader.readAsDataURL(file)
   })
 }
@@ -75,7 +76,8 @@ export function FaceEnrollDialog({
   onEnrollViaReader,
   onUploadPhoto,
 }: FaceEnrollDialogProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const tr = employeesDict[locale]
   const [tab, setTab] = useState<"reader" | "upload">("reader")
   const [selectedReader, setSelectedReader] = useState<string>(readers[0]?.dev_index ?? "")
   const [enrollState, setEnrollState] = useState<EnrollState>("idle")
@@ -100,34 +102,34 @@ export function FaceEnrollDialog({
       setEnrollResult(result)
       setEnrollState("success")
       toast.success(t.biometrics.faceRegistered, {
-        description: `${result.success_count}/${result.target_readers_count} lecteur(s) OK`,
+        description: tr.faceDialog.readersOkDesc(result.success_count, result.target_readers_count),
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setEnrollError(msg)
       setEnrollState("error")
     }
-  }, [selectedReader, employeeId, onEnrollViaReader, t])
+  }, [selectedReader, employeeId, onEnrollViaReader, t, tr])
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (!file.type.startsWith("image/")) {
-      toast.error("Format invalide", { description: "Sélectionnez une image (JPG, PNG, WebP)" })
+      toast.error(tr.faceDialog.invalidFormat, { description: tr.faceDialog.selectImage })
       return
     }
     if (file.size > MAX_PHOTO_BYTES * 10) {
-      toast.warning("Fichier volumineux", { description: "L'image sera compressée automatiquement" })
+      toast.warning(tr.faceDialog.largeFile, { description: tr.faceDialog.willCompress })
     }
     setSelectedFile(file)
     setPreviewUrl(URL.createObjectURL(file))
-  }, [])
+  }, [tr])
 
   const handleUpload = useCallback(async () => {
     if (!selectedFile) return
     setIsUploading(true)
     try {
-      const base64 = await fileToBase64(selectedFile)
+      const base64 = await fileToBase64(selectedFile, tr.faceDialog.fileReadError)
       await onUploadPhoto(employeeId, base64)
       toast.success(t.biometrics.faceRegistered, { description: employeeName })
       onOpenChange(false)
@@ -137,7 +139,7 @@ export function FaceEnrollDialog({
     } finally {
       setIsUploading(false)
     }
-  }, [selectedFile, employeeId, onUploadPhoto, employeeName, onOpenChange, t])
+  }, [selectedFile, employeeId, onUploadPhoto, employeeName, onOpenChange, t, tr])
 
   const successRate = enrollResult
     ? Math.round((enrollResult.success_count / Math.max(enrollResult.target_readers_count, 1)) * 100)
@@ -156,7 +158,7 @@ export function FaceEnrollDialog({
               <DialogDescription>
                 {employeeName}
                 {hasFace && (
-                  <span className="ml-2 text-xs text-emerald-500">✓ Visage déjà enregistré</span>
+                  <span className="ml-2 text-xs text-emerald-500">✓ {tr.faceDialog.alreadyRegistered}</span>
                 )}
               </DialogDescription>
             </div>
@@ -218,14 +220,14 @@ export function FaceEnrollDialog({
                     <div className="text-center text-muted-foreground">
                       <User className="mx-auto mb-2 h-10 w-10 opacity-30" />
                       <p className="text-xs">{t.biometrics.startCapture}</p>
-                      <p className="text-[11px] text-muted-foreground/60">L'employé doit se présenter devant le lecteur</p>
+                      <p className="text-[11px] text-muted-foreground/60">{tr.faceDialog.standInFront}</p>
                     </div>
                   )}
                   {enrollState === "capturing" && (
                     <div className="text-center text-primary">
                       <Loader2 className="mx-auto mb-2 h-10 w-10 animate-spin" />
                       <p className="text-sm font-medium">{t.biometrics.capturing}</p>
-                      <p className="text-[11px] text-muted-foreground">Placez-vous devant le lecteur facial...</p>
+                      <p className="text-[11px] text-muted-foreground">{tr.faceDialog.positionYourself}</p>
                     </div>
                   )}
                   {enrollState === "success" && enrollResult && (
@@ -236,7 +238,7 @@ export function FaceEnrollDialog({
                       </p>
                       <Progress value={successRate} className="h-1.5" />
                       <p className="text-[11px] text-muted-foreground">
-                        {enrollResult.success_count}/{enrollResult.target_readers_count} lecteur(s)
+                        {tr.faceDialog.readersCount(enrollResult.success_count, enrollResult.target_readers_count)}
                       </p>
                     </div>
                   )}
@@ -263,7 +265,7 @@ export function FaceEnrollDialog({
                           "font-semibold",
                           r.status === "ok" ? "text-emerald-500" : r.status === "partial" ? "text-amber-400" : "text-destructive"
                         )}>
-                          {r.status === "ok" ? "✓ OK" : r.status === "partial" ? "~ Partiel" : "✗ Erreur"}
+                          {r.status === "ok" ? `✓ ${tr.faceDialog.statusOk}` : r.status === "partial" ? `~ ${tr.faceDialog.statusPartial}` : `✗ ${tr.faceDialog.statusError}`}
                           {r.detail && ` — ${r.detail}`}
                         </span>
                       </div>
@@ -289,8 +291,8 @@ export function FaceEnrollDialog({
               ) : (
                 <div className="text-center text-muted-foreground">
                   <Upload className="mx-auto mb-3 h-10 w-10 opacity-30" />
-                  <p className="text-sm font-medium">Glissez ou cliquez pour sélectionner</p>
-                  <p className="text-[11px] text-muted-foreground/70">JPG, PNG, WebP — Visage bien éclairé de face</p>
+                  <p className="text-sm font-medium">{tr.faceDialog.dropOrClick}</p>
+                  <p className="text-[11px] text-muted-foreground/70">{tr.faceDialog.photoHint}</p>
                 </div>
               )}
             </div>
