@@ -11,6 +11,8 @@ const en = {
   // Errors / toasts
   loadPeopleError: "Unable to load people.",
   catchupDone: "Event catch-up complete",
+  catchupAdminOnly: "Event catch-up is reserved for platform administrators.",
+  loadError: "Unable to load access logs.",
   catchupFailedMessage: "Event catch-up failed.",
   catchupFailedToast: "Event catch-up failed",
   filtersReset: "Filters reset",
@@ -127,6 +129,8 @@ const fr: typeof en = {
 
   loadPeopleError: "Impossible de charger les personnes.",
   catchupDone: "Rattrapage des événements terminé",
+  catchupAdminOnly: "Le rattrapage des événements est réservé aux administrateurs de la plateforme.",
+  loadError: "Impossible de charger les journaux d'accès.",
   catchupFailedMessage: "Le rattrapage des événements a échoué.",
   catchupFailedToast: "Le rattrapage des événements a échoué",
   filtersReset: "Filtres réinitialisés",

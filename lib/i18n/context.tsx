@@ -62,7 +62,17 @@ function parseDate(value: DateInput): Date | null {
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(resolveInitialLocale)
+  // Le rendu serveur et la première passe d'hydratation utilisent la locale
+  // par défaut ; la préférence stockée (localStorage/cookie) est appliquée
+  // après montage pour éviter toute discordance d'hydratation React (#418).
+  const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE)
+
+  useEffect(() => {
+    const stored = resolveInitialLocale()
+    if (stored !== DEFAULT_LOCALE) {
+      setLocaleState(stored)
+    }
+  }, [])
 
   const setLocale = useCallback((next: Locale) => {
     const normalized = normalizeLocale(next, DEFAULT_LOCALE)

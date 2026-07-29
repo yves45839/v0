@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { DEMO_ACCESS_LOGS } from "@/lib/mock-data/demo-access-logs"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { PageContextBar } from "@/components/dashboard/page-context-bar"
 import { fetchHikEvents, triggerHikEventsCatchup, type HikEvent } from "@/lib/api/access-logs"
 import { getActiveTenantCode } from "@/lib/api/auth"
+import { ApiError } from "@/lib/api/client"
 import { fetchEmployees, type EmployeeListItem } from "@/lib/api/employees"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -233,10 +233,9 @@ export default function AccessLogsPage() {
         .sort(sortLogsByNewest)
       latestLogIdRef.current = getLatestLogId(mapped)
       setAccessLogs(mapped)
-    } catch {
-      // Mode demonstration : charger les journaux fictifs
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setAccessLogs(DEMO_ACCESS_LOGS as any[])
+    } catch (err) {
+      setAccessLogs([])
+      setError(err instanceof Error ? err.message : tr.loadError)
     } finally {
       if (showLoader) setLoading(false)
     }
@@ -308,17 +307,24 @@ export default function AccessLogsPage() {
     [accessLogs, todayKey, yesterdayKey],
   )
 
-  const runCatchupAndReload = useCallback(async () => {
+  const runCatchupAndReload = useCallback(async (options?: { silent?: boolean }) => {
     setCatchupLoading(true)
     setError(null)
     try {
       await triggerHikEventsCatchup(500)
       await loadLogs(true)
-      toast.success(tr.catchupDone)
+      if (!options?.silent) toast.success(tr.catchupDone)
     } catch (err) {
+      // Le rattrapage est réservé aux administrateurs plateforme : un 403
+      // est attendu pour un utilisateur tenant — pas une erreur à afficher.
+      const isForbidden = err instanceof ApiError && err.status === 403
+      if (isForbidden) {
+        if (!options?.silent) toast.info(tr.catchupAdminOnly)
+        return
+      }
       const message = err instanceof Error ? err.message : tr.catchupFailedMessage
       setError(message)
-      toast.error(tr.catchupFailedToast)
+      if (!options?.silent) toast.error(tr.catchupFailedToast)
     } finally {
       setCatchupLoading(false)
     }
@@ -328,7 +334,7 @@ export default function AccessLogsPage() {
     if (loading || catchupLoading || hasAutoCatchupAttempted) return
     if (accessLogs.length === 0 || recentLogsCount === 0) {
       setHasAutoCatchupAttempted(true)
-      void runCatchupAndReload()
+      void runCatchupAndReload({ silent: true })
     }
   }, [accessLogs.length, recentLogsCount, loading, catchupLoading, hasAutoCatchupAttempted, runCatchupAndReload])
 
