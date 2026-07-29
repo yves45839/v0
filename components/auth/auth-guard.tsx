@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { AUTH_EVENTS, hasAuthSession } from "@/lib/api/auth"
+import { useI18n } from "@/lib/i18n/context"
+import { authDict } from "@/lib/i18n/pages/auth"
 
 type AuthGuardProps = {
   children: React.ReactNode
@@ -24,6 +26,8 @@ function isPublicPath(pathname: string): boolean {
 export function AuthGuard({ children }: AuthGuardProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const { locale } = useI18n()
+  const tr = authDict[locale]
   const [mounted, setMounted] = useState(false)
   const [sessionVersion, setSessionVersion] = useState(0)
 
@@ -60,7 +64,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   if (!mounted) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        Chargement...
+        {tr.loading}
       </div>
     )
   }
@@ -68,7 +72,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   if (!publicPath && !authenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        Redirection vers la connexion...
+        {tr.redirectingToLogin}
       </div>
     )
   }

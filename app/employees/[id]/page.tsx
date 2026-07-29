@@ -49,7 +49,6 @@ import {
   fetchDevices,
   fetchEmployeeById,
   fetchWorkShifts,
-  isEmployeeApiEnabled,
   setEmployeeActive,
   type AccessGroupApiItem,
   type DepartmentApiItem,
@@ -58,15 +57,13 @@ import {
   type WorkShiftApiItem,
 } from "@/lib/api/employees"
 import { fetchHikEvents, type HikEvent } from "@/lib/api/access-logs"
+import { getActiveTenantCode } from "@/lib/api/auth"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 
-const TENANT_CODE = (() => {
-  const code = process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE
-  if (!code && process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.warn("[LR Time] NEXT_PUBLIC_EMPLOYEE_TENANT_CODE is not set — configure it in .env.local")
-  }
-  return code ?? ""
-})()
+function getTenantCode(): string {
+  return getActiveTenantCode()
+}
 
 function getInitials(name: string) {
   return name
@@ -77,32 +74,27 @@ function getInitials(name: string) {
     .join("")
 }
 
-function formatDate(value: string | null | undefined) {
-  if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "—"
-  return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "—"
-  return date.toLocaleString("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
 type EventState = "loading" | "ready" | "error" | "disabled"
 
 export default function EmployeeDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
   const employeeId = params?.id
+  const { locale, t, formatDateTime } = useI18n()
+  const tr = employeesDict[locale]
+
+  const fmtDateTime = (value: string | null | undefined) => {
+    if (!value) return "—"
+    return (
+      formatDateTime(value, {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }) || "—"
+    )
+  }
 
   const [employee, setEmployee] = useState<EmployeeApiItem | null>(null)
   const [departments, setDepartments] = useState<DepartmentApiItem[]>([])
@@ -117,26 +109,18 @@ export default function EmployeeDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
-  const apiEnabled = isEmployeeApiEnabled()
-
   const loadEmployee = useCallback(async () => {
     if (!employeeId) return
-    if (!apiEnabled) {
-      setError("API employés désactivée. Active NEXT_PUBLIC_EMPLOYEE_API_ENABLED pour utiliser cette page.")
-      setIsLoading(false)
-      return
-    }
-
     setIsLoading(true)
     setError(null)
     try {
       const [employeeData, departmentsData, workShiftsData, devicesData, accessGroupsData] =
         await Promise.all([
           fetchEmployeeById(employeeId),
-          fetchDepartments(TENANT_CODE),
-          fetchWorkShifts(TENANT_CODE),
-          fetchDevices(TENANT_CODE),
-          fetchAccessGroups(TENANT_CODE),
+          fetchDepartments(getTenantCode()),
+          fetchWorkShifts(getTenantCode()),
+          fetchDevices(getTenantCode()),
+          fetchAccessGroups(getTenantCode()),
         ])
       setEmployee(employeeData)
       setDepartments(departmentsData)
@@ -145,12 +129,12 @@ export default function EmployeeDetailPage() {
       setAccessGroups(accessGroupsData)
     } catch (loadError) {
       const message =
-        loadError instanceof Error ? loadError.message : "Erreur de chargement de la fiche employé"
+        loadError instanceof Error ? loadError.message : tr.detail.loadError
       setError(message)
     } finally {
       setIsLoading(false)
     }
-  }, [employeeId, apiEnabled])
+  }, [employeeId])
 
   useEffect(() => {
     void loadEmployee()
@@ -158,41 +142,36 @@ export default function EmployeeDetailPage() {
 
   const loadRecentEvents = useCallback(async () => {
     if (!employee) return
-    if (!apiEnabled) {
-      setEventsState("disabled")
-      return
-    }
-
     setEventsState("loading")
     try {
       const response = await fetchHikEvents({
         personId: employee.employee_no,
         limit: 25,
-        tenant: TENANT_CODE,
+        tenant: getTenantCode(),
       })
       setEvents(response.results ?? [])
       setEventsState("ready")
     } catch {
       setEventsState("error")
     }
-  }, [employee, apiEnabled])
+  }, [employee])
 
   useEffect(() => {
     void loadRecentEvents()
   }, [loadRecentEvents])
 
   const departmentName = useMemo(() => {
-    if (!employee?.department) return "Non assigné"
-    return departments.find((department) => department.id === employee.department)?.name ?? "Département inconnu"
-  }, [employee?.department, departments])
+    if (!employee?.department) return tr.notAssigned
+    return departments.find((department) => department.id === employee.department)?.name ?? tr.detail.unknownDepartment
+  }, [employee, departments, tr])
 
   const workShiftName = useMemo(() => {
     if (employee?.effective_work_shift?.name) return employee.effective_work_shift.name
-    if (!employee?.work_shift) return "Non assigné"
-    return workShifts.find((shift) => shift.id === employee.work_shift)?.name ?? "Quart inconnu"
-  }, [employee?.effective_work_shift, employee?.work_shift, workShifts])
+    if (!employee?.work_shift) return tr.notAssigned
+    return workShifts.find((shift) => shift.id === employee.work_shift)?.name ?? tr.detail.unknownShift
+  }, [employee, workShifts, tr])
 
-  const planningName = employee?.effective_planning?.name ?? "Non assigné"
+  const planningName = employee?.effective_planning?.name ?? tr.notAssigned
 
   const employeeDevices = useMemo(() => {
     if (!employee) return []
@@ -218,11 +197,11 @@ export default function EmployeeDetailPage() {
       const updated = await setEmployeeActive(employee.id, target)
       setEmployee(updated)
       toast.success(
-        target ? `${employee.name} a été réactivé` : `${employee.name} a été désactivé`
+        target ? tr.person.reactivated(employee.name) : tr.person.deactivated(employee.name)
       )
     } catch (toggleError) {
       const message =
-        toggleError instanceof Error ? toggleError.message : "Erreur lors du changement d'état"
+        toggleError instanceof Error ? toggleError.message : tr.person.toggleError
       toast.error(message)
     } finally {
       setIsToggling(false)
@@ -234,11 +213,11 @@ export default function EmployeeDetailPage() {
     setIsDeleting(true)
     try {
       await deleteEmployee(employee.id)
-      toast.success(`${employee.name} a été supprimé`)
+      toast.success(tr.person.deleted(employee.name))
       router.push("/employees")
     } catch (deleteError) {
       const message =
-        deleteError instanceof Error ? deleteError.message : "Erreur lors de la suppression"
+        deleteError instanceof Error ? deleteError.message : tr.person.deleteError
       toast.error(message)
       setIsDeleting(false)
     }
@@ -258,7 +237,7 @@ export default function EmployeeDetailPage() {
                 <Button asChild variant="ghost" size="sm" className="mt-1">
                   <Link href="/employees">
                     <ArrowLeft className="mr-2 h-4 w-4" />
-                    Liste
+                    {tr.detail.backToList}
                   </Link>
                 </Button>
                 {isLoading || !employee ? (
@@ -282,7 +261,7 @@ export default function EmployeeDetailPage() {
                           {employee.employee_no}
                         </Badge>
                         <span>·</span>
-                        <span>{employee.position || "Poste non défini"}</span>
+                        <span>{employee.position || tr.detail.positionUndefined}</span>
                         <span>·</span>
                         <Badge
                           variant="outline"
@@ -292,7 +271,7 @@ export default function EmployeeDetailPage() {
                               : "border-destructive/30 bg-destructive/8 text-destructive"
                           }
                         >
-                          {isActive ? "Actif" : "Désactivé"}
+                          {isActive ? tr.detail.active : tr.detail.disabled}
                         </Badge>
                       </div>
                     </div>
@@ -308,7 +287,7 @@ export default function EmployeeDetailPage() {
                     onClick={() => router.push(`/employees?edit_id=${employee.id}`)}
                   >
                     <Pencil className="mr-2 h-4 w-4" />
-                    Modifier
+                    {t.common.edit}
                   </Button>
                   <Button
                     variant="outline"
@@ -323,7 +302,7 @@ export default function EmployeeDetailPage() {
                     ) : (
                       <UserCheck className="mr-2 h-4 w-4" />
                     )}
-                    {isActive ? "Désactiver" : "Réactiver"}
+                    {isActive ? tr.detail.deactivate : tr.detail.reactivate}
                   </Button>
                   <Button
                     variant="destructive"
@@ -331,7 +310,7 @@ export default function EmployeeDetailPage() {
                     onClick={() => setShowDeleteConfirm(true)}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
-                    Supprimer
+                    {t.common.delete}
                   </Button>
                 </div>
               )}
@@ -352,7 +331,7 @@ export default function EmployeeDetailPage() {
               <div className="space-y-4">
                 <Card className="border-border/70 bg-card/90 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                   <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Informations personnelles
+                    {tr.detail.personalInfo}
                   </h2>
                   {isLoading || !employee ? (
                     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -362,12 +341,12 @@ export default function EmployeeDetailPage() {
                     </div>
                   ) : (
                     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <InfoRow icon={<IdCard className="h-4 w-4" />} label="Matricule" value={employee.employee_no} mono />
-                      <InfoRow icon={<Building2 className="h-4 w-4" />} label="Département" value={departmentName} />
-                      <InfoRow icon={<Mail className="h-4 w-4" />} label="Email" value={employee.email || "—"} />
-                      <InfoRow icon={<Phone className="h-4 w-4" />} label="Téléphone" value={employee.phone || "—"} />
-                      <InfoRow icon={<Clock className="h-4 w-4" />} label="Quart" value={workShiftName} />
-                      <InfoRow icon={<Calendar className="h-4 w-4" />} label="Planning" value={planningName} />
+                      <InfoRow icon={<IdCard className="h-4 w-4" />} label={t.employees.employeeId} value={employee.employee_no} mono />
+                      <InfoRow icon={<Building2 className="h-4 w-4" />} label={t.employees.department} value={departmentName} />
+                      <InfoRow icon={<Mail className="h-4 w-4" />} label={t.employees.email} value={employee.email || "—"} />
+                      <InfoRow icon={<Phone className="h-4 w-4" />} label={t.employees.phone} value={employee.phone || "—"} />
+                      <InfoRow icon={<Clock className="h-4 w-4" />} label={tr.detail.shiftLabel} value={workShiftName} />
+                      <InfoRow icon={<Calendar className="h-4 w-4" />} label={tr.detail.planningLabel} value={planningName} />
                     </div>
                   )}
                 </Card>
@@ -375,7 +354,7 @@ export default function EmployeeDetailPage() {
                 <Card className="border-border/70 bg-card/90 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                   <div className="flex items-center justify-between">
                     <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      Historique récent
+                      {tr.detail.recentHistory}
                     </h2>
                     <Button
                       asChild
@@ -384,7 +363,7 @@ export default function EmployeeDetailPage() {
                       className="h-7 rounded-md text-[11px]"
                     >
                       <Link href={`/access-logs?person=${encodeURIComponent(employee?.employee_no ?? "")}`}>
-                        Voir tout
+                        {tr.detail.viewAll}
                       </Link>
                     </Button>
                   </div>
@@ -399,19 +378,19 @@ export default function EmployeeDetailPage() {
 
                   {eventsState === "error" && (
                     <p className="mt-4 text-sm text-muted-foreground">
-                      Impossible de récupérer l&apos;historique.
+                      {tr.detail.historyError}
                     </p>
                   )}
 
                   {eventsState === "disabled" && (
                     <p className="mt-4 text-sm text-muted-foreground">
-                      Mode démonstration : connectez l&apos;API pour afficher les pointages.
+                      {tr.detail.demoMode}
                     </p>
                   )}
 
                   {eventsState === "ready" && events.length === 0 && (
                     <p className="mt-4 text-sm text-muted-foreground">
-                      Aucun pointage enregistré pour cet employé.
+                      {tr.detail.noPunches}
                     </p>
                   )}
 
@@ -426,7 +405,7 @@ export default function EmployeeDetailPage() {
                                 {event.device.device_name || event.device.dev_index}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {formatDateTime(event.timestamp)}
+                                {fmtDateTime(event.timestamp)}
                                 {event.direction ? ` · ${event.direction}` : ""}
                               </p>
                             </div>
@@ -453,7 +432,7 @@ export default function EmployeeDetailPage() {
               <div className="space-y-4">
                 <Card className="border-border/70 bg-card/90 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                   <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Dernier pointage
+                    {tr.detail.lastPunch}
                   </h2>
                   {eventsState === "loading" && <Skeleton className="mt-3 h-12 w-full" />}
                   {eventsState === "ready" && lastEvent && (
@@ -467,7 +446,7 @@ export default function EmployeeDetailPage() {
                           }
                         />
                         <span className="text-sm font-medium text-foreground">
-                          {formatDateTime(lastEvent.timestamp)}
+                          {fmtDateTime(lastEvent.timestamp)}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -476,19 +455,19 @@ export default function EmployeeDetailPage() {
                     </div>
                   )}
                   {eventsState === "ready" && !lastEvent && (
-                    <p className="mt-3 text-sm text-muted-foreground">Aucun pointage récent.</p>
+                    <p className="mt-3 text-sm text-muted-foreground">{tr.detail.noRecentPunch}</p>
                   )}
                   {eventsState === "error" && (
-                    <p className="mt-3 text-sm text-muted-foreground">Indisponible.</p>
+                    <p className="mt-3 text-sm text-muted-foreground">{tr.detail.unavailable}</p>
                   )}
                   {eventsState === "disabled" && (
-                    <p className="mt-3 text-sm text-muted-foreground">Mode démonstration.</p>
+                    <p className="mt-3 text-sm text-muted-foreground">{tr.detail.demoShort}</p>
                   )}
                 </Card>
 
                 <Card className="border-border/70 bg-card/90 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                   <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Identifiants
+                    {tr.detail.credentials}
                   </h2>
                   {isLoading || !employee ? (
                     <Skeleton className="mt-3 h-16 w-full" />
@@ -496,31 +475,35 @@ export default function EmployeeDetailPage() {
                     <div className="mt-3 space-y-3">
                       <CredentialRow
                         icon={<CreditCard className="h-4 w-4" />}
-                        label="Cartes"
+                        label={tr.detail.cards}
                         value={
                           employee.cards.length === 0
-                            ? "Aucune"
+                            ? tr.detail.none
                             : employee.cards.map((card) => card.card_no).join(", ")
                         }
                         present={employee.cards.length > 0}
+                        presentLabel={tr.detail.okBadge}
+                        missingLabel={tr.detail.missing}
                       />
                       <CredentialRow
                         icon={<Fingerprint className="h-4 w-4" />}
-                        label="Empreintes"
+                        label={t.employees.fingerprints}
                         value={
                           (employee.fingerprints ?? []).length === 0
-                            ? "Aucune"
-                            : `${employee.fingerprints?.length ?? 0} enregistrée${
-                                (employee.fingerprints?.length ?? 0) > 1 ? "s" : ""
-                              }`
+                            ? tr.detail.none
+                            : tr.detail.fingerprintCount(employee.fingerprints?.length ?? 0)
                         }
                         present={(employee.fingerprints ?? []).length > 0}
+                        presentLabel={tr.detail.okBadge}
+                        missingLabel={tr.detail.missing}
                       />
                       <CredentialRow
                         icon={<ScanFace className="h-4 w-4" />}
-                        label="Visage"
-                        value={employee.face?.face_data ? "Enregistré" : "Non enregistré"}
+                        label={tr.detail.face}
+                        value={employee.face?.face_data ? tr.detail.registered : tr.detail.notRegistered}
                         present={Boolean(employee.face?.face_data)}
+                        presentLabel={tr.detail.okBadge}
+                        missingLabel={tr.detail.missing}
                       />
                     </div>
                   )}
@@ -528,13 +511,13 @@ export default function EmployeeDetailPage() {
 
                 <Card className="border-border/70 bg-card/90 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                   <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Lecteurs associés
+                    {tr.detail.linkedReaders}
                   </h2>
                   {isLoading || !employee ? (
                     <Skeleton className="mt-3 h-16 w-full" />
                   ) : employeeDevices.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">
-                      Aucun lecteur attribué directement.
+                      {tr.detail.noLinkedReaders}
                     </p>
                   ) : (
                     <ul className="mt-3 space-y-2">
@@ -561,12 +544,12 @@ export default function EmployeeDetailPage() {
 
                 <Card className="border-border/70 bg-card/90 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
                   <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Groupes d&apos;accès
+                    {t.employees.accessGroups}
                   </h2>
                   {isLoading || !employee ? (
                     <Skeleton className="mt-3 h-10 w-full" />
                   ) : employeeAccessGroups.length === 0 ? (
-                    <p className="mt-3 text-sm text-muted-foreground">Aucun groupe d&apos;accès.</p>
+                    <p className="mt-3 text-sm text-muted-foreground">{tr.detail.noAccessGroups}</p>
                   ) : (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {employeeAccessGroups.map((group) => (
@@ -591,15 +574,13 @@ export default function EmployeeDetailPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer cet employé ?</AlertDialogTitle>
+            <AlertDialogTitle>{tr.detail.deleteTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {employee
-                ? `${employee.name || employee.employee_no} sera retiré du tenant et de tous les lecteurs liés. Cette action est irréversible.`
-                : ""}
+              {employee ? tr.detail.deleteDesc(employee.name || employee.employee_no) : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>{t.common.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault()
@@ -609,7 +590,7 @@ export default function EmployeeDetailPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Supprimer
+              {t.common.delete}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -647,11 +628,15 @@ function CredentialRow({
   label,
   value,
   present,
+  presentLabel,
+  missingLabel,
 }: {
   icon: React.ReactNode
   label: string
   value: string
   present: boolean
+  presentLabel: string
+  missingLabel: string
 }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-xl border border-border/60 bg-background/40 p-3">
@@ -670,7 +655,7 @@ function CredentialRow({
             : "border-border/60 bg-secondary/60 text-muted-foreground"
         }
       >
-        {present ? "OK" : "Manquant"}
+        {present ? presentLabel : missingLabel}
       </Badge>
     </div>
   )

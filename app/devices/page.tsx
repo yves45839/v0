@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { DEMO_DEVICES_DATA } from "@/lib/mock-data/demo-devices"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
@@ -54,15 +53,30 @@ import {
   MapPin,
   Activity,
   Zap,
-  ExternalLink,
   Loader2,
   Server,
   ShieldCheck,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useI18n } from "@/lib/i18n/context"
+import { devicesPageDict, type DevicesPageDict } from "@/lib/i18n/pages/devices-page"
 import { AddDeviceByIpDialog } from "@/components/devices/add-device-by-ip-dialog"
 import { getActiveTenantCode } from "@/lib/api/auth"
-import { fetchEmployeeApiToken } from "@/lib/api/employees"
+import { ApiError } from "@/lib/api/client"
+import {
+  deleteDevice,
+  fetchDevices,
+  fetchGatewayDevices,
+  fetchTenants,
+  formatGatewayError,
+  onboardDevice,
+  rebootDevice,
+  syncDevices,
+  updateDevice,
+  type CoreDevice,
+  type GatewayDevice,
+  type Tenant,
+} from "@/lib/api/devices"
 
 type Device = {
   id: string
@@ -83,28 +97,7 @@ type Device = {
   tenantCode?: string
 }
 
-type GatewayDevice = Record<string, unknown>
-type TenantOption = { id: number; code: string; name: string }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-const DEFAULT_TENANT_CODE = process.env.NEXT_PUBLIC_TENANT_CODE ?? ""
-const RAW_DEVICE_CONFIG_PATH = process.env.NEXT_PUBLIC_DEVICE_CONFIG_PATH ?? "/doc/index.html#/dashboard"
-const DEVICE_CONFIG_PATH = RAW_DEVICE_CONFIG_PATH.startsWith("/")
-  ? RAW_DEVICE_CONFIG_PATH
-  : `/${RAW_DEVICE_CONFIG_PATH}`
-const DEVICE_CONFIG_SCHEME =
-  (process.env.NEXT_PUBLIC_DEVICE_CONFIG_SCHEME ?? "https").toLowerCase() === "https" ? "https" : "http"
-
-const getConfigHostCandidate = (rawIpAddress: string): string | null => {
-  const value = String(rawIpAddress ?? "").trim()
-  if (!value || value === "-" || value.toLowerCase() === "n/a") {
-    return null
-  }
-  if (value.includes(":") || value.includes("/")) {
-    return null
-  }
-  return value
-}
+type TenantOption = Tenant
 
 const normalizeStatus = (value: unknown): Device["status"] => {
   const status = String(value ?? "").toLowerCase()
@@ -121,7 +114,7 @@ const inferDeviceType = (rawModel: string): Device["type"] => {
   return "door_controller"
 }
 
-const mapGatewayDevice = (item: GatewayDevice, index: number): Device => {
+const mapGatewayDevice = (item: GatewayDevice, index: number, tr: DevicesPageDict): Device => {
   const model = String(item.model ?? item.devType ?? item.device_type ?? "")
   const tenantCode = String(item.tenant_code ?? "").trim()
   const status = normalizeStatus(item.status)
@@ -130,15 +123,15 @@ const mapGatewayDevice = (item: GatewayDevice, index: number): Device => {
   return {
     id: devIndex,
     devIndex,
-    name: String(item.name ?? item.device_name ?? item.devName ?? "Appareil Hikvision"),
+    name: String(item.name ?? item.device_name ?? item.devName ?? tr.defaultDeviceName),
     type: inferDeviceType(model),
     model: model || "N/A",
     serialNumber: String(item.serial_number ?? item.sn ?? item.dev_serial ?? "N/A"),
-    location: tenantCode ? `Tenant ${tenantCode}` : "Non assigne",
+    location: tenantCode ? tr.tenantLocation(tenantCode) : tr.unassigned,
     ipAddress: String(item.ip_address ?? item.ipAddress ?? item.devAddress ?? "-"),
     macAddress: String(item.mac_address ?? item.macAddress ?? "-"),
     status,
-    lastSeen: status === "online" ? "Actif" : "A verifier",
+    lastSeen: status === "online" ? tr.lastSeenActive : tr.lastSeenCheck,
     firmware: String(item.version ?? item.firmware ?? "N/A"),
     connectedUsers: 0,
     todayEvents: 0,
@@ -146,13 +139,13 @@ const mapGatewayDevice = (item: GatewayDevice, index: number): Device => {
   }
 }
 
-const getDiagnosticsSnapshot = (device: Device) => {
+const getDiagnosticsSnapshot = (device: Device, tr: DevicesPageDict) => {
   if (device.status === "offline") {
     return {
       latency: "N/A",
       packetLoss: "100%",
-      uptime: "0j",
-      message: "Terminal injoignable, verification reseau requise.",
+      uptime: tr.uptimeDays(0),
+      message: tr.diagUnreachable,
     }
   }
 
@@ -160,16 +153,16 @@ const getDiagnosticsSnapshot = (device: Device) => {
     return {
       latency: `${45 + (device.todayEvents % 25)}ms`,
       packetLoss: `${Math.min(18, 2 + (device.connectedUsers % 7))}%`,
-      uptime: `${Math.max(1, 3 + (device.todayEvents % 6))}j`,
-      message: "Connectivite instable detectee.",
+      uptime: tr.uptimeDays(Math.max(1, 3 + (device.todayEvents % 6))),
+      message: tr.diagUnstable,
     }
   }
 
   return {
     latency: `${8 + (device.todayEvents % 9)}ms`,
     packetLoss: "0%",
-    uptime: `${10 + (device.connectedUsers % 20)}j`,
-    message: "Connectivite nominale.",
+    uptime: tr.uptimeDays(10 + (device.connectedUsers % 20)),
+    message: tr.diagNominal,
   }
 }
 
@@ -188,19 +181,8 @@ const getDeviceIcon = (type: Device["type"]) => {
   }
 }
 
-const getDeviceTypeLabel = (type: Device["type"]) => {
-  switch (type) {
-    case "door_controller":
-      return "Controleur de porte"
-    case "reader":
-      return "Lecteur de carte"
-    case "turnstile":
-      return "Tourniquet"
-    case "fingerprint":
-      return "Lecteur biometrique"
-    default:
-      return type
-  }
+const getDeviceTypeLabel = (type: Device["type"], tr: DevicesPageDict) => {
+  return tr.deviceTypes[type] ?? type
 }
 
 type DeviceTone = "green" | "red" | "amber" | "blue"
@@ -216,12 +198,6 @@ const statusToTone: Record<Device["status"], DeviceTone> = {
   online: "green",
   warning: "amber",
   offline: "red",
-}
-
-const statusLabel: Record<Device["status"], string> = {
-  online: "En ligne",
-  warning: "Alerte",
-  offline: "Hors ligne",
 }
 
 function DeviceMetricCard({
@@ -273,6 +249,8 @@ function DeviceStatPill({ label, value }: { label: string; value: string }) {
 }
 
 export default function DevicesPage() {
+  const { locale, t } = useI18n()
+  const tr = devicesPageDict[locale]
   const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -286,7 +264,8 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<Device[]>([])
   const [isLoadingDevices, setIsLoadingDevices] = useState(false)
   const [devicesError, setDevicesError] = useState<string | null>(null)
-  const [tenantCode, setTenantCode] = useState(() => getActiveTenantCode(DEFAULT_TENANT_CODE))
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [tenantCode, setTenantCode] = useState(() => getActiveTenantCode())
   const [tenants, setTenants] = useState<TenantOption[]>([])
   const [isLoadingTenants, setIsLoadingTenants] = useState(false)
   const [serialNumber, setSerialNumber] = useState("SN-POSTMAN-0001")
@@ -302,7 +281,6 @@ export default function DevicesPage() {
   const [editName, setEditName] = useState("")
   const [isUpdatingDevice, setIsUpdatingDevice] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
-  const [configuringDeviceId, setConfiguringDeviceId] = useState<string | null>(null)
   const [syncingDeviceId, setSyncingDeviceId] = useState<string | null>(null)
   const [diagnosingDeviceId, setDiagnosingDeviceId] = useState<string | null>(null)
   const [verifyingDeviceId, setVerifyingDeviceId] = useState<string | null>(null)
@@ -310,139 +288,101 @@ export default function DevicesPage() {
   const [pendingRestartDevice, setPendingRestartDevice] = useState<Device | null>(null)
   const [addByIpOpen, setAddByIpOpen] = useState(false)
 
-  const getAccessToken = async (_normalizedBaseUrl: string) => {
-    const tokenData = await fetchEmployeeApiToken()
-    if (!tokenData?.access) {
-      throw new Error("Session invalide. Merci de vous reconnecter.")
-    }
-    return String(tokenData.access)
-  }
-
   const refreshDevices = async (targetTenantCode = tenantCode): Promise<Device[]> => {
     setIsLoadingDevices(true)
-    setDevicesError(null)
+    setLoadError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-
-      await fetch(`${normalizedBaseUrl}/api/hikgateway/sync-devices/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ dispatch_core_devices: true }),
-      }).catch(() => null)
-
       const normalizedTenantCode = targetTenantCode.trim()
-      const query = normalizedTenantCode
-        ? `?tenant=${encodeURIComponent(normalizedTenantCode)}&normalized=1&max_result=200`
-        : "?normalized=1&max_result=200"
-
-      const response = await fetch(`${normalizedBaseUrl}/api/hikgateway/devices/${query}`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+      const gateway = await fetchGatewayDevices({
+        tenant: normalizedTenantCode || undefined,
+        normalized: true,
+        maxResult: 200,
       })
 
-      if (!response.ok) {
-        throw new Error(`Echec lecture devices (${response.status})`)
+      if (gateway.errors.length > 0 && gateway.results.length === 0) {
+        throw new Error(
+          gateway.errors.map(formatGatewayError).join(" ") || tr.gatewayUnreachable,
+        )
       }
 
-      const data = await response.json()
-      const results = Array.isArray(data?.results) ? data.results : []
-      const mappedDevices = results.map((item: GatewayDevice, index: number) => mapGatewayDevice(item, index))
+      const mappedDevices = gateway.results.map((item: GatewayDevice, index: number) =>
+        mapGatewayDevice(item, index, tr),
+      )
 
-      const coreDevicesResponse = await fetch(`${normalizedBaseUrl}/api/devices/`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
+      // L'inventaire local sert uniquement a lier les appareils passerelle au
+      // coeur (id local + nom). Son echec ne doit pas bloquer l'affichage.
+      let coreRows: CoreDevice[] = []
+      try {
+        coreRows = await fetchDevices(normalizedTenantCode || undefined)
+      } catch {
+        coreRows = []
+      }
 
       const coreByDevIndex = new Map<string, { id: number; name: string; serialNumber: string }>()
       const coreBySerial = new Map<string, { id: number; name: string; serialNumber: string }>()
-      if (coreDevicesResponse.ok) {
-        const corePayload = await coreDevicesResponse.json()
-        const coreRows = Array.isArray(corePayload)
-          ? corePayload
-          : Array.isArray(corePayload?.results)
-            ? corePayload.results
-            : []
-
-        for (const row of coreRows as Array<Record<string, unknown>>) {
-          const rowId = Number(row.id)
-          const rowDevIndex = String(row.dev_index ?? "").trim()
-          const rowName = String(row.name ?? "").trim()
-          const rowSerialNumber = String(row.serial_number ?? "").trim()
-          if (!Number.isFinite(rowId)) {
-            continue
-          }
-          const normalized = {
-            id: rowId,
-            name: rowName,
-            serialNumber: rowSerialNumber,
-          }
-          if (rowDevIndex) {
-            coreByDevIndex.set(rowDevIndex, normalized)
-          }
-          if (rowSerialNumber) {
-            coreBySerial.set(rowSerialNumber, normalized)
-          }
+      for (const row of coreRows) {
+        const rowId = Number(row.id)
+        const rowDevIndex = String(row.dev_index ?? "").trim()
+        const rowName = String(row.name ?? "").trim()
+        const rowSerialNumber = String(row.serial_number ?? "").trim()
+        if (!Number.isFinite(rowId)) {
+          continue
+        }
+        const normalized = {
+          id: rowId,
+          name: rowName,
+          serialNumber: rowSerialNumber,
+        }
+        if (rowDevIndex) {
+          coreByDevIndex.set(rowDevIndex, normalized)
+        }
+        if (rowSerialNumber) {
+          coreBySerial.set(rowSerialNumber, normalized)
         }
       }
 
       const normalizedDevices = mappedDevices.map((device: Device) => ({
-          ...device,
-          coreDeviceId:
-            coreByDevIndex.get(device.devIndex)?.id ?? coreBySerial.get(device.serialNumber)?.id,
-          name:
-            coreByDevIndex.get(device.devIndex)?.name ||
-            coreBySerial.get(device.serialNumber)?.name ||
-            device.name,
-        }))
+        ...device,
+        coreDeviceId:
+          coreByDevIndex.get(device.devIndex)?.id ?? coreBySerial.get(device.serialNumber)?.id,
+        name:
+          coreByDevIndex.get(device.devIndex)?.name ||
+          coreBySerial.get(device.serialNumber)?.name ||
+          device.name,
+      }))
 
       setDevices(normalizedDevices)
       return normalizedDevices
     } catch (error) {
-      setDevicesError(error instanceof Error ? error.message : "Impossible de charger les appareils.")
-      // Mode demonstration : charger les appareils fictifs
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const demoDevices = DEMO_DEVICES_DATA as any[]
-      setDevices(demoDevices)
-      return demoDevices
+      setLoadError(error instanceof Error ? error.message : tr.unexpectedError)
+      setDevices([])
+      return []
     } finally {
       setIsLoadingDevices(false)
     }
   }
 
+  const handleSyncAll = async () => {
+    try {
+      // Admin plateforme uniquement : 403 attendu pour un utilisateur normal.
+      await syncDevices({ dispatchCoreDevices: true })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        toast.info(tr.adminOnly)
+      } else {
+        toast.error(error instanceof Error ? error.message : tr.syncAllFailed)
+      }
+    }
+    await refreshDevices()
+  }
+
   const loadTenants = async (): Promise<string> => {
     setIsLoadingTenants(true)
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/tenants/`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`Echec lecture tenants (${response.status})`)
-      }
-
-      const data = await response.json()
-      const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
-      const parsed = rows
-        .map((item: Record<string, unknown>) => ({
-          id: Number(item.id),
-          code: String(item.code ?? "").trim(),
-          name: String(item.name ?? "").trim(),
-        }))
-        .filter((item: TenantOption) => Number.isFinite(item.id) && item.code)
-
+      const parsed = await fetchTenants()
       setTenants(parsed)
-      const preferredTenantCode = getActiveTenantCode(DEFAULT_TENANT_CODE)
+      const preferredTenantCode = getActiveTenantCode()
       const selectedTenantCode =
         parsed.find((tenant: TenantOption) => tenant.code.toLowerCase() === preferredTenantCode.toLowerCase())?.code ??
         parsed[0]?.code ??
@@ -578,59 +518,41 @@ export default function DevicesPage() {
 
     try {
       if (!tenantCode.trim()) {
-        throw new Error("Le champ tenant_code est obligatoire.")
+        throw new Error(tr.tenantRequired)
       }
       if (!serialNumber.trim()) {
-        throw new Error("Le champ serial_number/sn est obligatoire.")
+        throw new Error(tr.serialRequired)
       }
       if (!ehomeKey.trim()) {
-        throw new Error("Le champ ehome_key est obligatoire.")
+        throw new Error(tr.ehomeKeyRequired)
       }
       if (!devicePassword.trim()) {
-        throw new Error("Le champ device_password est obligatoire.")
+        throw new Error(tr.passwordRequired)
       }
 
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-
-      const createResponse = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          tenant_code: tenantCode.trim(),
-          sn: serialNumber.trim(),
-          ehome_key: ehomeKey.trim(),
-          dev_name: `Device ${serialNumber.trim()}`,
-          dev_type: "AccessControl",
-          device_username: "admin",
-          device_password: devicePassword.trim(),
-        }),
+      const result = await onboardDevice({
+        tenant_code: tenantCode.trim(),
+        sn: serialNumber.trim(),
+        ehome_key: ehomeKey.trim(),
+        dev_name: `Device ${serialNumber.trim()}`,
+        dev_type: "AccessControl",
+        device_username: "admin",
+        device_password: devicePassword.trim(),
       })
 
-      const responseData = await createResponse.json().catch(() => ({}))
-
-      if (![200, 201, 409].includes(createResponse.status)) {
-        throw new Error(
-          responseData?.detail || responseData?.message || `Echec onboarding device (${createResponse.status})`,
-        )
-      }
-
-      if (createResponse.status === 201) {
-        setSubmitMessage("Appareil ajoute avec succes via /api/devices/onboard/ (201).")
-        toast.success("Appareil ajouté avec succès")
-      } else if (createResponse.status === 200) {
-        setSubmitMessage("Appareil deja onboarde sur ce tenant (200).")
-        toast.info("Appareil déjà enregistré sur ce tenant")
+      if (result.created) {
+        setSubmitMessage(tr.createdMessage)
+        toast.success(tr.createdToast)
+      } else if (result.alreadyOnboarded) {
+        setSubmitMessage(tr.alreadyOnboardedMessage)
+        toast.info(tr.alreadyOnboardedToast)
       } else {
-        setSubmitMessage("Conflit: ce numero de serie est deja affecte a un autre tenant.")
-        toast.warning("Conflit de numéro de série")
+        setSubmitMessage(tr.conflictMessage)
+        toast.warning(tr.conflictToast)
       }
       await refreshDevices()
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Erreur inattendue")
+      setSubmitError(error instanceof Error ? error.message : tr.unexpectedError)
     } finally {
       setIsSubmitting(false)
     }
@@ -640,35 +562,7 @@ export default function DevicesPage() {
     setPendingDeleteDevice(device)
   }
 
-  const handleDiscoverDevice = async (
-    ip: string,
-    port: number,
-    protocol: string,
-    password: string,
-  ) => {
-    const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-    const accessToken = await getAccessToken(normalizedBaseUrl)
-    const response = await fetch(`${normalizedBaseUrl}/api/hikgateway/discover-device/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ ip_address: ip, port, protocol, device_password: password }),
-    })
-    if (!response.ok) {
-      throw new Error(`Découverte échouée (${response.status})`)
-    }
-    const data = await response.json()
-    return {
-      model: String(data.model ?? data.devType ?? "Appareil Hikvision"),
-      serialNumber: String(data.serial_number ?? data.sn ?? ""),
-      firmwareVersion: String(data.firmware ?? data.version ?? "N/A"),
-      deviceType: String(data.device_type ?? "door_controller"),
-      macAddress: String(data.mac_address ?? "-"),
-    }
-  }
-
-  const handleRegisterDeviceByIp = async (payload: {
-    ipAddress: string
-    port: number
+  const handleRegisterDeviceManually = async (payload: {
     serialNumber: string
     name: string
     deviceType: string
@@ -676,26 +570,17 @@ export default function DevicesPage() {
     ehomeKey: string
     devicePassword: string
   }) => {
-    const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-    const accessToken = await getAccessToken(normalizedBaseUrl)
-    const response = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({
-        tenant_code: payload.tenantCode,
-        sn: payload.serialNumber,
-        ehome_key: payload.ehomeKey,
-        dev_name: payload.name,
-        dev_type: payload.deviceType,
-        device_username: "admin",
-        device_password: payload.devicePassword,
-        ip_address: payload.ipAddress,
-        port: payload.port,
-      }),
+    const result = await onboardDevice({
+      tenant_code: payload.tenantCode,
+      sn: payload.serialNumber,
+      ehome_key: payload.ehomeKey,
+      dev_name: payload.name,
+      dev_type: payload.deviceType,
+      device_username: "admin",
+      device_password: payload.devicePassword,
     })
-    if (![200, 201, 409].includes(response.status)) {
-      const err = await response.json().catch(() => ({}))
-      throw new Error(err?.detail ?? err?.message ?? `Erreur enregistrement (${response.status})`)
+    if (result.conflict) {
+      throw new Error(tr.conflictMessage)
     }
     await refreshDevices()
   }
@@ -705,7 +590,7 @@ export default function DevicesPage() {
     if (!device) return
 
     if (!device.coreDeviceId) {
-      setDevicesError("Impossible de supprimer: id local introuvable. Lance une synchronisation puis reessaie.")
+      setDevicesError(tr.deleteMissingCoreId)
       setPendingDeleteDevice(null)
       return
     }
@@ -714,25 +599,7 @@ export default function DevicesPage() {
     setDevicesError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/?gateway=1`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}))
-        throw new Error(
-          String(
-            errorPayload?.detail ??
-              errorPayload?.message ??
-              `Echec suppression device (${response.status})`,
-          ),
-        )
-      }
+      await deleteDevice(device.coreDeviceId, { gateway: true })
 
       setDevices((previous) => previous.filter((item) => item.id !== device.id))
       if (selectedDevice?.id === device.id) {
@@ -740,10 +607,10 @@ export default function DevicesPage() {
         setSelectedDevice(null)
       }
       setPendingDeleteDevice(null)
-      toast.success(`Appareil "${device.name}" supprimé`)
+      toast.success(tr.deleteSuccess(device.name))
     } catch (error) {
-      setDevicesError(error instanceof Error ? error.message : "Erreur suppression appareil")
-      toast.error("Erreur lors de la suppression de l'appareil")
+      setDevicesError(error instanceof Error ? error.message : tr.deleteErrorFallback)
+      toast.error(tr.deleteErrorToast)
     } finally {
       setDeletingDeviceId(null)
     }
@@ -758,7 +625,7 @@ export default function DevicesPage() {
     if (!device) return
 
     if (!device.coreDeviceId) {
-      setDevicesError("Impossible de redemarrer: id local introuvable. Lance une synchronisation puis reessaie.")
+      setDevicesError(tr.restartMissingCoreId)
       setPendingRestartDevice(null)
       return
     }
@@ -767,26 +634,12 @@ export default function DevicesPage() {
     setDevicesError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/reboot/`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.detail ?? payload?.message ?? `Echec redemarrage device (${response.status})`),
-        )
-      }
+      await rebootDevice(device.coreDeviceId)
       setPendingRestartDevice(null)
-      toast.success(`Redémarrage de "${device.name}" lancé`)
+      toast.success(tr.restartSuccess(device.name))
     } catch (error) {
-      setDevicesError(error instanceof Error ? error.message : "Erreur redemarrage appareil")
-      toast.error("Erreur lors du redémarrage de l'appareil")
+      setDevicesError(error instanceof Error ? error.message : tr.restartErrorFallback)
+      toast.error(tr.restartErrorToast)
     } finally {
       setRestartingDeviceId(null)
     }
@@ -805,9 +658,9 @@ export default function DevicesPage() {
       const refreshed = await refreshDevices()
       const stillPresent = refreshed.some((item) => item.id === device.id)
       if (!stillPresent) {
-        toast.warning(`L'appareil "${device.name}" n'a pas ete retrouve apres synchronisation.`)
+        toast.warning(tr.syncDeviceNotFound(device.name))
       } else {
-        toast.success(`Synchronisation de "${device.name}" terminee`)
+        toast.success(tr.syncDeviceDone(device.name))
       }
     } finally {
       setSyncingDeviceId(null)
@@ -820,12 +673,10 @@ export default function DevicesPage() {
       const refreshed = await refreshDevices()
       const latest = refreshed.find((item) => item.id === device.id)
       if (!latest) {
-        toast.warning("Verification terminee, appareil non retrouve dans le flux gateway.")
+        toast.warning(tr.verifyNotFound)
         return
       }
-      const label =
-        latest.status === "online" ? "en ligne" : latest.status === "warning" ? "en alerte" : "hors ligne"
-      toast.info(`Verification terminee: ${latest.name} est ${label}.`)
+      toast.info(tr.verifyResult(latest.name, tr.statusInline[latest.status]))
       if (selectedDevice?.id === latest.id) {
         setSelectedDevice(latest)
       }
@@ -837,13 +688,13 @@ export default function DevicesPage() {
   const handleRunDiagnostics = async (device: Device) => {
     setDiagnosingDeviceId(device.id)
     try {
-      const snapshot = getDiagnosticsSnapshot(device)
+      const snapshot = getDiagnosticsSnapshot(device, tr)
       if (device.status === "offline") {
-        toast.error(`Diagnostic ${device.name}: ${snapshot.message}`)
+        toast.error(tr.diagnosticToast(device.name, snapshot.message))
       } else if (device.status === "warning") {
-        toast.warning(`Diagnostic ${device.name}: ${snapshot.message}`)
+        toast.warning(tr.diagnosticToast(device.name, snapshot.message))
       } else {
-        toast.success(`Diagnostic ${device.name}: ${snapshot.message}`)
+        toast.success(tr.diagnosticToast(device.name, snapshot.message))
       }
       if (selectedDevice?.id === device.id) {
         setDetailsTab("network")
@@ -858,11 +709,11 @@ export default function DevicesPage() {
       return
     }
     if (!editingDevice.coreDeviceId) {
-      setUpdateError("Impossible de modifier: id local introuvable. Lance une synchronisation puis reessaie.")
+      setUpdateError(tr.updateMissingCoreId)
       return
     }
     if (!editName.trim()) {
-      setUpdateError("Le nom est obligatoire.")
+      setUpdateError(tr.nameRequired)
       return
     }
 
@@ -870,25 +721,7 @@ export default function DevicesPage() {
     setUpdateError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/devices/${editingDevice.coreDeviceId}/`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          name: editName.trim(),
-        }),
-      })
-
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.detail ?? payload?.message ?? `Echec modification device (${response.status})`),
-        )
-      }
+      const payload = await updateDevice(editingDevice.coreDeviceId, { name: editName.trim() })
 
       setDevices((previous) =>
         previous.map((item) =>
@@ -907,76 +740,12 @@ export default function DevicesPage() {
       )
       setEditDeviceOpen(false)
       setEditingDevice(null)
-      toast.success("Appareil modifié avec succès")
+      toast.success(tr.updateSuccess)
     } catch (error) {
-      setUpdateError(error instanceof Error ? error.message : "Erreur modification appareil")
-      toast.error("Erreur lors de la modification de l'appareil")
+      setUpdateError(error instanceof Error ? error.message : tr.updateErrorFallback)
+      toast.error(tr.updateErrorToast)
     } finally {
       setIsUpdatingDevice(false)
-    }
-  }
-
-  const handleOpenDeviceConfiguration = async (device: Device) => {
-    if (!device.coreDeviceId) {
-      setDevicesError("Impossible d'ouvrir la configuration: id local introuvable. Lance une synchronisation puis reessaie.")
-      return
-    }
-
-    setConfiguringDeviceId(device.id)
-    setDevicesError(null)
-
-    let popup: Window | null = null
-    try {
-      popup = window.open("", "_blank", "noopener,noreferrer")
-
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const query = new URLSearchParams({
-        scheme: DEVICE_CONFIG_SCHEME,
-        path: DEVICE_CONFIG_PATH,
-      })
-      let hostCandidate = getConfigHostCandidate(device.ipAddress)
-      if (hostCandidate) {
-        query.set("host", hostCandidate)
-      } else {
-        query.set("allow_gateway_fallback", "1")
-        toast.info("IP du terminal non disponible, tentative via Gateway ISAPI.")
-      }
-
-      const response = await fetch(
-        `${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/config-page/?${query.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      )
-
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.detail ?? payload?.message ?? `Echec ouverture config device (${response.status})`),
-        )
-      }
-
-      const configurationUrl = String(payload?.configuration_url ?? "").trim()
-      if (!configurationUrl) {
-        throw new Error("URL de configuration introuvable pour cet appareil.")
-      }
-
-      if (popup && !popup.closed) {
-        popup.location.replace(configurationUrl)
-        popup.focus()
-      } else {
-        window.open(configurationUrl, "_blank", "noopener,noreferrer")
-      }
-    } catch (error) {
-      if (popup && !popup.closed) {
-        popup.close()
-      }
-      setDevicesError(error instanceof Error ? error.message : "Erreur ouverture configuration appareil")
-    } finally {
-      setConfiguringDeviceId(null)
     }
   }
 
@@ -996,13 +765,13 @@ export default function DevicesPage() {
             <div className="flex flex-col gap-3 border-b border-[#1c2133] px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">
-                  Infrastructure Hikvision
+                  {tr.heroKicker}
                 </p>
                 <h1 className="mt-1 font-display text-[22px] font-bold uppercase leading-none tracking-[0.08em] text-[#e2e8f0]">
-                  Appareils
+                  {tr.heroTitle}
                 </h1>
                 <p className="mt-1 max-w-2xl text-xs text-[#7a8599]">
-                  Inventaire, sante et actions de maintenance sur les controleurs et lecteurs du parc.
+                  {tr.heroSubtitle}
                 </p>
               </div>
 
@@ -1011,7 +780,7 @@ export default function DevicesPage() {
                   variant="outline"
                   size="sm"
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#60a5fa]/60 hover:bg-[#1a1f2e] hover:text-[#60a5fa]"
-                  onClick={() => void refreshDevices()}
+                  onClick={() => void handleSyncAll()}
                   disabled={isLoadingDevices}
                 >
                   {isLoadingDevices ? (
@@ -1019,7 +788,7 @@ export default function DevicesPage() {
                   ) : (
                     <RefreshCcw className="mr-2 h-4 w-4" />
                   )}
-                  Synchroniser
+                  {tr.syncAction}
                 </Button>
                 <Button
                   variant="outline"
@@ -1028,7 +797,7 @@ export default function DevicesPage() {
                   onClick={() => setAddByIpOpen(true)}
                 >
                   <Wifi className="mr-2 h-4 w-4" />
-                  Ajouter par IP
+                  {tr.manualOnboarding}
                 </Button>
                 <Button
                   size="sm"
@@ -1036,37 +805,37 @@ export default function DevicesPage() {
                   onClick={() => setAddDeviceOpen(true)}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Ajouter
+                  {tr.addAction}
                 </Button>
               </div>
             </div>
 
             <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
               <DeviceMetricCard
-                label="En ligne"
+                label={tr.metricOnline}
                 value={onlineDevices}
-                note={`sur ${devices.length} appareils`}
+                note={tr.metricOnlineNote(devices.length)}
                 tone="green"
                 icon={Wifi}
               />
               <DeviceMetricCard
-                label="Alertes"
+                label={tr.metricAlerts}
                 value={warningDevices}
-                note="A surveiller"
+                note={tr.metricAlertsNote}
                 tone="amber"
                 icon={AlertTriangle}
               />
               <DeviceMetricCard
-                label="Hors ligne"
+                label={tr.metricOffline}
                 value={offlineDevices}
-                note="Deconnectes"
+                note={tr.metricOfflineNote}
                 tone="red"
                 icon={WifiOff}
               />
               <DeviceMetricCard
-                label="Total parc"
+                label={tr.metricTotal}
                 value={devices.length}
-                note={tenantOptions.length > 0 ? `${tenantOptions.length} tenant(s)` : "Inventaire"}
+                note={tenantOptions.length > 0 ? tr.metricTotalTenants(tenantOptions.length) : tr.metricTotalInventory}
                 tone="blue"
                 icon={Server}
               />
@@ -1080,7 +849,7 @@ export default function DevicesPage() {
                   <AlertTriangle className="h-4 w-4" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#ef4444]/70">Erreur</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#ef4444]/70">{tr.errorKicker}</p>
                   <p className="mt-1 text-sm text-[#ef4444]">{devicesError}</p>
                 </div>
               </div>
@@ -1091,14 +860,14 @@ export default function DevicesPage() {
           <section className="border border-[#1c2133] bg-[#111318]">
             <div className="flex flex-col gap-3 border-b border-[#1c2133] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">Filtres</p>
+                <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">{tr.filtersKicker}</p>
                 <h2 className="mt-1 font-display text-[15px] font-semibold uppercase leading-none tracking-[0.06em] text-[#e2e8f0]">
-                  Recherche &amp; affinage
+                  {tr.filtersTitle}
                 </h2>
               </div>
               <div className="flex items-center gap-2">
                 <span className="border border-[#1c2133] bg-[#0b0d13] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] tabular-nums">
-                  {filteredDevices.length} resultat{filteredDevices.length !== 1 ? "s" : ""}
+                  {tr.resultsCount(filteredDevices.length)}
                 </span>
                 <Button
                   variant="outline"
@@ -1106,7 +875,7 @@ export default function DevicesPage() {
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#ef4444]/60 hover:text-[#ef4444]"
                   onClick={resetFilters}
                 >
-                  Reinitialiser
+                  {tr.resetFilters}
                 </Button>
               </div>
             </div>
@@ -1115,7 +884,7 @@ export default function DevicesPage() {
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#4a5568]" />
                 <Input
-                  placeholder="Nom, localisation ou IP..."
+                  placeholder={tr.searchPlaceholder}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] pl-10 text-sm text-[#e2e8f0] placeholder:text-[#4a5568] focus-visible:ring-[#f97316]/35"
@@ -1125,11 +894,11 @@ export default function DevicesPage() {
               <div className="flex items-center gap-1 border border-[#1c2133] bg-[#0b0d13] p-1">
                 {(["all", "online", "warning", "offline", "attention"] as const).map((option) => {
                   const labels = {
-                    all: "Tous",
-                    online: "En ligne",
-                    warning: "Alerte",
-                    offline: "Hors ligne",
-                    attention: "A surveiller",
+                    all: tr.statusFilterAll,
+                    online: tr.statusLabels.online,
+                    warning: tr.statusLabels.warning,
+                    offline: tr.statusLabels.offline,
+                    attention: tr.statusFilterAttention,
                   } as const
                   const isSelected = statusFilter === option
                   return (
@@ -1152,23 +921,23 @@ export default function DevicesPage() {
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
                   <SelectTrigger className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[11px] uppercase tracking-[0.08em] text-[#e2e8f0]">
-                    <SelectValue placeholder="Type" />
+                    <SelectValue placeholder={tr.typePlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les types</SelectItem>
-                    <SelectItem value="door_controller">Controleur de porte</SelectItem>
-                    <SelectItem value="reader">Lecteur de carte</SelectItem>
-                    <SelectItem value="turnstile">Tourniquet</SelectItem>
-                    <SelectItem value="fingerprint">Lecteur biometrique</SelectItem>
+                    <SelectItem value="all">{tr.allTypes}</SelectItem>
+                    <SelectItem value="door_controller">{tr.deviceTypes.door_controller}</SelectItem>
+                    <SelectItem value="reader">{tr.deviceTypes.reader}</SelectItem>
+                    <SelectItem value="turnstile">{tr.deviceTypes.turnstile}</SelectItem>
+                    <SelectItem value="fingerprint">{tr.deviceTypes.fingerprint}</SelectItem>
                   </SelectContent>
                 </Select>
 
                 <Select value={tenantFilter} onValueChange={setTenantFilter}>
                   <SelectTrigger className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[11px] uppercase tracking-[0.08em] text-[#e2e8f0]">
-                    <SelectValue placeholder="Tenant" />
+                    <SelectValue placeholder={tr.tenantPlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les tenants</SelectItem>
+                    <SelectItem value="all">{tr.allTenants}</SelectItem>
                     {tenantOptions.map((tenant) => (
                       <SelectItem key={tenant} value={tenant}>
                         {tenant}
@@ -1179,12 +948,12 @@ export default function DevicesPage() {
 
                 <Select value={linkFilter} onValueChange={setLinkFilter}>
                   <SelectTrigger className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[11px] uppercase tracking-[0.08em] text-[#e2e8f0]">
-                    <SelectValue placeholder="Connectivite" />
+                    <SelectValue placeholder={tr.linkPlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Toutes les liaisons</SelectItem>
-                    <SelectItem value="linked">Lie au coeur</SelectItem>
-                    <SelectItem value="unlinked">Non lie</SelectItem>
+                    <SelectItem value="all">{tr.allLinks}</SelectItem>
+                    <SelectItem value="linked">{tr.linkedToCore}</SelectItem>
+                    <SelectItem value="unlinked">{tr.notLinkedToCore}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1212,6 +981,20 @@ export default function DevicesPage() {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* ── Load error ── */}
+          {!isLoadingDevices && loadError && (
+            <EmptyState
+              icon={WifiOff}
+              title={tr.loadErrorTitle}
+              description={loadError}
+              action={{
+                label: t.common.retry,
+                icon: RefreshCcw,
+                onClick: () => void refreshDevices(),
+              }}
+            />
           )}
 
           {/* ── Devices grid ── */}
@@ -1247,7 +1030,7 @@ export default function DevicesPage() {
                             {device.name}
                           </h3>
                           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                            {getDeviceTypeLabel(device.type)}
+                            {getDeviceTypeLabel(device.type, tr)}
                           </p>
                         </div>
                       </div>
@@ -1257,7 +1040,7 @@ export default function DevicesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label="Actions"
+                            aria-label={tr.actionsAria}
                             className="h-7 w-7 shrink-0 rounded-none border border-[#1c2133] bg-[#1a1f2e] text-[#7a8599] opacity-0 transition hover:border-[var(--brand-accent)]/60 hover:text-[var(--brand-accent)] group-hover:opacity-100"
                           >
                             <MoreVertical className="h-4 w-4" />
@@ -1271,7 +1054,7 @@ export default function DevicesPage() {
                             }}
                           >
                             <Settings className="mr-2 h-4 w-4" />
-                            Modifier
+                            {tr.edit}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={restartingDeviceId === device.id}
@@ -1281,7 +1064,7 @@ export default function DevicesPage() {
                             }}
                           >
                             <RefreshCcw className="mr-2 h-4 w-4" />
-                            {restartingDeviceId === device.id ? "Redemarrage..." : "Redemarrer"}
+                            {restartingDeviceId === device.id ? tr.restarting : tr.restart}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={verifyingDeviceId === device.id}
@@ -1291,7 +1074,7 @@ export default function DevicesPage() {
                             }}
                           >
                             <Power className="mr-2 h-4 w-4" />
-                            {verifyingDeviceId === device.id ? "Verification..." : "Verifier"}
+                            {verifyingDeviceId === device.id ? tr.verifying : tr.verify}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={diagnosingDeviceId === device.id}
@@ -1301,7 +1084,7 @@ export default function DevicesPage() {
                             }}
                           >
                             <Activity className="mr-2 h-4 w-4" />
-                            {diagnosingDeviceId === device.id ? "Diagnostic..." : "Diagnostiquer"}
+                            {diagnosingDeviceId === device.id ? tr.diagnosing : tr.diagnose}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -1313,7 +1096,7 @@ export default function DevicesPage() {
                             }}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
-                            {deletingDeviceId === device.id ? "Suppression..." : "Supprimer"}
+                            {deletingDeviceId === device.id ? tr.deleting : tr.deleteAction}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1330,7 +1113,7 @@ export default function DevicesPage() {
                                 : "bg-[#ef4444]"
                           }`}
                         />
-                        {statusLabel[device.status]}
+                        {tr.statusLabels[device.status]}
                       </span>
                       <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#4a5568]">
                         {device.lastSeen}
@@ -1347,20 +1130,20 @@ export default function DevicesPage() {
                         <span className="tabular-nums">{device.ipAddress}</span>
                         {device.coreDeviceId ? (
                           <span className="ml-auto border border-[#1c2133] bg-[#0d1e2e] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#60a5fa]">
-                            Lie
+                            {tr.linkedBadge}
                           </span>
                         ) : (
                           <span className="ml-auto border border-[#1c2133] bg-[#2a1e06] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#f59e0b]">
-                            Non lie
+                            {tr.unlinkedBadge}
                           </span>
                         )}
                       </div>
                     </div>
 
                     <div className="mt-3 grid grid-cols-3 gap-1.5">
-                      <DeviceStatPill label="Events" value={String(device.todayEvents)} />
-                      <DeviceStatPill label="Users" value={String(device.connectedUsers)} />
-                      <DeviceStatPill label="Firmware" value={device.firmware} />
+                      <DeviceStatPill label={tr.statEvents} value={String(device.todayEvents)} />
+                      <DeviceStatPill label={tr.statUsers} value={String(device.connectedUsers)} />
+                      <DeviceStatPill label={tr.statFirmware} value={device.firmware} />
                     </div>
                   </article>
                 )
@@ -1368,18 +1151,16 @@ export default function DevicesPage() {
             </div>
           )}
 
-          {!isLoadingDevices && filteredDevices.length === 0 && (
+          {!isLoadingDevices && !loadError && filteredDevices.length === 0 && (
             <div className="flex flex-col items-center border border-dashed border-[#1c2133] bg-[#111318] px-4 py-12 text-center">
               <div className="mb-3 flex size-12 items-center justify-center bg-[#1a1f2e] text-[#7a8599]">
                 <Cpu className="size-6" />
               </div>
               <p className="font-display text-sm font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                {devices.length === 0 ? "Aucun appareil connecte" : "Aucun appareil ne correspond aux filtres"}
+                {devices.length === 0 ? tr.emptyNoDevices : tr.emptyNoMatch}
               </p>
               <p className="mt-1 max-w-sm font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                {devices.length === 0
-                  ? "Ajoutez votre premier lecteur Hikvision pour commencer."
-                  : "Elargissez la recherche ou reinitialisez les filtres."}
+                {devices.length === 0 ? tr.emptyNoDevicesHint : tr.emptyNoMatchHint}
               </p>
               <Button
                 size="sm"
@@ -1387,7 +1168,7 @@ export default function DevicesPage() {
                 onClick={() => setAddDeviceOpen(true)}
               >
                 <Plus className="mr-2 h-4 w-4" />
-                Ajouter un appareil
+                {tr.addDevice}
               </Button>
             </div>
           )}
@@ -1400,22 +1181,22 @@ export default function DevicesPage() {
                   <div className="flex size-9 items-center justify-center bg-[#2a1408] text-[#f97316]">
                     <Plus className="h-4 w-4" />
                   </div>
-                  Ajouter un appareil
+                  {tr.addDialogTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Champs requis : tenant, SN, ehome_key, mot de passe.
+                  {tr.addDialogDesc}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="tenant-code" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Tenant
+                    {tr.tenantLabel}
                   </Label>
                   {tenants.length > 0 ? (
                     <Select value={tenantCode} onValueChange={setTenantCode}>
                       <SelectTrigger id="tenant-code" className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0]">
-                        <SelectValue placeholder={isLoadingTenants ? "Chargement..." : "Selectionner un tenant"} />
+                        <SelectValue placeholder={isLoadingTenants ? tr.loadingPlaceholder : tr.selectTenantPlaceholder} />
                       </SelectTrigger>
                       <SelectContent>
                         {tenants.map((tenant) => (
@@ -1430,7 +1211,7 @@ export default function DevicesPage() {
                       id="tenant-code"
                       value={tenantCode}
                       onChange={(e) => setTenantCode(e.target.value)}
-                      placeholder={isLoadingTenants ? "Chargement..." : "TENANT-A"}
+                      placeholder={isLoadingTenants ? tr.loadingPlaceholder : "TENANT-A"}
                       className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                     />
                   )}
@@ -1438,7 +1219,7 @@ export default function DevicesPage() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="serial-number" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Numero de serie
+                    {tr.serialLabel}
                   </Label>
                   <Input
                     id="serial-number"
@@ -1451,7 +1232,7 @@ export default function DevicesPage() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="ehome-key" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Cle eHome
+                    {tr.ehomeKeyLabel}
                   </Label>
                   <Input
                     id="ehome-key"
@@ -1464,14 +1245,14 @@ export default function DevicesPage() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="device-password" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Mot de passe
+                    {tr.passwordLabel}
                   </Label>
                   <Input
                     id="device-password"
                     type="password"
                     value={devicePassword}
                     onChange={(e) => setDevicePassword(e.target.value)}
-                    placeholder="requis"
+                    placeholder={tr.passwordPlaceholder}
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                   />
                 </div>
@@ -1494,7 +1275,7 @@ export default function DevicesPage() {
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                  {isSubmitting ? "Ajout en cours..." : "Ajouter via API"}
+                  {isSubmitting ? tr.submitting : tr.submitViaApi}
                 </Button>
               </div>
             </DialogContent>
@@ -1508,23 +1289,23 @@ export default function DevicesPage() {
                   <div className="flex size-9 items-center justify-center bg-[#0d1e2e] text-[#60a5fa]">
                     <Settings className="h-4 w-4" />
                   </div>
-                  Modifier l&apos;appareil
+                  {tr.editDialogTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Nom et champs autorises par le backend.
+                  {tr.editDialogDesc}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-device-name" className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Nom
+                    {tr.nameLabel}
                   </Label>
                   <Input
                     id="edit-device-name"
                     value={editName}
                     onChange={(event) => setEditName(event.target.value)}
-                    placeholder="Nom de l'appareil"
+                    placeholder={tr.namePlaceholder}
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568]"
                   />
                 </div>
@@ -1541,7 +1322,7 @@ export default function DevicesPage() {
                   disabled={isUpdatingDevice}
                 >
                   {isUpdatingDevice ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {isUpdatingDevice ? "Enregistrement..." : "Enregistrer"}
+                  {isUpdatingDevice ? tr.saving : tr.save}
                 </Button>
               </div>
             </DialogContent>
@@ -1567,7 +1348,7 @@ export default function DevicesPage() {
                       <div className="min-w-0">
                         <span className="block truncate">{selectedDevice.name}</span>
                         <p className="mt-0.5 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-[#7a8599]">
-                          {getDeviceTypeLabel(selectedDevice.type)}
+                          {getDeviceTypeLabel(selectedDevice.type, tr)}
                         </p>
                       </div>
                     </>
@@ -1582,38 +1363,38 @@ export default function DevicesPage() {
                       value="info"
                       className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[#f97316] data-[state=active]:text-[#0b0d13]"
                     >
-                      Informations
+                      {tr.tabInfo}
                     </TabsTrigger>
                     <TabsTrigger
                       value="network"
                       className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[#f97316] data-[state=active]:text-[#0b0d13]"
                     >
-                      Reseau
+                      {tr.tabNetwork}
                     </TabsTrigger>
                     <TabsTrigger
                       value="activity"
                       className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[#f97316] data-[state=active]:text-[#0b0d13]"
                     >
-                      Activite
+                      {tr.tabActivity}
                     </TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="info" className="mt-3 space-y-3">
                     <div className="grid gap-2 sm:grid-cols-2">
                       <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Modele</p>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.detailModel}</p>
                         <p className="mt-1 text-sm font-medium text-[#e2e8f0]">{selectedDevice.model}</p>
                       </div>
                       <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Serie</p>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.detailSerial}</p>
                         <p className="mt-1 font-mono text-sm tabular-nums text-[#e2e8f0]">{selectedDevice.serialNumber}</p>
                       </div>
                       <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Localisation</p>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.detailLocation}</p>
                         <p className="mt-1 text-sm font-medium text-[#e2e8f0]">{selectedDevice.location}</p>
                       </div>
                       <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Firmware</p>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.detailFirmware}</p>
                         <p className="mt-1 text-sm font-medium tabular-nums text-[#e2e8f0]">{selectedDevice.firmware}</p>
                       </div>
                     </div>
@@ -1636,32 +1417,18 @@ export default function DevicesPage() {
                           <div>
                             <p className="font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
                               {selectedDevice.status === "online"
-                                ? "En ligne"
+                                ? tr.statusOnlineTitle
                                 : selectedDevice.status === "warning"
-                                  ? "Connexion instable"
-                                  : "Hors ligne"}
+                                  ? tr.statusUnstableTitle
+                                  : tr.statusOfflineTitle}
                             </p>
                             <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                              Derniere activite : {selectedDevice.lastSeen}
+                              {tr.lastActivity(selectedDevice.lastSeen)}
                             </p>
                           </div>
                         </div>
                       )
                     })()}
-
-                    <Button
-                      variant="outline"
-                      className="h-9 w-full rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#60a5fa]/60 hover:text-[#60a5fa]"
-                      disabled={configuringDeviceId === selectedDevice.id}
-                      onClick={() => void handleOpenDeviceConfiguration(selectedDevice)}
-                    >
-                      {configuringDeviceId === selectedDevice.id ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <ExternalLink className="mr-2 h-4 w-4" />
-                      )}
-                      {configuringDeviceId === selectedDevice.id ? "Ouverture..." : "Interface de configuration"}
-                    </Button>
 
                     <div className="grid gap-2 sm:grid-cols-2">
                       <Button
@@ -1675,7 +1442,7 @@ export default function DevicesPage() {
                         ) : (
                           <Power className="mr-2 h-4 w-4" />
                         )}
-                        {verifyingDeviceId === selectedDevice.id ? "Verification..." : "Verifier"}
+                        {verifyingDeviceId === selectedDevice.id ? tr.verifying : tr.verify}
                       </Button>
                       <Button
                         variant="outline"
@@ -1688,7 +1455,7 @@ export default function DevicesPage() {
                         ) : (
                           <Activity className="mr-2 h-4 w-4" />
                         )}
-                        {diagnosingDeviceId === selectedDevice.id ? "Diagnostic..." : "Diagnostiquer"}
+                        {diagnosingDeviceId === selectedDevice.id ? tr.diagnosing : tr.diagnose}
                       </Button>
                       <Button
                         variant="outline"
@@ -1701,7 +1468,7 @@ export default function DevicesPage() {
                         ) : (
                           <RefreshCcw className="mr-2 h-4 w-4" />
                         )}
-                        {syncingDeviceId === selectedDevice.id ? "Synchronisation..." : "Synchroniser"}
+                        {syncingDeviceId === selectedDevice.id ? tr.syncingDevice : tr.syncDevice}
                       </Button>
                       <Button
                         variant="outline"
@@ -1712,7 +1479,7 @@ export default function DevicesPage() {
                         }}
                       >
                         <Settings className="mr-2 h-4 w-4" />
-                        Modifier
+                        {tr.edit}
                       </Button>
                     </div>
                   </TabsContent>
@@ -1720,11 +1487,11 @@ export default function DevicesPage() {
                   <TabsContent value="network" className="mt-3 space-y-3">
                     <div className="grid gap-2 sm:grid-cols-2">
                       <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">IP</p>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.ipLabel}</p>
                         <p className="mt-1 font-mono text-sm tabular-nums text-[#e2e8f0]">{selectedDevice.ipAddress}</p>
                       </div>
                       <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">MAC</p>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.macLabel}</p>
                         <p className="mt-1 font-mono text-sm text-[#e2e8f0]">{selectedDevice.macAddress}</p>
                       </div>
                     </div>
@@ -1735,31 +1502,31 @@ export default function DevicesPage() {
                           <Activity className="h-4 w-4" />
                         </div>
                         <span className="font-display text-sm font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                          Diagnostics
+                          {tr.diagnosticsTitle}
                         </span>
                       </div>
                       <div className="mt-3 grid gap-2">
                         <div className="flex items-center justify-between border border-[#1c2133] bg-[#111318] px-3 py-2">
-                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Latence</span>
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.latency}</span>
                           <span className="font-mono text-sm font-semibold tabular-nums text-[#e2e8f0]">
-                            {getDiagnosticsSnapshot(selectedDevice).latency}
+                            {getDiagnosticsSnapshot(selectedDevice, tr).latency}
                           </span>
                         </div>
                         <div className="flex items-center justify-between border border-[#1c2133] bg-[#111318] px-3 py-2">
-                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Paquets perdus</span>
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.packetLoss}</span>
                           <span className="font-mono text-sm font-semibold tabular-nums text-[#e2e8f0]">
-                            {getDiagnosticsSnapshot(selectedDevice).packetLoss}
+                            {getDiagnosticsSnapshot(selectedDevice, tr).packetLoss}
                           </span>
                         </div>
                         <div className="flex items-center justify-between border border-[#1c2133] bg-[#111318] px-3 py-2">
-                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Uptime</span>
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.uptime}</span>
                           <span className="font-mono text-sm font-semibold tabular-nums text-[#e2e8f0]">
-                            {getDiagnosticsSnapshot(selectedDevice).uptime}
+                            {getDiagnosticsSnapshot(selectedDevice, tr).uptime}
                           </span>
                         </div>
                       </div>
                       <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599]">
-                        {getDiagnosticsSnapshot(selectedDevice).message}
+                        {getDiagnosticsSnapshot(selectedDevice, tr).message}
                       </p>
                     </div>
                   </TabsContent>
@@ -1777,7 +1544,7 @@ export default function DevicesPage() {
                               {selectedDevice.todayEvents}
                             </p>
                             <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
-                              Events
+                              {tr.activityEvents}
                             </p>
                           </div>
                         </div>
@@ -1793,7 +1560,7 @@ export default function DevicesPage() {
                               {selectedDevice.connectedUsers}
                             </p>
                             <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">
-                              Utilisateurs
+                              {tr.activityUsers}
                             </p>
                           </div>
                         </div>
@@ -1810,10 +1577,10 @@ export default function DevicesPage() {
             <DialogContent className="max-w-lg rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  Supprimer l&apos;appareil
+                  {tr.deleteConfirmTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Cette action supprimera {pendingDeleteDevice ? `"${pendingDeleteDevice.name}"` : "l'appareil"} de l&apos;inventaire.
+                  {tr.deleteConfirmDesc(pendingDeleteDevice?.name ?? null)}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -1823,7 +1590,7 @@ export default function DevicesPage() {
                   disabled={deletingDeviceId !== null}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Annuler
+                  {t.common.cancel}
                 </Button>
                 <Button
                   variant="destructive"
@@ -1832,7 +1599,7 @@ export default function DevicesPage() {
                   className="h-9 rounded-none border border-[#ef4444] bg-[#ef4444] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[#f87171]"
                 >
                   {deletingDeviceId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Supprimer
+                  {tr.deleteAction}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1843,10 +1610,10 @@ export default function DevicesPage() {
             <DialogContent className="max-w-lg rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  Redemarrer l&apos;appareil
+                  {tr.restartConfirmTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Le redemarrage de {pendingRestartDevice ? `"${pendingRestartDevice.name}"` : "cet appareil"} peut interrompre temporairement les passages.
+                  {tr.restartConfirmDesc(pendingRestartDevice?.name ?? null)}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -1856,7 +1623,7 @@ export default function DevicesPage() {
                   disabled={restartingDeviceId !== null}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Annuler
+                  {t.common.cancel}
                 </Button>
                 <Button
                   onClick={() => void confirmRestartDevice()}
@@ -1864,20 +1631,19 @@ export default function DevicesPage() {
                   className="h-9 rounded-none border border-[#f97316] bg-[#f97316] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[#fb923c]"
                 >
                   {restartingDeviceId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Redemarrer
+                  {tr.restart}
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
 
-          {/* ── Add device by IP ── */}
+          {/* ── Manual onboarding dialog ── */}
           <AddDeviceByIpDialog
             open={addByIpOpen}
             onOpenChange={setAddByIpOpen}
             tenants={tenants}
             defaultTenantCode={tenantCode}
-            onDiscover={handleDiscoverDevice}
-            onRegister={handleRegisterDeviceByIp}
+            onRegister={handleRegisterDeviceManually}
           />
         </main>
       </div>

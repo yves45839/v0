@@ -1,13 +1,17 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Spinner } from "@/components/ui/spinner"
+import { StatusChip } from "@/components/ui/status-chip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -17,383 +21,438 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import {
   AlertTriangle,
-  Battery,
-  ChevronRight,
-  Clock,
-  DoorOpen,
+  CalendarDays,
   Edit,
-  Eye,
-  FolderTree,
-  Layers,
-  Lock,
-  MoreHorizontal,
+  ExternalLink,
   Plus,
   Radio,
   RefreshCw,
   Search,
-  Shield,
-  ShieldCheck,
-  Tag,
   Trash2,
-  Unlock,
   Users,
   Wifi,
   WifiOff,
-  Wrench,
-  Zap,
-  CalendarDays,
-  Building2,
 } from "lucide-react"
+import { ApiError } from "@/lib/api/client"
+import { getActiveTenantCode } from "@/lib/api/auth"
 import {
-  ZONES,
-  READERS,
-  ACCESS_GROUPS,
-  ACCESS_SCHEDULES,
-  ZONES_STATS,
-  type SecurityZone,
-  type Reader,
-  type AccessGroup,
-  type ZoneLevel,
-} from "@/lib/mock-data/demo-zones"
+  fetchAccessGroups,
+  createAccessGroup,
+  updateAccessGroup,
+  deleteAccessGroup,
+  fetchDevices,
+  fetchPlannings,
+  fetchTenants,
+  type ZoneAccessGroup,
+  type ZoneAccessGroupPayload,
+  type ZoneDevice,
+  type ZonePlanning,
+  type ZoneTenant,
+} from "@/lib/api/zones"
+import { useI18n } from "@/lib/i18n/context"
+import { zonesDict } from "@/lib/i18n/pages/zones"
+
+type ZonesDict = (typeof zonesDict)["en"]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function formatDateTime(iso: string) {
-  return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso))
-}
-function formatRelative(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const min = Math.floor(diff / 60000)
-  if (min < 1) return "à l'instant"
-  if (min < 60) return `il y a ${min}min`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `il y a ${h}h`
-  return `il y a ${Math.floor(h / 24)}j`
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.message
+  if (err instanceof Error && err.message) return err.message
+  return fallback
 }
 
-const READER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: React.ElementType }> = {
-  online:      { label: "En ligne",    color: "text-green-400",  bg: "bg-green-500/10",  icon: Wifi },
-  offline:     { label: "Hors ligne",  color: "text-slate-400",  bg: "bg-slate-500/10",  icon: WifiOff },
-  tampered:    { label: "Sabotage",    color: "text-red-500",    bg: "bg-red-500/10",    icon: AlertTriangle },
-  maintenance: { label: "Maintenance", color: "text-yellow-400", bg: "bg-yellow-500/10", icon: Wrench },
-}
-
-const DOOR_MODE_LABELS: Record<string, string> = {
-  normal:         "Normal",
-  always_open:    "Toujours ouverte",
-  always_locked:  "Toujours verrouillée",
-  time_controlled:"Contrôle horaire",
-}
-
-const LEVEL_CONFIG: Record<ZoneLevel, { label: string; color: string; bg: string; border: string }> = {
-  1: { label: "Niveau 1",  color: "text-green-400",  bg: "bg-green-500/10",  border: "border-green-500/20" },
-  2: { label: "Niveau 2",  color: "text-blue-400",   bg: "bg-blue-500/10",   border: "border-blue-500/20" },
-  3: { label: "Niveau 3",  color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20" },
-  4: { label: "Niveau 4",  color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" },
-  5: { label: "Niveau 5",  color: "text-red-400",    bg: "bg-red-500/10",    border: "border-red-500/20" },
-}
-
-const DAY_LABELS: Record<string, string> = { mon: "L", tue: "M", wed: "Me", thu: "J", fri: "V", sat: "S", sun: "D" }
-
-// ── Zone Card ─────────────────────────────────────────────────────────────────
-function ZoneCard({ zone, onView, onEdit }: { zone: SecurityZone; onView: (z: SecurityZone) => void; onEdit: (z: SecurityZone) => void }) {
-  const lvl = LEVEL_CONFIG[zone.level]
-  const children = ZONES.filter(z => z.parentId === zone.id)
-  const occupancyPct = Math.round((zone.occupancy / zone.capacity) * 100)
-
-  return (
-    <div className={cn("overflow-hidden rounded-xl border bg-card p-4 transition-all hover:border-border hover:shadow-md", lvl.border)}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: zone.color }} />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">{zone.name}</p>
-            <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{zone.description}</p>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Badge className={cn("text-[10px]", lvl.bg, lvl.color)}>{lvl.label}</Badge>
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-        <div className="rounded-lg bg-muted/40 p-1.5">
-          <p className="font-bold text-foreground">{zone.occupancy}/{zone.capacity}</p>
-          <p className="text-[10px] text-muted-foreground">Occupation</p>
-        </div>
-        <div className="rounded-lg bg-muted/40 p-1.5">
-          <p className="font-bold text-foreground">{zone.readers.length}</p>
-          <p className="text-[10px] text-muted-foreground">Lecteurs</p>
-        </div>
-        <div className="rounded-lg bg-muted/40 p-1.5">
-          <p className="font-bold text-foreground">{zone.accessGroups.length}</p>
-          <p className="text-[10px] text-muted-foreground">Groupes</p>
-        </div>
-      </div>
-
-      <div className="mt-3">
-        <div className="mb-1 flex justify-between text-[10px] text-muted-foreground">
-          <span>Étage : {zone.floor}</span>
-          <span>{occupancyPct}%</span>
-        </div>
-        <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
-          <div className={cn("h-full rounded-full transition-all", occupancyPct > 80 ? "bg-red-500" : occupancyPct > 50 ? "bg-yellow-500" : "bg-green-500")}
-            style={{ width: `${Math.max(2, occupancyPct)}%` }} />
-        </div>
-      </div>
-
-      {children.length > 0 && (
-        <div className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground">
-          <FolderTree className="h-3 w-3" /> {children.length} sous-zone{children.length > 1 ? "s" : ""}
-        </div>
-      )}
-
-      <div className="mt-3 flex gap-1.5">
-        <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" onClick={() => onView(zone)}>
-          <Eye className="mr-1 h-3 w-3" /> Détail
-        </Button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => onEdit(zone)}>
-          <Edit className="h-3 w-3" />
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-// ── Zone Detail Modal ─────────────────────────────────────────────────────────
-function ZoneDetailModal({ zone, onClose }: { zone: SecurityZone | null; onClose: () => void }) {
-  if (!zone) return null
-  const lvl = LEVEL_CONFIG[zone.level]
-  const zoneReaders = READERS.filter(r => r.zoneId === zone.id)
-  const zoneGroups = ACCESS_GROUPS.filter(g => g.zoneIds.includes(zone.id))
-  const parent = ZONES.find(z => z.id === zone.parentId)
-  const children = ZONES.filter(z => z.parentId === zone.id)
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <div className="h-4 w-4 rounded-sm" style={{ backgroundColor: zone.color }} />
-            {zone.name}
-          </DialogTitle>
-          <DialogDescription className="flex gap-2">
-            <Badge className={cn("text-[10px]", lvl.bg, lvl.color)}>{lvl.label}</Badge>
-            <Badge variant="outline" className="text-[10px]">{zone.floor}</Badge>
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-5 py-2">
-          <p className="text-sm text-muted-foreground">{zone.description}</p>
-
-          <div className="grid grid-cols-3 gap-3 text-center">
-            {[
-              { label: "Occupation", value: `${zone.occupancy}/${zone.capacity}` },
-              { label: "Lecteurs",   value: zone.readers.length },
-              { label: "Groupes",    value: zone.accessGroups.length },
-            ].map(({ label, value }) => (
-              <div key={label} className="rounded-lg border border-border/60 bg-muted/30 p-2.5">
-                <p className="text-lg font-bold text-foreground">{value}</p>
-                <p className="text-[10px] text-muted-foreground">{label}</p>
-              </div>
-            ))}
-          </div>
-
-          {parent && (
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Zone parente</p>
-              <div className="flex items-center gap-2 text-sm">
-                <div className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: parent.color }} />
-                <span className="font-medium">{parent.name}</span>
-              </div>
-            </div>
-          )}
-
-          {children.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Sous-zones</p>
-              <div className="space-y-1.5">
-                {children.map(c => (
-                  <div key={c.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <ChevronRight className="h-3 w-3" />
-                    <div className="h-2 w-2 rounded-sm" style={{ backgroundColor: c.color }} />
-                    <span>{c.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {zoneReaders.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Lecteurs actifs</p>
-              <div className="space-y-1.5">
-                {zoneReaders.map(r => {
-                  const rCfg = READER_STATUS_CONFIG[r.status]
-                  return (
-                    <div key={r.id} className="flex items-center justify-between text-xs">
-                      <span className="text-foreground">{r.name}</span>
-                      <Badge className={cn("text-[10px]", rCfg.bg, rCfg.color)}>{rCfg.label}</Badge>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {zoneGroups.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Groupes d'accès autorisés</p>
-              <div className="flex flex-wrap gap-1.5">
-                {zoneGroups.map(g => <Badge key={g.id} variant="secondary" className="text-[10px]"><Users className="mr-1 h-2.5 w-2.5" />{g.name} ({g.memberCount})</Badge>)}
-              </div>
-            </div>
-          )}
-
-          {zone.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {zone.tags.map(t => <Badge key={t} variant="outline" className="text-[10px]">#{t}</Badge>)}
-            </div>
-          )}
-        </div>
-
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Fermer</Button>
-          <Button variant="outline"><Edit className="mr-1.5 h-3.5 w-3.5" /> Modifier</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ── Reader Card ───────────────────────────────────────────────────────────────
-function ReaderCard({ reader, onView }: { reader: Reader; onView: (r: Reader) => void }) {
-  const cfg = READER_STATUS_CONFIG[reader.status]
-  const CfgIcon = cfg.icon
-  const isTampered = reader.status === "tampered"
-
-  return (
-    <div className={cn(
-      "rounded-xl border p-4 transition-all hover:border-border hover:shadow-md",
-      isTampered ? "border-red-500/40 bg-red-500/5" : "border-border/60 bg-card"
-    )}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-3">
-          <div className={cn("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", cfg.bg)}>
-            <CfgIcon className={cn("h-4 w-4", cfg.color)} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">{reader.name}</p>
-            <p className="text-[11px] text-muted-foreground">{reader.location}</p>
-            <p className="mt-0.5 truncate text-[10px] font-mono text-muted-foreground/70">{reader.serialNumber} · {reader.model}</p>
-          </div>
-        </div>
-        <Badge className={cn("shrink-0 text-[10px]", cfg.bg, cfg.color)}>{cfg.label}</Badge>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-center">
-        <div className="rounded-lg bg-muted/40 p-1.5">
-          <p className="font-bold text-green-400">{reader.accessCount24h}</p>
-          <p className="text-[10px] text-muted-foreground">Accès 24h</p>
-        </div>
-        <div className="rounded-lg bg-muted/40 p-1.5">
-          <p className={cn("font-bold", reader.denialCount24h > 0 ? "text-red-400" : "text-foreground")}>{reader.denialCount24h}</p>
-          <p className="text-[10px] text-muted-foreground">Refus 24h</p>
-        </div>
-        <div className="rounded-lg bg-muted/40 p-1.5">
-          <p className="font-bold text-foreground">{DOOR_MODE_LABELS[reader.doorMode].split(" ")[0]}</p>
-          <p className="text-[10px] text-muted-foreground">Mode</p>
-        </div>
-      </div>
-
-      {reader.batteryLevel !== undefined && (
-        <div className="mt-2 flex items-center gap-1.5 text-[11px]">
-          <Battery className={cn("h-3.5 w-3.5", reader.batteryLevel < 20 ? "text-red-400" : "text-muted-foreground")} />
-          <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
-            <div className={cn("h-full rounded-full transition-all", reader.batteryLevel < 20 ? "bg-red-500" : reader.batteryLevel < 40 ? "bg-yellow-500" : "bg-green-500")}
-              style={{ width: `${reader.batteryLevel}%` }} />
-          </div>
-          <span className={cn("font-medium", reader.batteryLevel < 20 ? "text-red-400" : "text-muted-foreground")}>{reader.batteryLevel}%</span>
-        </div>
-      )}
-
-      <div className="mt-3 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>Firmware {reader.firmware}</span>
-        <span>Vu {formatRelative(reader.lastSeen)}</span>
-      </div>
-    </div>
-  )
+function deviceStatusChip(status: string | undefined, tr: ZonesDict) {
+  const normalized = (status ?? "").toLowerCase()
+  if (["online", "connected", "active", "ok"].includes(normalized)) {
+    return <StatusChip variant="success" label={tr.statusOnline} icon={Wifi} size="sm" />
+  }
+  if (["offline", "disconnected", "error"].includes(normalized)) {
+    return <StatusChip variant="danger" label={tr.statusOffline} icon={WifiOff} size="sm" />
+  }
+  if (normalized) {
+    return <StatusChip variant="neutral" label={status as string} dot size="sm" />
+  }
+  return <StatusChip variant="neutral" label={tr.statusUnknown} dot size="sm" />
 }
 
 // ── Access Group Card ─────────────────────────────────────────────────────────
-function GroupCard({ group, onView }: { group: AccessGroup; onView: (g: AccessGroup) => void }) {
+
+function GroupCard({
+  group,
+  onEdit,
+  onDelete,
+  deleting,
+}: {
+  group: ZoneAccessGroup
+  onEdit: (g: ZoneAccessGroup) => void
+  onDelete: (g: ZoneAccessGroup) => void
+  deleting: boolean
+}) {
+  const { locale } = useI18n()
+  const tr = zonesDict[locale]
+
   return (
     <div className="overflow-hidden rounded-xl border border-border/60 bg-card p-4 transition-all hover:border-border hover:shadow-md">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-semibold text-foreground">{group.name}</p>
-            {group.isDefault && <Badge variant="secondary" className="text-[10px]">Défaut</Badge>}
+            {group.code && (
+              <Badge variant="outline" className="text-[10px] font-mono">
+                {group.code}
+              </Badge>
+            )}
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 rounded-lg bg-muted/40 px-2 py-1 text-xs">
-            <Users className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="font-semibold text-foreground">{group.memberCount}</span>
-          </div>
+          {group.description && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{group.description}</p>}
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1"><CalendarDays className="h-3 w-3" />{group.scheduleName}</span>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
+        <div className="rounded-lg bg-muted/40 p-1.5">
+          <p className="font-bold text-foreground">{group.reader_count}</p>
+          <p className="text-[10px] text-muted-foreground">{tr.readersLabel(group.reader_count)}</p>
+        </div>
+        <div className="rounded-lg bg-muted/40 p-1.5">
+          <p className="font-bold text-foreground">{group.employee_count}</p>
+          <p className="text-[10px] text-muted-foreground">{tr.employeesLabel(group.employee_count)}</p>
+        </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1">
-        {group.zoneIds.slice(0, 3).map(zId => {
-          const zone = ZONES.find(z => z.id === zId)
-          return zone ? (
-            <Badge key={zId} variant="outline" className="text-[10px]">
-              <div className="mr-1 h-2 w-2 rounded-sm" style={{ backgroundColor: zone.color }} />
-              {zone.name.split("—")[0].trim()}
-            </Badge>
-          ) : null
-        })}
-        {group.zoneIds.length > 3 && <Badge variant="outline" className="text-[10px]">+{group.zoneIds.length - 3}</Badge>}
+      <div className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <CalendarDays className="h-3 w-3 shrink-0" />
+        <span className="truncate">{group.planning_name ?? tr.noLinkedSchedule}</span>
       </div>
 
-      <Button size="sm" variant="outline" className="mt-3 h-7 w-full text-xs" onClick={() => onView(group)}>
-        <Eye className="mr-1.5 h-3 w-3" /> Voir les membres & zones
-      </Button>
+      <div className="mt-3 flex gap-1.5">
+        <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" onClick={() => onEdit(group)}>
+          <Edit className="mr-1 h-3 w-3" /> {tr.edit}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={tr.deleteGroupAria(group.name)}
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
+          disabled={deleting}
+          onClick={() => onDelete(group)}
+        >
+          {deleting ? <Spinner className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
+        </Button>
+      </div>
     </div>
   )
 }
 
+// ── Create / Edit Dialog ──────────────────────────────────────────────────────
+
+const NO_PLANNING = "none"
+
+function GroupDialog({
+  group,
+  plannings,
+  devices,
+  tenants,
+  onClose,
+  onSaved,
+}: {
+  group: ZoneAccessGroup | null
+  plannings: ZonePlanning[]
+  devices: ZoneDevice[]
+  tenants: ZoneTenant[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { locale } = useI18n()
+  const tr = zonesDict[locale]
+  const isEdit = group !== null
+  const [name, setName] = useState(group?.name ?? "")
+  const [description, setDescription] = useState(group?.description ?? "")
+  const [planningId, setPlanningId] = useState<string>(group?.planning != null ? String(group.planning) : NO_PLANNING)
+  const [readerIds, setReaderIds] = useState<number[]>(group?.readers ?? [])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const toggleReader = (id: number) => {
+    setReaderIds((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]))
+  }
+
+  const handleSubmit = async () => {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      setError(tr.nameRequired)
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const planning = planningId === NO_PLANNING ? null : Number(planningId)
+      if (isEdit) {
+        await updateAccessGroup(group.id, {
+          name: trimmedName,
+          description: description.trim(),
+          planning,
+          readers: readerIds,
+        })
+      } else {
+        const activeCode = getActiveTenantCode()
+        const tenant = tenants.find((t) => t.code === activeCode)
+        if (!tenant) {
+          setError(tr.tenantUnresolved)
+          setSaving(false)
+          return
+        }
+        const payload: ZoneAccessGroupPayload = {
+          tenant: tenant.id,
+          name: trimmedName,
+          description: description.trim(),
+          planning,
+          readers: readerIds,
+        }
+        await createAccessGroup(payload)
+      }
+      onSaved()
+    } catch (err) {
+      setError(errorMessage(err, tr.saveFailed))
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? tr.editGroupTitle : tr.newGroupTitle}</DialogTitle>
+          <DialogDescription>
+            {isEdit ? tr.editGroupDescription : tr.newGroupDescription}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="group-name">{tr.nameLabel} *</Label>
+            <Input
+              id="group-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={tr.namePlaceholder}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="group-description">{tr.descriptionLabel}</Label>
+            <Textarea
+              id="group-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={tr.descriptionPlaceholder}
+              rows={2}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{tr.scheduleLabel}</Label>
+            <Select value={planningId} onValueChange={setPlanningId}>
+              <SelectTrigger>
+                <SelectValue placeholder={tr.schedulePlaceholder} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PLANNING}>{tr.noScheduleOption}</SelectItem>
+                {plannings.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{tr.authorizedReaders}</Label>
+            {devices.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border/60 p-3 text-xs text-muted-foreground">
+                {tr.noDevicesAvailable}
+              </p>
+            ) : (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2">
+                {devices.map((device) => (
+                  <label
+                    key={device.id}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted/40"
+                  >
+                    <Checkbox
+                      checked={readerIds.includes(device.id)}
+                      onCheckedChange={() => toggleReader(device.id)}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-foreground">{device.name}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{device.serial_number}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              {tr.readersSelected(readerIds.length)}
+            </p>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            {tr.cancel}
+          </Button>
+          <Button onClick={handleSubmit} disabled={saving}>
+            {saving && <Spinner className="mr-1.5 h-3.5 w-3.5" />}
+            {isEdit ? tr.save : tr.createGroup}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
-type ZonesTab = "zones" | "readers" | "groups" | "schedules"
 
-export default function ZonesPage() {
-  const [tab, setTab] = useState<ZonesTab>("zones")
+type PageTab = "groups" | "readers" | "schedules"
+
+export default function AccessGroupsPage() {
+  const { locale } = useI18n()
+  const tr = zonesDict[locale]
+  const trRef = useRef(tr)
+  trRef.current = tr
+
+  const [tab, setTab] = useState<PageTab>("groups")
   const [search, setSearch] = useState("")
-  const [selectedZone, setSelectedZone] = useState<SecurityZone | null>(null)
 
-  const filteredZones = useMemo(() =>
-    ZONES.filter(z => !search || z.name.toLowerCase().includes(search.toLowerCase()) || z.floor.toLowerCase().includes(search.toLowerCase())),
-    [search])
+  const [groups, setGroups] = useState<ZoneAccessGroup[]>([])
+  const [devices, setDevices] = useState<ZoneDevice[]>([])
+  const [plannings, setPlannings] = useState<ZonePlanning[]>([])
+  const [tenants, setTenants] = useState<ZoneTenant[]>([])
 
-  const filteredReaders = useMemo(() =>
-    READERS.filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.location.toLowerCase().includes(search.toLowerCase())),
-    [search])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  const filteredGroups = useMemo(() =>
-    ACCESS_GROUPS.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase())),
-    [search])
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<ZoneAccessGroup | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
-  const tamperedReaders = READERS.filter(r => r.status === "tampered")
-  const lowBattery = READERS.filter(r => r.batteryLevel !== undefined && r.batteryLevel < 20)
+  const loadAll = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const [groupsData, devicesData, planningsData, tenantsData] = await Promise.all([
+        fetchAccessGroups(),
+        fetchDevices(),
+        fetchPlannings(),
+        fetchTenants(),
+      ])
+      setGroups(groupsData)
+      setDevices(devicesData)
+      setPlannings(planningsData)
+      setTenants(tenantsData)
+    } catch (err) {
+      setLoadError(errorMessage(err, trRef.current.loadFailed))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadAll()
+  }, [loadAll])
+
+  const refreshGroups = useCallback(async () => {
+    try {
+      setGroups(await fetchAccessGroups())
+    } catch (err) {
+      setActionError(errorMessage(err, trRef.current.refreshFailed))
+    }
+  }, [])
+
+  const handleDelete = async (group: ZoneAccessGroup) => {
+    if (!window.confirm(tr.deleteConfirm(group.name))) return
+    setDeletingId(group.id)
+    setActionError(null)
+    try {
+      await deleteAccessGroup(group.id)
+      setGroups((prev) => prev.filter((g) => g.id !== group.id))
+    } catch (err) {
+      setActionError(errorMessage(err, tr.deleteFailed))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const openCreate = () => {
+    setEditingGroup(null)
+    setDialogOpen(true)
+  }
+  const openEdit = (group: ZoneAccessGroup) => {
+    setEditingGroup(group)
+    setDialogOpen(true)
+  }
+  const handleSaved = () => {
+    setDialogOpen(false)
+    setEditingGroup(null)
+    void refreshGroups()
+  }
+
+  const lowerSearch = search.trim().toLowerCase()
+
+  const filteredGroups = useMemo(
+    () =>
+      groups.filter(
+        (g) =>
+          !lowerSearch ||
+          g.name.toLowerCase().includes(lowerSearch) ||
+          g.description.toLowerCase().includes(lowerSearch) ||
+          (g.planning_name ?? "").toLowerCase().includes(lowerSearch),
+      ),
+    [groups, lowerSearch],
+  )
+
+  const filteredDevices = useMemo(
+    () =>
+      devices.filter(
+        (d) =>
+          !lowerSearch ||
+          d.name.toLowerCase().includes(lowerSearch) ||
+          d.serial_number.toLowerCase().includes(lowerSearch),
+      ),
+    [devices, lowerSearch],
+  )
+
+  const filteredPlannings = useMemo(
+    () =>
+      plannings.filter(
+        (p) =>
+          !lowerSearch || p.name.toLowerCase().includes(lowerSearch) || p.code.toLowerCase().includes(lowerSearch),
+      ),
+    [plannings, lowerSearch],
+  )
+
+  const groupsByDevice = useMemo(() => {
+    const map = new Map<number, ZoneAccessGroup[]>()
+    for (const group of groups) {
+      for (const readerId of group.readers) {
+        const list = map.get(readerId) ?? []
+        list.push(group)
+        map.set(readerId, list)
+      }
+    }
+    return map
+  }, [groups])
+
+  const totalEmployees = useMemo(() => groups.reduce((sum, g) => sum + g.employee_count, 0), [groups])
 
   return (
     <div className="app-shell">
@@ -401,143 +460,273 @@ export default function ZonesPage() {
       <div className="app-shell-content">
         <Header />
         <main className="app-page">
-
           {/* Header */}
           <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/15">
-                <Layers className="h-5 w-5 text-indigo-500" />
+                <Users className="h-5 w-5 text-indigo-500" />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground">Zones & Accès</h1>
-                <p className="text-sm text-muted-foreground">{ZONES_STATS.totalZones} zones · {ZONES_STATS.totalReaders} lecteurs · {ZONES_STATS.totalGroups} groupes</p>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">{tr.title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {loading
+                    ? tr.loadingShort
+                    : tr.summary(groups.length, devices.length, plannings.length)}
+                </p>
               </div>
             </div>
-            <Button size="sm">
-              <Plus className="mr-2 h-3.5 w-3.5" /> Nouvelle zone
+            <Button size="sm" onClick={openCreate} disabled={loading || Boolean(loadError)}>
+              <Plus className="mr-2 h-3.5 w-3.5" /> {tr.newGroup}
             </Button>
           </div>
 
-          {/* Alerts */}
-          {(tamperedReaders.length > 0 || lowBattery.length > 0) && (
-            <div className="mb-5 space-y-2">
-              {tamperedReaders.map(r => (
-                <div key={r.id} className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
-                  <span className="text-red-400">Sabotage détecté : {r.name} ({r.location})</span>
-                </div>
-              ))}
-              {lowBattery.map(r => (
-                <div key={r.id} className="flex items-center gap-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm">
-                  <Battery className="h-4 w-4 shrink-0 text-yellow-500" />
-                  <span className="text-yellow-400">Batterie critique : {r.name} ({r.batteryLevel}%) — remplacement requis</span>
-                </div>
-              ))}
+          {/* Loading state */}
+          {loading && (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border/60 bg-card py-16">
+              <Spinner className="h-6 w-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">{tr.loadingGroups}</p>
             </div>
           )}
 
-          {/* KPIs */}
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "Zones configurées", value: ZONES_STATS.totalZones,      icon: Layers, color: "text-indigo-400", bg: "bg-indigo-500/10" },
-              { label: "Lecteurs en ligne",  value: ZONES_STATS.readersOnline,   icon: Wifi,   color: "text-green-400",  bg: "bg-green-500/10" },
-              { label: "Hors ligne/Maint.",  value: ZONES_STATS.readersOffline + ZONES_STATS.readersMaintenance, icon: WifiOff, color: "text-slate-400", bg: "bg-slate-500/10" },
-              { label: "Groupes d'accès",    value: ZONES_STATS.totalGroups,     icon: Users,  color: "text-violet-400", bg: "bg-violet-500/10" },
-            ].map(({ label, value, icon: Icon, color, bg }) => (
-              <div key={label} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-4">
-                <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", bg)}>
-                  <Icon className={cn("h-4 w-4", color)} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
-                  <p className="truncate text-xs text-muted-foreground">{label}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Tabs */}
-          <Tabs value={tab} onValueChange={v => setTab(v as ZonesTab)}>
-            <TabsList className="mb-5 grid w-full grid-cols-4 gap-1 bg-muted/30 p-1">
-              <TabsTrigger value="zones"     className="gap-1.5 text-xs sm:text-sm"><Layers  className="h-3.5 w-3.5" /><span>Zones</span></TabsTrigger>
-              <TabsTrigger value="readers"   className="gap-1.5 text-xs sm:text-sm"><Radio   className="h-3.5 w-3.5" /><span>Lecteurs</span><Badge className="ml-1 bg-muted text-[9px] px-1 rounded">{READERS.length}</Badge></TabsTrigger>
-              <TabsTrigger value="groups"    className="gap-1.5 text-xs sm:text-sm"><Users   className="h-3.5 w-3.5" /><span>Groupes</span></TabsTrigger>
-              <TabsTrigger value="schedules" className="gap-1.5 text-xs sm:text-sm"><CalendarDays className="h-3.5 w-3.5" /><span>Horaires</span></TabsTrigger>
-            </TabsList>
-
-            {/* Search bar shared */}
-            <div className="mb-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input placeholder="Rechercher…" value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-              </div>
+          {/* Error state */}
+          {!loading && loadError && (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-red-500/30 bg-red-500/5 py-16 text-center">
+              <AlertTriangle className="h-6 w-6 text-red-500" />
+              <p className="max-w-md px-4 text-sm text-red-400">{loadError}</p>
+              <Button size="sm" variant="outline" onClick={() => void loadAll()}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> {tr.retry}
+              </Button>
             </div>
+          )}
 
-            {/* ── Zones tab ── */}
-            <TabsContent value="zones">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredZones.map(z => <ZoneCard key={z.id} zone={z} onView={setSelectedZone} onEdit={setSelectedZone} />)}
-              </div>
-            </TabsContent>
+          {!loading && !loadError && (
+            <>
+              {/* Action error banner */}
+              {actionError && (
+                <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+                    <span className="text-red-400">{actionError}</span>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 shrink-0 text-xs" onClick={() => setActionError(null)}>
+                    {tr.dismiss}
+                  </Button>
+                </div>
+              )}
 
-            {/* ── Readers tab ── */}
-            <TabsContent value="readers">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredReaders.map(r => <ReaderCard key={r.id} reader={r} onView={() => {}} />)}
-              </div>
-            </TabsContent>
-
-            {/* ── Groups tab ── */}
-            <TabsContent value="groups">
-              <div className="mb-3 flex justify-end">
-                <Button size="sm">
-                  <Plus className="mr-1.5 h-3.5 w-3.5" /> Nouveau groupe
-                </Button>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredGroups.map(g => <GroupCard key={g.id} group={g} onView={() => {}} />)}
-              </div>
-            </TabsContent>
-
-            {/* ── Schedules tab ── */}
-            <TabsContent value="schedules">
-              <div className="space-y-3">
-                {ACCESS_SCHEDULES.map(sch => (
-                  <div key={sch.id} className="flex items-center gap-4 rounded-xl border border-border/60 bg-card p-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                      <CalendarDays className="h-4 w-4 text-primary" />
+              {/* KPIs */}
+              <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { label: tr.kpiGroups, value: groups.length, icon: Users, color: "text-violet-400", bg: "bg-violet-500/10" },
+                  { label: tr.kpiReaders, value: devices.length, icon: Radio, color: "text-green-400", bg: "bg-green-500/10" },
+                  { label: tr.kpiSchedules, value: plannings.length, icon: CalendarDays, color: "text-blue-400", bg: "bg-blue-500/10" },
+                  { label: tr.kpiEmployees, value: totalEmployees, icon: Users, color: "text-indigo-400", bg: "bg-indigo-500/10" },
+                ].map(({ label, value, icon: Icon, color, bg }) => (
+                  <div key={label} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-4">
+                    <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", bg)}>
+                      <Icon className={cn("h-4 w-4", color)} />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-foreground">{sch.name}</p>
-                      <p className="text-xs text-muted-foreground">{sch.description}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <div className="flex gap-0.5">
-                          {["mon","tue","wed","thu","fri","sat","sun"].map(d => (
-                            <span key={d} className={cn("flex h-5 w-5 items-center justify-center rounded text-[10px] font-medium", sch.days.includes(d as never) ? "bg-primary/20 text-primary" : "bg-muted/30 text-muted-foreground")}>
-                              {DAY_LABELS[d]}
-                            </span>
-                          ))}
-                        </div>
-                        <Badge variant="secondary" className="text-[10px]">{sch.startTime} – {sch.endTime}</Badge>
-                        {sch.isHolidayExcluded && <Badge variant="outline" className="text-[10px]">Sans jours fériés</Badge>}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button size="sm" variant="ghost" aria-label="Modifier" className="h-7 w-7 p-0"><Edit className="h-3.5 w-3.5" /></Button>
-                      <Button size="sm" variant="ghost" aria-label="Supprimer" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></Button>
+                    <div className="min-w-0">
+                      <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
+                      <p className="truncate text-xs text-muted-foreground">{label}</p>
                     </div>
                   </div>
                 ))}
-                <Button variant="outline" className="w-full gap-2 border-dashed">
-                  <Plus className="h-4 w-4" /> Ajouter un horaire
-                </Button>
               </div>
-            </TabsContent>
-          </Tabs>
+
+              {/* Tabs */}
+              <Tabs value={tab} onValueChange={(v) => setTab(v as PageTab)}>
+                <TabsList className="mb-5 grid w-full grid-cols-3 gap-1 bg-muted/30 p-1">
+                  <TabsTrigger value="groups" className="gap-1.5 text-xs sm:text-sm">
+                    <Users className="h-3.5 w-3.5" />
+                    <span>{tr.tabGroups}</span>
+                    <Badge className="ml-1 rounded bg-muted px-1 text-[9px]">{groups.length}</Badge>
+                  </TabsTrigger>
+                  <TabsTrigger value="readers" className="gap-1.5 text-xs sm:text-sm">
+                    <Radio className="h-3.5 w-3.5" />
+                    <span>{tr.tabReaders}</span>
+                    <Badge className="ml-1 rounded bg-muted px-1 text-[9px]">{devices.length}</Badge>
+                  </TabsTrigger>
+                  <TabsTrigger value="schedules" className="gap-1.5 text-xs sm:text-sm">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    <span>{tr.tabSchedules}</span>
+                    <Badge className="ml-1 rounded bg-muted px-1 text-[9px]">{plannings.length}</Badge>
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Shared search bar */}
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder={tr.searchPlaceholder}
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+
+                {/* ── Groups tab ── */}
+                <TabsContent value="groups">
+                  {groups.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 py-16 text-center">
+                      <Users className="h-8 w-8 text-muted-foreground/50" />
+                      <p className="text-sm text-muted-foreground">{tr.emptyGroups}</p>
+                      <Button size="sm" onClick={openCreate}>
+                        <Plus className="mr-1.5 h-3.5 w-3.5" /> {tr.newGroup}
+                      </Button>
+                    </div>
+                  ) : filteredGroups.length === 0 ? (
+                    <p className="py-12 text-center text-sm text-muted-foreground">
+                      {tr.noGroupMatch}
+                    </p>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {filteredGroups.map((g) => (
+                        <GroupCard
+                          key={g.id}
+                          group={g}
+                          onEdit={openEdit}
+                          onDelete={handleDelete}
+                          deleting={deletingId === g.id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* ── Readers tab ── */}
+                <TabsContent value="readers">
+                  {devices.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 py-16 text-center">
+                      <Radio className="h-8 w-8 text-muted-foreground/50" />
+                      <p className="text-sm text-muted-foreground">{tr.emptyReaders}</p>
+                    </div>
+                  ) : filteredDevices.length === 0 ? (
+                    <p className="py-12 text-center text-sm text-muted-foreground">
+                      {tr.noReaderMatch}
+                    </p>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {filteredDevices.map((device) => {
+                        const referencedBy = groupsByDevice.get(device.id) ?? []
+                        return (
+                          <div
+                            key={device.id}
+                            className="rounded-xl border border-border/60 bg-card p-4 transition-all hover:border-border hover:shadow-md"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-start gap-3">
+                                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                                  <Radio className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-foreground">{device.name}</p>
+                                  <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/70">
+                                    {device.serial_number} · {tr.readerIndex(device.dev_index)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="shrink-0">{deviceStatusChip(device.status, tr)}</div>
+                            </div>
+
+                            <div className="mt-3">
+                              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {tr.linkedGroups}
+                              </p>
+                              {referencedBy.length === 0 ? (
+                                <p className="text-[11px] text-muted-foreground">{tr.noGroupUsesReader}</p>
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {referencedBy.map((g) => (
+                                    <Badge key={g.id} variant="secondary" className="text-[10px]">
+                                      <Users className="mr-1 h-2.5 w-2.5" />
+                                      {g.name}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* ── Schedules tab ── */}
+                <TabsContent value="schedules">
+                  <div className="mb-3 flex items-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      {tr.schedulesReadOnlyPrefix}
+                      <a href="/planning" className="font-medium text-foreground underline underline-offset-2">
+                        {tr.schedulesReadOnlyLink}
+                      </a>
+                      {tr.schedulesReadOnlySuffix}
+                    </span>
+                  </div>
+                  {plannings.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 py-16 text-center">
+                      <CalendarDays className="h-8 w-8 text-muted-foreground/50" />
+                      <p className="text-sm text-muted-foreground">{tr.emptySchedules}</p>
+                    </div>
+                  ) : filteredPlannings.length === 0 ? (
+                    <p className="py-12 text-center text-sm text-muted-foreground">
+                      {tr.noScheduleMatch}
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {filteredPlannings.map((planning) => (
+                        <div
+                          key={planning.id}
+                          className="flex items-center gap-4 rounded-xl border border-border/60 bg-card p-4"
+                        >
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                            <CalendarDays className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-foreground">{planning.name}</p>
+                            {planning.description && (
+                              <p className="text-xs text-muted-foreground">{planning.description}</p>
+                            )}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                              <Badge variant="outline" className="font-mono text-[10px]">
+                                {planning.code}
+                              </Badge>
+                              {planning.timezone && (
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {planning.timezone}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </>
+          )}
         </main>
       </div>
 
-      {selectedZone && <ZoneDetailModal zone={selectedZone} onClose={() => setSelectedZone(null)} />}
+      {dialogOpen && (
+        <GroupDialog
+          key={editingGroup?.id ?? "new"}
+          group={editingGroup}
+          plannings={plannings}
+          devices={devices}
+          tenants={tenants}
+          onClose={() => {
+            setDialogOpen(false)
+            setEditingGroup(null)
+          }}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
   )
 }

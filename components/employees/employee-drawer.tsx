@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Mail,
   Phone,
+  Smartphone,
   Calendar,
   CreditCard,
   Upload,
@@ -24,7 +25,12 @@ import {
   Plus,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useState } from "react"
+import { ApiError } from "@/lib/api/client"
+import { inviteEmployeeMobile } from "@/lib/api/employees"
 import type { Employee } from "@/app/employees/page"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 
 type EmployeeDrawerProps = {
   employee: Employee | null
@@ -45,7 +51,28 @@ export function EmployeeDrawer({
   onRequestFingerprintEnroll,
   onRequestFaceEnroll,
 }: EmployeeDrawerProps) {
+  const { locale, t, formatDate } = useI18n()
+  const tr = employeesDict[locale]
+  const [inviteBusy, setInviteBusy] = useState(false)
+
   if (!employee) return null
+
+  const handleInviteMobile = async () => {
+    if (!employee.apiId) {
+      toast.error(tr.drawer.mobileNeedsSave)
+      return
+    }
+    setInviteBusy(true)
+    try {
+      const result = await inviteEmployeeMobile(employee.apiId)
+      toast.success(tr.drawer.mobileInviteSuccess(result.email))
+    } catch (error) {
+      const detail = error instanceof ApiError ? error.message : tr.drawer.mobileInviteError
+      toast.error(tr.drawer.mobileInviteError, { description: detail })
+    } finally {
+      setInviteBusy(false)
+    }
+  }
 
   const getInitials = (name: string) => {
     return name
@@ -76,7 +103,7 @@ export function EmployeeDrawer({
               <SheetTitle className="truncate text-lg font-bold">{employee.name}</SheetTitle>
               <p className="text-sm text-muted-foreground">{employee.position}</p>
               <Badge variant="secondary" className="mt-1.5 bg-primary/8 text-primary">
-                {employee.department}
+                {employee.department === "Non assigne" ? tr.notAssigned : employee.department}
               </Badge>
             </div>
           </div>
@@ -85,20 +112,20 @@ export function EmployeeDrawer({
         <Tabs defaultValue="general" className="w-full">
           <TabsList className="w-full">
             <TabsTrigger value="general" className="flex-1">
-              General
+              {t.employees.general}
             </TabsTrigger>
             <TabsTrigger value="access" className="flex-1">
-              Acces
+              {t.employees.access}
             </TabsTrigger>
             <TabsTrigger value="history" className="flex-1">
-              Historique
+              {t.employees.history}
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="mt-6 space-y-6">
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Contact
+                {t.employees.contact}
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
@@ -112,13 +139,13 @@ export function EmployeeDrawer({
                 <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
                   <Calendar className="h-4 w-4 text-muted-foreground/70" />
                   <span className="text-sm text-foreground">
-                    Embauche le {new Date(employee.hireDate).toLocaleDateString("fr-FR")}
+                    {tr.drawer.hiredOn(formatDate(employee.hireDate))}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
                   <Calendar className="h-4 w-4 text-muted-foreground/70" />
                   <span className="text-sm text-foreground">
-                    Validite: {new Date(fallbackValidityStart).toLocaleDateString("fr-FR")} - {new Date(fallbackValidityEnd).toLocaleDateString("fr-FR")}
+                    {tr.drawer.validity(formatDate(fallbackValidityStart), formatDate(fallbackValidityEnd))}
                   </span>
                 </div>
               </div>
@@ -126,25 +153,67 @@ export function EmployeeDrawer({
 
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Synchronisation
+                {tr.drawer.mobileAppTitle}
+              </h3>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-muted-foreground/70" />
+                  <Badge
+                    variant="secondary"
+                    className={
+                      employee.mobileStatus === "linked"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                        : employee.mobileStatus === "invited"
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                          : "text-muted-foreground"
+                    }
+                  >
+                    {employee.mobileStatus === "linked"
+                      ? tr.drawer.mobileLinked
+                      : employee.mobileStatus === "invited"
+                        ? tr.drawer.mobileInvited
+                        : tr.drawer.mobileNone}
+                  </Badge>
+                </div>
+                {employee.mobileStatus !== "linked" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-lg text-[11px]"
+                    disabled={inviteBusy}
+                    onClick={() => void handleInviteMobile()}
+                  >
+                    {inviteBusy
+                      ? "…"
+                      : employee.mobileStatus === "invited"
+                        ? tr.drawer.mobileReinvite
+                        : tr.drawer.mobileInvite}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                {t.employees.synchronization}
               </h3>
               <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
                 {employee.syncStatus === "synced" && (
                   <>
                     <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Synchronise</span>
+                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{tr.drawer.statusSynced}</span>
                   </>
                 )}
                 {employee.syncStatus === "pending" && (
                   <>
                     <Clock className="h-5 w-5 text-amber-400" />
-                    <span className="text-sm font-medium text-amber-700 dark:text-amber-300">En attente</span>
+                    <span className="text-sm font-medium text-amber-700 dark:text-amber-300">{tr.drawer.statusPending}</span>
                   </>
                 )}
                 {employee.syncStatus === "error" && (
                   <>
                     <XCircle className="h-5 w-5 text-destructive" />
-                    <span className="text-sm font-medium text-destructive">Erreur</span>
+                    <span className="text-sm font-medium text-destructive">{tr.drawer.statusError}</span>
                   </>
                 )}
               </div>
@@ -155,7 +224,7 @@ export function EmployeeDrawer({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  Carte d&apos;acces
+                  {tr.drawer.accessCard}
                 </h3>
                 {onRequestCardEnroll && (
                   <Button
@@ -165,19 +234,21 @@ export function EmployeeDrawer({
                     onClick={() => { onOpenChange(false); onRequestCardEnroll(employee) }}
                   >
                     <Plus className="mr-1 h-3 w-3" />
-                    Enroller
+                    {tr.drawer.enroll}
                   </Button>
                 )}
               </div>
               <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3">
                 <CreditCard className="h-4 w-4 text-muted-foreground/70" />
-                <span className="font-mono text-sm tabular-nums text-foreground">{employee.cardNumber}</span>
+                <span className="font-mono text-sm tabular-nums text-foreground">
+                  {employee.cardNumber === "Non attribue" ? tr.noCard : employee.cardNumber}
+                </span>
               </div>
             </div>
 
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Groupes d&apos;acces
+                {t.employees.accessGroups}
               </h3>
               <div className="flex flex-wrap gap-2">
                 {employee.accessGroups.map((group) => (
@@ -186,32 +257,32 @@ export function EmployeeDrawer({
                   </Badge>
                 ))}
                 {employee.accessGroups.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Aucun groupe affecte.</p>
+                  <p className="text-xs text-muted-foreground">{tr.drawer.noGroupAssigned}</p>
                 )}
               </div>
             </div>
 
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Biometrie
+                {t.employees.biometrics}
               </h3>
               <div className="grid gap-2">
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/80 p-3">
                   <div className="flex items-center gap-2">
                     <ScanFace className="h-4 w-4 text-muted-foreground/70" />
-                    <span className="text-sm text-foreground">Photo faciale</span>
+                    <span className="text-sm text-foreground">{t.employees.face}</span>
                   </div>
                   {employee.biometricStatus.hasFacePhoto ? (
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
                         <CheckCircle2 className="mr-1 h-3 w-3" />
-                        OK
+                        {tr.drawer.ok}
                       </Badge>
                       {onRequestFaceEnroll && (
                         <Button size="sm" variant="ghost" className="h-7 rounded-lg text-[11px]"
                           onClick={() => { onOpenChange(false); onRequestFaceEnroll(employee) }}>
                           <Upload className="mr-1 h-3 w-3" />
-                          Remplacer
+                          {tr.drawer.replace}
                         </Button>
                       )}
                     </div>
@@ -219,19 +290,19 @@ export function EmployeeDrawer({
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="bg-destructive/8 text-destructive">
                         <XCircle className="mr-1 h-3 w-3" />
-                        Manquante
+                        {tr.drawer.missing}
                       </Badge>
                       {onRequestFaceEnroll ? (
                         <Button size="sm" variant="outline" className="h-7 rounded-lg text-[11px]"
                           onClick={() => { onOpenChange(false); onRequestFaceEnroll(employee) }}>
                           <ScanFace className="mr-1 h-3 w-3" />
-                          Enroller
+                          {tr.drawer.enroll}
                         </Button>
                       ) : onRequestFacePhotoUpload ? (
                         <Button size="sm" variant="outline" className="h-7 rounded-lg text-[11px]"
                           onClick={() => { onRequestFacePhotoUpload(employee) }}>
                           <Upload className="mr-1 h-3 w-3" />
-                          Upload
+                          {tr.drawer.upload}
                         </Button>
                       ) : null}
                     </div>
@@ -240,25 +311,25 @@ export function EmployeeDrawer({
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/80 p-3">
                   <div className="flex items-center gap-2">
                     <Fingerprint className="h-4 w-4 text-muted-foreground/70" />
-                    <span className="text-sm text-foreground">Empreinte digitale</span>
+                    <span className="text-sm text-foreground">{tr.drawer.fingerprint}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     {employee.biometricStatus.hasFingerprint ? (
                       <Badge variant="secondary" className="bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
                         <CheckCircle2 className="mr-1 h-3 w-3" />
-                        {employee.fingerprints.length} doigt{employee.fingerprints.length > 1 ? "s" : ""}
+                        {tr.drawer.fingerCount(employee.fingerprints.length)}
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="bg-destructive/8 text-destructive">
                         <XCircle className="mr-1 h-3 w-3" />
-                        Manquante
+                        {tr.drawer.missing}
                       </Badge>
                     )}
                     {onRequestFingerprintEnroll && (
                       <Button size="sm" variant="outline" className="h-7 rounded-lg text-[11px]"
                         onClick={() => { onOpenChange(false); onRequestFingerprintEnroll(employee) }}>
                         <Fingerprint className="mr-1 h-3 w-3" />
-                        Enroller
+                        {tr.drawer.enroll}
                       </Button>
                     )}
                   </div>
@@ -270,11 +341,11 @@ export function EmployeeDrawer({
           <TabsContent value="history" className="mt-6 space-y-6">
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Derniers acces
+                {tr.drawer.recentAccess}
               </h3>
               <div className="space-y-2">
                 {employee.accessLogs.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Aucun acces enregistre.</p>
+                  <p className="text-xs text-muted-foreground">{tr.drawer.noAccessRecorded}</p>
                 )}
                 {employee.accessLogs.map((log) => (
                   <div
@@ -290,7 +361,7 @@ export function EmployeeDrawer({
                       <div>
                         <p className="text-sm font-medium text-foreground">{log.device}</p>
                         <p className="text-xs text-muted-foreground">
-                          {log.status === "granted" ? "Accorde" : "Refuse"}
+                          {log.status === "granted" ? tr.drawer.granted : tr.drawer.denied}
                         </p>
                       </div>
                     </div>
@@ -302,7 +373,7 @@ export function EmployeeDrawer({
 
             <div className="space-y-3">
               <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Dernier acces
+                {t.employees.lastAccess}
               </h3>
               <div className="rounded-xl border border-border/60 bg-card/80 p-3">
                 <p className="text-sm text-foreground">{employee.lastAccess}</p>

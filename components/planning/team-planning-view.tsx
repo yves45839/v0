@@ -36,6 +36,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/lib/i18n/context"
+import { buildWeekdayLabels, planningPageDict } from "@/lib/i18n/pages/planning-page"
 import {
   createPlanningAssignment,
   deletePlanningAssignment,
@@ -52,13 +54,7 @@ import {
   type WorkShiftApiItem,
 } from "@/lib/api/employees"
 
-const WEEKDAY_LABELS: readonly string[] = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]
-const WEEKDAY_SHORT: readonly string[] = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
-const WEEKDAY_LONG: readonly string[] = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-const MONTH_SHORT_FR: readonly string[] = [
-  "janv.", "févr.", "mars", "avr.", "mai", "juin",
-  "juil.", "août", "sept.", "oct.", "nov.", "déc.",
-]
+type TeamDict = (typeof planningPageDict)["en"]["team"]
 
 type ViewMode = "week" | "month" | "list"
 
@@ -286,32 +282,23 @@ function shiftDurationMinutes(
   return mins
 }
 
-function leaveTypeLabel(type: LeaveRequestApiItem["leave_type"]): string {
+function leaveTypeLabel(tr: TeamDict, type: LeaveRequestApiItem["leave_type"]): string {
   switch (type) {
     case "paid":
-      return "Congé payé"
+      return tr.leaveTypes.paid
     case "sick":
-      return "Maladie"
+      return tr.leaveTypes.sick
     case "unpaid":
-      return "Sans solde"
+      return tr.leaveTypes.unpaid
     case "special":
-      return "Spécial"
+      return tr.leaveTypes.special
     default:
-      return "Congé"
+      return tr.leaveTypes.default
   }
 }
 
-function leaveStatusLabel(status: LeaveRequestStatus): string {
-  switch (status) {
-    case "approved":
-      return "Validé"
-    case "pending":
-      return "En attente"
-    case "rejected":
-      return "Refusé"
-    case "cancelled":
-      return "Annulé"
-  }
+function leaveStatusLabel(tr: TeamDict, status: LeaveRequestStatus): string {
+  return tr.leaveStatus[status]
 }
 
 function leaveStatusClasses(status: LeaveRequestStatus): string {
@@ -398,6 +385,7 @@ function resolveCell(
     planningsById: Map<number, PlanningApiItem>
     departmentsById: Map<number, DepartmentApiItem>
     employeeAssignmentsForDate: PlanningAssignmentApiItem[]
+    labels: { shift: string; rest: string }
   }
 ): CellInfo {
   const iso = toIsoDate(date)
@@ -414,7 +402,7 @@ function resolveCell(
       shiftKind: classifyShiftKind(shift?.start_time),
       category: classifyShiftCategory(shift),
       shiftId: shift?.id ?? null,
-      label: shift?.name ?? "Quart",
+      label: shift?.name ?? options.labels.shift,
       timeRange: formatTimeRangeShort(shift?.start_time, shift?.end_time),
       source: "assignment",
       assignment: directAssignment,
@@ -427,7 +415,7 @@ function resolveCell(
     if (rest) {
       return {
         kind: "rest",
-        label: "Repos",
+        label: options.labels.rest,
         source: "planning_entry",
         assignment: directAssignment,
       }
@@ -439,7 +427,7 @@ function resolveCell(
         shiftKind: classifyShiftKind(shift?.start_time),
         category: classifyShiftCategory(shift ?? { name: entry.label ?? null }),
         shiftId: shift?.id ?? null,
-        label: shift?.name ?? entry.label ?? "Quart",
+        label: shift?.name ?? entry.label ?? options.labels.shift,
         timeRange: formatTimeRangeShort(shift?.start_time, shift?.end_time),
         source: "planning_entry",
         assignment: directAssignment,
@@ -452,7 +440,7 @@ function resolveCell(
   if (rest) {
     return {
       kind: "rest",
-      label: "Repos",
+      label: options.labels.rest,
       source: "rest_day",
     }
   }
@@ -463,7 +451,7 @@ function resolveCell(
       shiftKind: classifyShiftKind(shift?.start_time),
       category: classifyShiftCategory(shift ?? { name: entry.label ?? null }),
       shiftId: shift?.id ?? null,
-      label: shift?.name ?? entry.label ?? "Quart",
+      label: shift?.name ?? entry.label ?? options.labels.shift,
       timeRange: formatTimeRangeShort(shift?.start_time, shift?.end_time),
       source: "planning_entry",
     }
@@ -507,6 +495,13 @@ export function TeamPlanningView({
   departmentsById,
   onRequestRefreshBase,
 }: TeamPlanningViewProps) {
+  const { locale, formatDate } = useI18n()
+  const tr = planningPageDict[locale].team
+  const weekdayLong = useMemo(() => buildWeekdayLabels(formatDate, "long"), [formatDate])
+  const weekdayShort = useMemo(
+    () => buildWeekdayLabels(formatDate, "short").map((label) => label.replace(/\.$/, "")),
+    [formatDate]
+  )
   const [viewMode, setViewMode] = useState<ViewMode>("week")
   const [anchorDate, setAnchorDate] = useState<Date>(() => new Date())
   const [search, setSearch] = useState("")
@@ -593,42 +588,34 @@ export function TeamPlanningView({
   }, [refreshSchedule])
 
   const monthAnchor = useMemo(() => startOfMonth(anchorDate), [anchorDate])
-  const monthLabel = useMemo(
-    () =>
-      monthAnchor.toLocaleString("fr-FR", {
-        month: "long",
-        year: "numeric",
-      }),
-    [monthAnchor]
-  )
 
-  // Format Figma : "Lun 11 — Dim 17 mars 2026"
+  // Figma format: "Mon 11 — Sun 17 Mar 2026"
   const weekLabel = useMemo(() => {
     const start = range.days[0]
     const end = range.days[range.days.length - 1]
     if (!start || !end) return ""
-    const startDow = WEEKDAY_SHORT[isoDayOfWeek(start)]
-    const endDow = WEEKDAY_SHORT[isoDayOfWeek(end)]
+    const startDow = weekdayShort[isoDayOfWeek(start)]
+    const endDow = weekdayShort[isoDayOfWeek(end)]
     const startDay = String(start.getDate()).padStart(2, "0")
     const endDay = String(end.getDate()).padStart(2, "0")
-    const monthLabel = MONTH_SHORT_FR[end.getMonth()]
-    return `${startDow} ${startDay} — ${endDow} ${endDay} ${monthLabel} ${end.getFullYear()}`
-  }, [range.days])
+    const monthYear = formatDate(end, { month: "short", year: "numeric" })
+    return `${startDow} ${startDay} — ${endDow} ${endDay} ${monthYear}`
+  }, [range.days, weekdayShort, formatDate])
 
-  // Sous-titre : "Semaine 11 · 11-17 mars 2026 · N départements"
+  // Subtitle: "Week 11 · 11-17 Mar 2026 · N departments"
   const planningSubtitle = useMemo(() => {
     const start = range.days[0]
     const end = range.days[range.days.length - 1]
     if (!start || !end) return ""
-    // Numéro de semaine ISO
+    // ISO week number
     const tmp = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()))
     tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7))
     const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1))
     const weekNo = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
-    const month = MONTH_SHORT_FR[end.getMonth()]
-    const deptCount = departments.length
-    return `Semaine ${weekNo} · ${start.getDate()}-${end.getDate()} ${month} ${end.getFullYear()} · ${deptCount} département${deptCount > 1 ? "s" : ""}`
-  }, [range.days, departments.length])
+    const month = formatDate(end, { month: "short" })
+    const rangeText = `${start.getDate()}-${end.getDate()} ${month} ${end.getFullYear()}`
+    return tr.subtitle(weekNo, rangeText, departments.length)
+  }, [range.days, departments.length, formatDate, tr])
 
   const goToToday = () => setAnchorDate(new Date())
 
@@ -667,7 +654,7 @@ export function TeamPlanningView({
       leave: matchingLeave
         ? {
             request: matchingLeave,
-            label: leaveTypeLabel(matchingLeave.leave_type),
+            label: leaveTypeLabel(tr, matchingLeave.leave_type),
           }
         : null,
     })
@@ -689,25 +676,25 @@ export function TeamPlanningView({
   const handleSaveDrawer = async () => {
     if (!drawer) return
     if (isReadonly) {
-      toast.error("Mode démonstration : impossible d'enregistrer une affectation.")
+      toast.error(tr.drawer.demoSaveError)
       return
     }
     if (!tenantId) {
-      toast.error("Tenant introuvable.")
+      toast.error(tr.drawer.tenantMissing)
       return
     }
     const shiftId = Number.parseInt(drawerWorkShiftId, 10)
     if (!Number.isFinite(shiftId) || shiftId <= 0) {
-      toast.error("Sélectionnez un quart de travail.")
+      toast.error(tr.drawer.selectShiftError)
       return
     }
     if (!drawerStartDate) {
-      toast.error("Date de début requise.")
+      toast.error(tr.drawer.startRequired)
       return
     }
     const fallbackEnd = drawerEndDate || drawerStartDate
     if (fallbackEnd < drawerStartDate) {
-      toast.error("La date de fin doit être supérieure ou égale au début.")
+      toast.error(tr.drawer.endBeforeStart)
       return
     }
 
@@ -722,7 +709,7 @@ export function TeamPlanningView({
           valid_to: fallbackEnd,
         })
         setAssignments((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
-        toast.success("Affectation mise à jour")
+        toast.success(tr.drawer.updated)
       } else {
         const created = await createPlanningAssignment({
           tenant: tenantId,
@@ -732,14 +719,14 @@ export function TeamPlanningView({
           valid_to: fallbackEnd,
         })
         setAssignments((prev) => [created, ...prev])
-        toast.success("Affectation créée")
+        toast.success(tr.drawer.created)
       }
       closeDrawer()
       onRequestRefreshBase?.()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setBannerError(message)
-      toast.error("Échec de l'enregistrement", { description: message })
+      toast.error(tr.drawer.saveFailed, { description: message })
     } finally {
       setDrawerSaving(false)
     }
@@ -748,7 +735,7 @@ export function TeamPlanningView({
   const handleDeleteDrawer = async () => {
     if (!drawer?.cell.assignment) return
     if (isReadonly) {
-      toast.error("Mode démonstration : impossible de supprimer une affectation.")
+      toast.error(tr.drawer.demoDeleteError)
       return
     }
     setDrawerDeleting(true)
@@ -756,13 +743,13 @@ export function TeamPlanningView({
     try {
       await deletePlanningAssignment(drawer.cell.assignment.id)
       setAssignments((prev) => prev.filter((row) => row.id !== drawer.cell.assignment?.id))
-      toast.success("Affectation supprimée")
+      toast.success(tr.drawer.deleted)
       closeDrawer()
       onRequestRefreshBase?.()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setBannerError(message)
-      toast.error("Échec de la suppression", { description: message })
+      toast.error(tr.drawer.deleteFailed, { description: message })
     } finally {
       setDrawerDeleting(false)
     }
@@ -787,23 +774,24 @@ export function TeamPlanningView({
           planningsById,
           departmentsById: departmentObjectsById,
           employeeAssignmentsForDate: employeeAssignmentList,
+          labels: { shift: tr.shiftFallback, rest: tr.rest },
         })
         dayMap.set(toIsoDate(day), cell)
       }
       matrix.set(employee.id, dayMap)
     }
     return matrix
-  }, [assignments, filteredEmployees, range.days, workShiftsById, planningsById, departmentObjectsById])
+  }, [assignments, filteredEmployees, range.days, workShiftsById, planningsById, departmentObjectsById, tr])
 
   const todayIso = toIsoDate(new Date())
 
   const drawerLeaveDescription = drawer?.leave
-    ? `${drawer.leave.label} · ${leaveStatusLabel(drawer.leave.request.status)} (${drawer.leave.request.start_date} → ${drawer.leave.request.end_date})`
+    ? `${drawer.leave.label} · ${leaveStatusLabel(tr, drawer.leave.request.status)} (${formatDate(`${drawer.leave.request.start_date}T00:00:00`)} → ${formatDate(`${drawer.leave.request.end_date}T00:00:00`)})`
     : null
 
   const monthDayCount = range.days.length
 
-  const monthHeader = useMemo(() => WEEKDAY_LONG, [])
+  const monthHeader = weekdayLong
 
   return (
     <div className="space-y-4">
@@ -811,7 +799,7 @@ export function TeamPlanningView({
       <div className="flex items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold leading-tight tracking-tight text-slate-900 dark:text-white">
-            Planning
+            {tr.title}
           </h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-muted-foreground">
             {planningSubtitle}
@@ -827,7 +815,7 @@ export function TeamPlanningView({
             <button
               type="button"
               onClick={goPrevious}
-              aria-label="Période précédente"
+              aria-label={tr.prevPeriod}
               className="flex h-9 w-9 items-center justify-center text-slate-600 hover:bg-slate-50 dark:text-muted-foreground dark:hover:bg-muted/40"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -839,13 +827,13 @@ export function TeamPlanningView({
               className="flex h-9 items-center gap-1.5 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-foreground dark:hover:bg-muted/40"
             >
               <CalendarClock className="h-3.5 w-3.5" />
-              Aujourd&apos;hui
+              {tr.today}
             </button>
             <span className="h-5 w-px bg-slate-200 dark:bg-border/60" />
             <button
               type="button"
               onClick={goNext}
-              aria-label="Période suivante"
+              aria-label={tr.nextPeriod}
               className="flex h-9 w-9 items-center justify-center text-slate-600 hover:bg-slate-50 dark:text-muted-foreground dark:hover:bg-muted/40"
             >
               <ChevronRight className="h-3.5 w-3.5" />
@@ -863,9 +851,9 @@ export function TeamPlanningView({
           <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm dark:border-border/60 dark:bg-card/60">
             {(
               [
-                { value: "week", label: "Semaine" },
-                { value: "month", label: "Mois" },
-                { value: "list", label: "Liste" },
+                { value: "week", label: tr.viewWeek },
+                { value: "month", label: tr.viewMonth },
+                { value: "list", label: tr.viewList },
               ] as const
             ).map((item) => {
               const active = viewMode === item.value
@@ -890,11 +878,11 @@ export function TeamPlanningView({
           {/* Filtre département (cosmétiquement style Figma) */}
           <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
             <SelectTrigger className="h-9 min-w-[170px] rounded-lg border-slate-200 bg-white text-sm shadow-sm dark:border-border/60 dark:bg-card/60">
-              <span className="text-slate-500 dark:text-muted-foreground">Département&nbsp;:&nbsp;</span>
-              <SelectValue placeholder="Tous" />
+              <span className="text-slate-500 dark:text-muted-foreground">{tr.departmentLabel}</span>
+              <SelectValue placeholder={tr.all} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tous</SelectItem>
+              <SelectItem value="all">{tr.all}</SelectItem>
               {departments.map((department) => (
                 <SelectItem key={department.id} value={String(department.id)}>
                   {department.name}
@@ -911,8 +899,8 @@ export function TeamPlanningView({
             className="h-9 rounded-lg px-2 text-slate-500 hover:bg-slate-100 dark:text-muted-foreground dark:hover:bg-muted/40"
             onClick={() => void refreshSchedule()}
             disabled={loading}
-            aria-label="Synchroniser"
-            title="Synchroniser avec le backend"
+            aria-label={tr.sync}
+            title={tr.syncTitle}
           >
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           </Button>
@@ -924,7 +912,7 @@ export function TeamPlanningView({
         <summary className="cursor-pointer list-none text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <Filter className="h-3 w-3" />
-            Filtres avancés
+            {tr.advancedFilters}
           </span>
         </summary>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -933,7 +921,7 @@ export function TeamPlanningView({
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Rechercher un employé"
+              placeholder={tr.searchEmployee}
               className="h-9 rounded-lg border-slate-200 bg-white pl-9 text-sm dark:border-border/60 dark:bg-background/60"
             />
             {search ? (
@@ -941,7 +929,7 @@ export function TeamPlanningView({
                 type="button"
                 onClick={() => setSearch("")}
                 className="absolute right-2 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40"
-                aria-label="Effacer la recherche"
+                aria-label={tr.clearSearch}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -949,22 +937,23 @@ export function TeamPlanningView({
           </div>
           <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as LeaveStatusFilter)}>
             <SelectTrigger className="h-9 w-[180px] rounded-lg border-slate-200 bg-white text-sm dark:border-border/60 dark:bg-background/60">
-              <SelectValue placeholder="Congés" />
+              <SelectValue placeholder={tr.leavesPlaceholder} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="approved">Validés</SelectItem>
-              <SelectItem value="pending">En attente</SelectItem>
-              <SelectItem value="rejected">Refusés</SelectItem>
-              <SelectItem value="all">Tous</SelectItem>
+              <SelectItem value="approved">{tr.leavesApproved}</SelectItem>
+              <SelectItem value="pending">{tr.leavesPending}</SelectItem>
+              <SelectItem value="rejected">{tr.leavesRejected}</SelectItem>
+              <SelectItem value="all">{tr.leavesAll}</SelectItem>
             </SelectContent>
           </Select>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 dark:border-border/40 dark:bg-background/40 dark:text-muted-foreground">
             <Users className="h-3 w-3" />
-            <span className="tabular-nums">{filteredEmployees.length}</span> employés
+            <span className="tabular-nums">{filteredEmployees.length}</span>{" "}
+            {tr.employeesWord(filteredEmployees.length)}
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            {visibleLeaves.length} congé{visibleLeaves.length > 1 ? "s" : ""}
+            {tr.leavesCount(visibleLeaves.length)}
           </span>
         </div>
       </details>
@@ -979,7 +968,7 @@ export function TeamPlanningView({
             type="button"
             onClick={() => setBannerError(null)}
             className="rounded-md p-1 hover:bg-destructive/15"
-            aria-label="Fermer"
+            aria-label={tr.closeAria}
           >
             <X className="h-4 w-4" />
           </button>
@@ -991,33 +980,38 @@ export function TeamPlanningView({
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/30 ring-1 ring-border/40">
             <Users className="h-6 w-6 text-muted-foreground/60" />
           </div>
-          <p className="text-sm font-semibold">Aucun employé à afficher</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Ajustez les filtres ou ajoutez des employés depuis la page Employés.
-          </p>
+          <p className="text-sm font-semibold">{tr.emptyTitle}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{tr.emptyHint}</p>
         </div>
       ) : viewMode === "week" ? (
         <WeekGrid
+          tr={tr}
           days={range.days}
           employees={filteredEmployees}
           cellMatrix={cellByEmployeeAndDay}
           leavesByEmployee={leavesByEmployee}
           departmentsById={departmentsById}
+          weekdayLabels={weekdayShort}
           todayIso={todayIso}
           onCellClick={openDrawer}
         />
       ) : viewMode === "list" ? (
         <ListView
+          tr={tr}
           days={range.days}
           employees={filteredEmployees}
           cellMatrix={cellByEmployeeAndDay}
           leavesByEmployee={leavesByEmployee}
           departmentsById={departmentsById}
+          formatDayLabel={(date) =>
+            `${weekdayShort[isoDayOfWeek(date)]} ${date.getDate()} ${formatDate(date, { month: "short" })}`
+          }
           todayIso={todayIso}
           onCellClick={openDrawer}
         />
       ) : (
         <MonthGrid
+          tr={tr}
           days={range.days}
           anchorMonth={monthAnchor.getMonth()}
           employees={filteredEmployees}
@@ -1034,6 +1028,7 @@ export function TeamPlanningView({
       {/* Pied de page Figma : légende couleurs + stats (Heures planifiées · Sous-effectif sam. · Couverture) */}
       {filteredEmployees.length > 0 && viewMode !== "list" ? (
         <PlanningFooter
+          tr={tr}
           employees={filteredEmployees}
           cellMatrix={cellByEmployeeAndDay}
           workShiftsById={workShiftsById}
@@ -1046,11 +1041,11 @@ export function TeamPlanningView({
         <SheetContent className="flex w-full flex-col gap-0 overflow-hidden border-border/60 bg-card sm:max-w-md">
           <SheetHeader className="border-b border-border/40 px-6 py-5">
             <SheetTitle className="text-base font-bold">
-              {drawer ? `${drawer.employee.name}` : "Affectation"}
+              {drawer ? `${drawer.employee.name}` : tr.drawer.fallbackTitle}
             </SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">
               {drawer
-                ? `${drawer.date.toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}`
+                ? formatDate(drawer.date, { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
                 : ""}
             </SheetDescription>
           </SheetHeader>
@@ -1071,14 +1066,14 @@ export function TeamPlanningView({
 
                 <div className="rounded-xl border border-border/40 bg-background/40 p-3 text-xs">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Quart actuel
+                    {tr.drawer.currentShift}
                   </p>
                   <p className="mt-1 font-semibold text-foreground">
                     {drawer.cell.kind === "shift"
                       ? drawer.cell.label
                       : drawer.cell.kind === "rest"
-                        ? "Repos"
-                        : "Aucune affectation"}
+                        ? tr.rest
+                        : tr.drawer.noAssignment}
                   </p>
                   {drawer.cell.timeRange ? (
                     <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
@@ -1087,16 +1082,16 @@ export function TeamPlanningView({
                   ) : null}
                   {drawer.cell.source !== "none" ? (
                     <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                      Source : {sourceLabel(drawer.cell.source)}
+                      {tr.drawer.sourceLabel} {sourceLabel(tr, drawer.cell.source)}
                     </p>
                   ) : null}
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-foreground">Quart de travail</label>
+                  <label className="text-xs font-semibold text-foreground">{tr.drawer.workShift}</label>
                   <Select value={drawerWorkShiftId} onValueChange={setDrawerWorkShiftId}>
                     <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60 text-sm">
-                      <SelectValue placeholder="Sélectionnez un quart" />
+                      <SelectValue placeholder={tr.drawer.selectShift} />
                     </SelectTrigger>
                     <SelectContent>
                       {workShifts.map((shift) => (
@@ -1113,7 +1108,7 @@ export function TeamPlanningView({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-foreground">Du</label>
+                    <label className="text-xs font-semibold text-foreground">{tr.drawer.from}</label>
                     <Input
                       type="date"
                       value={drawerStartDate}
@@ -1122,7 +1117,7 @@ export function TeamPlanningView({
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-foreground">Au</label>
+                    <label className="text-xs font-semibold text-foreground">{tr.drawer.to}</label>
                     <Input
                       type="date"
                       value={drawerEndDate}
@@ -1131,13 +1126,11 @@ export function TeamPlanningView({
                     />
                   </div>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Pour appliquer le quart sur plusieurs jours, choisissez la date de fin souhaitée.
-                </p>
+                <p className="text-[11px] text-muted-foreground">{tr.drawer.multiDayHint}</p>
 
                 {isReadonly ? (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
-                    Mode démonstration : les modifications ne sont pas envoyées au serveur.
+                    {tr.drawer.demoBanner}
                   </div>
                 ) : null}
               </div>
@@ -1158,7 +1151,7 @@ export function TeamPlanningView({
                   ) : (
                     <Trash2 className="mr-1 h-3.5 w-3.5" />
                   )}
-                  Supprimer
+                  {tr.drawer.delete}
                 </Button>
               ) : (
                 <span />
@@ -1166,7 +1159,7 @@ export function TeamPlanningView({
               <div className="flex items-center gap-2">
                 <SheetClose asChild>
                   <Button type="button" variant="outline" className="h-9 rounded-xl border-border/60 text-sm">
-                    Annuler
+                    {tr.drawer.cancel}
                   </Button>
                 </SheetClose>
                 <Button
@@ -1176,7 +1169,7 @@ export function TeamPlanningView({
                   disabled={drawerSaving || drawerDeleting}
                 >
                   {drawerSaving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Plus className="mr-1 h-3.5 w-3.5" />}
-                  {drawer?.cell.assignment ? "Mettre à jour" : "Enregistrer"}
+                  {drawer?.cell.assignment ? tr.drawer.update : tr.drawer.save}
                 </Button>
               </div>
             </div>
@@ -1187,28 +1180,30 @@ export function TeamPlanningView({
   )
 }
 
-function sourceLabel(source: CellInfo["source"]): string {
+function sourceLabel(tr: TeamDict, source: CellInfo["source"]): string {
   switch (source) {
     case "assignment":
-      return "Affectation ad-hoc"
+      return tr.sources.assignment
     case "planning_entry":
-      return "Planning de l'employé"
+      return tr.sources.planning_entry
     case "effective_shift":
-      return "Quart par défaut"
+      return tr.sources.effective_shift
     case "rest_day":
-      return "Jour de repos"
+      return tr.sources.rest_day
     case "none":
     default:
-      return "Aucune"
+      return tr.sources.none
   }
 }
 
 type WeekGridProps = {
+  tr: TeamDict
   days: Date[]
   employees: EmployeeApiItem[]
   cellMatrix: Map<number, Map<string, CellInfo>>
   leavesByEmployee: Map<number, LeaveRequestApiItem[]>
   departmentsById: Map<number, string>
+  weekdayLabels: readonly string[]
   todayIso: string
   onCellClick: (employee: EmployeeApiItem, date: Date, cell: CellInfo) => void
 }
@@ -1221,7 +1216,7 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function WeekGrid({ days, employees, cellMatrix, leavesByEmployee, departmentsById, todayIso, onCellClick }: WeekGridProps) {
+function WeekGrid({ tr, days, employees, cellMatrix, leavesByEmployee, departmentsById, weekdayLabels, todayIso, onCellClick }: WeekGridProps) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border/60 dark:bg-card/80">
       <div className="overflow-x-auto">
@@ -1229,7 +1224,7 @@ function WeekGrid({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
           {/* En-tête colonnes : EMPLOYÉ + 7 jours (LUN 11, MAR 12, ...) */}
           <div className="grid grid-cols-[200px_repeat(7,minmax(0,1fr))] border-b border-slate-200 bg-slate-50/60 dark:border-border/40 dark:bg-muted/30">
             <div className="px-4 py-4 text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
-              Employé
+              {tr.gridEmployee}
             </div>
             {days.map((day, ci) => {
               const iso = toIsoDate(day)
@@ -1244,7 +1239,7 @@ function WeekGrid({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
                   )}
                 >
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-muted-foreground">
-                    {WEEKDAY_LABELS[isoDayOfWeek(day)]}
+                    {weekdayLabels[isoDayOfWeek(day)]}
                   </div>
                   <div
                     className={cn(
@@ -1301,6 +1296,7 @@ function WeekGrid({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
                   return (
                     <PlanningCell
                       key={`week-cell-${employee.id}-${iso}`}
+                      tr={tr}
                       cell={cell}
                       leave={leave}
                       isToday={iso === todayIso}
@@ -1319,6 +1315,7 @@ function WeekGrid({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
 }
 
 type MonthGridProps = {
+  tr: TeamDict
   days: Date[]
   anchorMonth: number
   employees: EmployeeApiItem[]
@@ -1332,6 +1329,7 @@ type MonthGridProps = {
 }
 
 function MonthGrid({
+  tr,
   days,
   anchorMonth,
   employees,
@@ -1352,7 +1350,7 @@ function MonthGrid({
             )}
             style={{ gridTemplateColumns: `220px repeat(${days.length}, minmax(72px, 1fr))` }}
           >
-            <div className="px-4 py-3">Employé</div>
+            <div className="px-4 py-3">{tr.gridEmployee}</div>
             {days.map((day) => {
               const iso = toIsoDate(day)
               const isToday = iso === todayIso
@@ -1386,7 +1384,7 @@ function MonthGrid({
                 <div className="flex flex-col justify-center gap-0.5 border-r border-border/40 px-4 py-3">
                   <span className="text-sm font-semibold text-foreground">{employee.name}</span>
                   <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                    {departmentsById.get(employee.department ?? -1) ?? "Sans département"}
+                    {departmentsById.get(employee.department ?? -1) ?? tr.noDepartment}
                   </span>
                 </div>
                 {days.map((day) => {
@@ -1397,6 +1395,7 @@ function MonthGrid({
                   return (
                     <PlanningCell
                       key={`month-cell-${employee.id}-${iso}`}
+                      tr={tr}
                       cell={cell}
                       leave={leave}
                       isToday={iso === todayIso}
@@ -1416,6 +1415,7 @@ function MonthGrid({
 }
 
 type PlanningCellProps = {
+  tr: TeamDict
   cell: CellInfo
   leave: LeaveRequestApiItem | null
   isToday: boolean
@@ -1427,7 +1427,7 @@ type PlanningCellProps = {
 
 // Cellule planning style Figma : carte arrondie pleine largeur avec bg/border/text
 // dépendants de la catégorie (Matin / Soir / Bureau / Service / Astreinte / Congés).
-function PlanningCell({ cell, leave, isToday, muted, compact, isWeekend, onClick }: PlanningCellProps) {
+function PlanningCell({ tr, cell, leave, isToday, muted, compact, isWeekend, onClick }: PlanningCellProps) {
   // Si congé approuvé/en attente → on rend une carte "Congés" jaune par-dessus
   const isLeaveCard = leave && (leave.status === "approved" || leave.status === "pending")
 
@@ -1438,30 +1438,30 @@ function PlanningCell({ cell, leave, isToday, muted, compact, isWeekend, onClick
 
   if (isLeaveCard) {
     cardClass = "bg-amber-100 border-amber-200 text-amber-800 dark:bg-amber-500/15 dark:border-amber-500/30 dark:text-amber-200"
-    title = "Congés"
+    title = tr.leaveCard
     subtitle = "—"
     renderCard = true
   } else if (cell.kind === "shift") {
     cardClass = shiftCategoryClasses(cell.category)
-    // Étiquette Figma : on montre "Matin" / "Soir" / "Bureau" etc plutôt que le nom long
+    // Figma label: show "Morning" / "Evening" / "Office" etc. instead of the long name
     const cat = cell.category
     title =
       cat === "matin"
-        ? "Matin"
+        ? tr.categories.matin
         : cat === "soir"
-          ? "Soir"
+          ? tr.categories.soir
           : cat === "bureau"
-            ? "Bureau"
+            ? tr.categories.bureau
             : cat === "service"
-              ? "Service"
+              ? tr.categories.service
               : cat === "astreinte"
-                ? "Astreinte"
-                : cell.label || "Quart"
-    subtitle = cat === "astreinte" ? "24/7" : cell.timeRange ?? null
+                ? tr.categories.astreinte
+                : cell.label || tr.shiftFallback
+    subtitle = cat === "astreinte" ? tr.onCallRange : cell.timeRange ?? null
     renderCard = true
   } else if (cell.kind === "rest") {
     cardClass = "bg-slate-50 border-slate-200 text-slate-500 dark:bg-muted/30 dark:border-border/40 dark:text-muted-foreground"
-    title = "Repos"
+    title = tr.rest
     subtitle = "—"
     renderCard = true
   }
@@ -1504,10 +1504,10 @@ function PlanningCell({ cell, leave, isToday, muted, compact, isWeekend, onClick
             "pointer-events-none absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded-md border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-widest",
             leaveStatusClasses(leave.status),
           )}
-          title={`${leaveTypeLabel(leave.leave_type)} · ${leaveStatusLabel(leave.status)}`}
+          title={`${leaveTypeLabel(tr, leave.leave_type)} · ${leaveStatusLabel(tr, leave.status)}`}
         >
           <span className="h-1 w-1 rounded-full bg-current" />
-          {leaveStatusLabel(leave.status)}
+          {leaveStatusLabel(tr, leave.status)}
         </span>
       ) : null}
     </button>
@@ -1519,16 +1519,18 @@ function PlanningCell({ cell, leave, isToday, muted, compact, isWeekend, onClick
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ListViewProps = {
+  tr: TeamDict
   days: Date[]
   employees: EmployeeApiItem[]
   cellMatrix: Map<number, Map<string, CellInfo>>
   leavesByEmployee: Map<number, LeaveRequestApiItem[]>
   departmentsById: Map<number, string>
+  formatDayLabel: (date: Date) => string
   todayIso: string
   onCellClick: (employee: EmployeeApiItem, date: Date, cell: CellInfo) => void
 }
 
-function ListView({ days, employees, cellMatrix, leavesByEmployee, departmentsById, todayIso, onCellClick }: ListViewProps) {
+function ListView({ tr, days, employees, cellMatrix, leavesByEmployee, departmentsById, formatDayLabel, todayIso, onCellClick }: ListViewProps) {
   type Row = {
     employee: EmployeeApiItem
     date: Date
@@ -1552,10 +1554,10 @@ function ListView({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
     return (
       <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-14 text-center dark:border-border/40 dark:bg-card/40">
         <p className="text-sm font-semibold text-slate-700 dark:text-foreground">
-          Aucun shift planifié sur la période
+          {tr.list.emptyTitle}
         </p>
         <p className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">
-          Sélectionnez une autre semaine ou créez un nouveau quart.
+          {tr.list.emptyHint}
         </p>
       </div>
     )
@@ -1566,11 +1568,11 @@ function ListView({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
       <table className="w-full">
         <thead className="bg-slate-50/60 dark:bg-muted/30">
           <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
-            <th className="px-4 py-3">Date</th>
-            <th className="px-4 py-3">Employé</th>
-            <th className="px-4 py-3">Département</th>
-            <th className="px-4 py-3">Shift</th>
-            <th className="px-4 py-3">Plage</th>
+            <th className="px-4 py-3">{tr.list.colDate}</th>
+            <th className="px-4 py-3">{tr.list.colEmployee}</th>
+            <th className="px-4 py-3">{tr.list.colDepartment}</th>
+            <th className="px-4 py-3">{tr.list.colShift}</th>
+            <th className="px-4 py-3">{tr.list.colRange}</th>
           </tr>
         </thead>
         <tbody>
@@ -1585,7 +1587,7 @@ function ListView({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
                   ? shiftCategoryDotClasses(cat)
                   : "bg-slate-300"
             const departmentName = departmentsById.get(row.employee.department ?? -1) ?? "—"
-            const dateLabel = `${WEEKDAY_SHORT[isoDayOfWeek(row.date)]} ${row.date.getDate()} ${MONTH_SHORT_FR[row.date.getMonth()]}`
+            const dateLabel = formatDayLabel(row.date)
             return (
               <tr
                 key={`list-${row.employee.id}-${iso}-${idx}`}
@@ -1613,12 +1615,12 @@ function ListView({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
                   <span className="inline-flex items-center gap-2">
                     <span className={cn("h-2 w-2 rounded-full", dotClass)} />
                     <span className="font-medium text-slate-700 dark:text-foreground">
-                      {row.cell.kind === "rest" ? "Repos" : row.cell.label || "Quart"}
+                      {row.cell.kind === "rest" ? tr.rest : row.cell.label || tr.shiftFallback}
                     </span>
                   </span>
                 </td>
                 <td className="px-4 py-3 text-slate-500 tabular-nums dark:text-muted-foreground">
-                  {row.cell.timeRange ?? (cat === "astreinte" ? "24/7" : "—")}
+                  {row.cell.timeRange ?? (cat === "astreinte" ? tr.onCallRange : "—")}
                 </td>
               </tr>
             )
@@ -1634,6 +1636,7 @@ function ListView({ days, employees, cellMatrix, leavesByEmployee, departmentsBy
 // ─────────────────────────────────────────────────────────────────────────────
 
 type PlanningFooterProps = {
+  tr: TeamDict
   employees: EmployeeApiItem[]
   cellMatrix: Map<number, Map<string, CellInfo>>
   workShiftsById: Map<number, WorkShiftApiItem>
@@ -1641,7 +1644,7 @@ type PlanningFooterProps = {
   departmentsById: Map<number, DepartmentApiItem>
 }
 
-function PlanningFooter({ employees, cellMatrix, workShiftsById, days, departmentsById }: PlanningFooterProps) {
+function PlanningFooter({ tr, employees, cellMatrix, workShiftsById, days, departmentsById }: PlanningFooterProps) {
   // Heures planifiées totale (somme des durées de shift)
   let totalMinutes = 0
   let plannedCells = 0
@@ -1692,11 +1695,11 @@ function PlanningFooter({ employees, cellMatrix, workShiftsById, days, departmen
   const coveragePct = totalCells > 0 ? Math.round((plannedCells / totalCells) * 100) : 0
 
   const legend: { cat: ShiftCategory; label: string }[] = [
-    { cat: "matin", label: "Matin" },
-    { cat: "soir", label: "Soir" },
-    { cat: "bureau", label: "Bureau" },
-    { cat: "service", label: "Service" },
-    { cat: "astreinte", label: "Astreinte" },
+    { cat: "matin", label: tr.categories.matin },
+    { cat: "soir", label: tr.categories.soir },
+    { cat: "bureau", label: tr.categories.bureau },
+    { cat: "service", label: tr.categories.service },
+    { cat: "astreinte", label: tr.categories.astreinte },
   ]
 
   return (
@@ -1711,7 +1714,7 @@ function PlanningFooter({ employees, cellMatrix, workShiftsById, days, departmen
         ))}
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm bg-amber-300" />
-          <span>Congés</span>
+          <span>{tr.footer.legendLeaves}</span>
         </span>
       </div>
 
@@ -1719,7 +1722,7 @@ function PlanningFooter({ employees, cellMatrix, workShiftsById, days, departmen
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-700 dark:text-foreground">
         <span className="inline-flex items-center gap-2">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          <span className="text-slate-500 dark:text-muted-foreground">Heures planifiées :</span>
+          <span className="text-slate-500 dark:text-muted-foreground">{tr.footer.plannedHours}</span>
           <span className="font-semibold tabular-nums">{totalHours}h</span>
         </span>
         <span className="inline-flex items-center gap-2">
@@ -1729,9 +1732,9 @@ function PlanningFooter({ employees, cellMatrix, workShiftsById, days, departmen
               understaffedSaturday > 0 ? "bg-amber-500" : "bg-slate-300",
             )}
           />
-          <span className="text-slate-500 dark:text-muted-foreground">Sous-effectif sam. :</span>
+          <span className="text-slate-500 dark:text-muted-foreground">{tr.footer.understaffedSaturday}</span>
           <span className="font-semibold tabular-nums">
-            {understaffedSaturday} dpt{understaffedSaturday > 1 ? "s" : ""}
+            {tr.footer.deptCount(understaffedSaturday)}
           </span>
         </span>
         <span className="inline-flex items-center gap-2">
@@ -1741,7 +1744,7 @@ function PlanningFooter({ employees, cellMatrix, workShiftsById, days, departmen
               coveragePct >= 90 ? "bg-emerald-500" : coveragePct >= 70 ? "bg-amber-500" : "bg-rose-500",
             )}
           />
-          <span className="text-slate-500 dark:text-muted-foreground">Couverture :</span>
+          <span className="text-slate-500 dark:text-muted-foreground">{tr.footer.coverage}</span>
           <span className="font-semibold tabular-nums">{coveragePct}&nbsp;%</span>
         </span>
       </div>

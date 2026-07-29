@@ -23,6 +23,8 @@ import {
   startOneTimeCheckout,
   startSubscriptionCheckout,
 } from "@/lib/api/billing"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict } from "@/lib/i18n/pages/billing"
 
 type ButtonProps = React.ComponentProps<typeof Button>
 
@@ -49,6 +51,8 @@ type OneTimeProps = Common & {
 export type StripeCheckoutButtonProps = SubscriptionProps | OneTimeProps
 
 export function StripeCheckoutButton(props: StripeCheckoutButtonProps) {
+  const { locale } = useI18n()
+  const tr = billingDict[locale]
   const { children, successUrl, cancelUrl, onError, ...rest } = props
   const [loading, setLoading] = useState(false)
 
@@ -95,7 +99,7 @@ export function StripeCheckoutButton(props: StripeCheckoutButtonProps) {
       {loading ? (
         <>
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Redirection…
+          {tr.shared.redirecting}
         </>
       ) : (
         children

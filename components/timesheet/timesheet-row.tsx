@@ -1,11 +1,12 @@
 "use client"
 
-import { Check, Pencil, X } from "lucide-react"
+import { Check, Pencil } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
+import { timesheetDict } from "@/lib/i18n/pages/timesheet"
 
 export type TimesheetSeverity = "info" | "warn" | "danger"
 
@@ -22,7 +23,8 @@ export interface TimesheetItem {
   expectEnd: string
   actualStart: string
   actualEnd: string
-  delta: string
+  deltaFr: string
+  deltaEn: string
   deltaType: TimesheetSeverity
   severity: TimesheetSeverity
 }
@@ -66,8 +68,9 @@ interface TimesheetRowProps {
   selected: boolean
   onToggleSelect: () => void
   onApprove: () => void
-  onReject: () => void
   onEdit: () => void
+  approveDisabled?: boolean
+  busy?: boolean
 }
 
 export function TimesheetRow({
@@ -75,10 +78,12 @@ export function TimesheetRow({
   selected,
   onToggleSelect,
   onApprove,
-  onReject,
   onEdit,
+  approveDisabled = false,
+  busy = false,
 }: TimesheetRowProps) {
   const { locale } = useI18n()
+  const tr = timesheetDict[locale]
   const expS = toPct(item.expectStart) ?? 0
   const expE = toPct(item.expectEnd) ?? 100
   const actS = toPct(item.actualStart) ?? expS
@@ -100,7 +105,7 @@ export function TimesheetRow({
         <Checkbox
           checked={selected}
           onCheckedChange={onToggleSelect}
-          aria-label={locale === "en" ? "Select row" : "Sélectionner"}
+          aria-label={tr.selectRow}
         />
 
         <div className="flex items-center gap-3 min-w-0">
@@ -151,7 +156,7 @@ export function TimesheetRow({
               sev.marker,
             )}
             style={{ left: `calc(${actS}% - 10px)` }}
-            aria-label={`${locale === "en" ? "Actual start" : "Début réel"} ${item.actualStart}`}
+            aria-label={`${tr.actualStart} ${item.actualStart}`}
           >
             {item.actualStart.split(":")[0]}
           </div>
@@ -164,15 +169,13 @@ export function TimesheetRow({
 
         <div className="flex flex-col gap-1 text-xs">
           <div className="text-muted-foreground">
-            {locale === "en" ? "Expected" : "Attendu"}{" "}
+            {tr.expected}{" "}
             <span className="font-mono text-foreground/80">
               {item.expectStart}–{item.expectEnd}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-muted-foreground">
-              {locale === "en" ? "Actual" : "Réel"}
-            </span>
+            <span className="text-muted-foreground">{tr.actual}</span>
             <span className="font-mono font-semibold text-foreground">
               {item.actualStart}–{item.actualEnd}
             </span>
@@ -182,7 +185,7 @@ export function TimesheetRow({
                 sev.delta,
               )}
             >
-              {item.delta}
+              {locale === "en" ? item.deltaEn : item.deltaFr}
             </span>
           </div>
         </div>
@@ -190,26 +193,23 @@ export function TimesheetRow({
         <div className="flex items-center gap-1.5">
           <Button
             variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onReject}
-            aria-label={locale === "en" ? "Reject" : "Rejeter"}
-            title={locale === "en" ? "Reject" : "Rejeter"}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="outline"
             size="sm"
             className="h-8"
             onClick={onEdit}
+            disabled={busy}
           >
             <Pencil className="mr-1 h-3.5 w-3.5" />
-            {locale === "en" ? "Edit" : "Modifier"}
+            {tr.correct}
           </Button>
-          <Button size="sm" className="h-8" onClick={onApprove}>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={onApprove}
+            disabled={approveDisabled || busy}
+            title={approveDisabled ? tr.approveDisabledTitle : undefined}
+          >
             <Check className="mr-1 h-3.5 w-3.5" />
-            {locale === "en" ? "Approve" : "Valider"}
+            {tr.approve}
           </Button>
         </div>
       </div>

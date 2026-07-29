@@ -11,6 +11,8 @@ import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { redirectToPortal } from "@/lib/api/billing"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict } from "@/lib/i18n/pages/billing"
 
 type ButtonProps = React.ComponentProps<typeof Button>
 
@@ -22,10 +24,12 @@ type Props = Omit<ButtonProps, "onClick"> & {
 
 export function StripePortalButton({
   returnUrl,
-  children = "Gérer mon abonnement",
+  children,
   onError,
   ...rest
 }: Props) {
+  const { locale } = useI18n()
+  const tr = billingDict[locale]
   const [loading, setLoading] = useState(false)
 
   async function handleClick() {
@@ -44,10 +48,10 @@ export function StripePortalButton({
       {loading ? (
         <>
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Redirection…
+          {tr.shared.redirecting}
         </>
       ) : (
-        children
+        children ?? tr.shared.manageSubscription
       )}
     </Button>
   )

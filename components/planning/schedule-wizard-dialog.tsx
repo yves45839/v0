@@ -39,6 +39,7 @@ import {
   X,
 } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
+import { buildWeekdayLabels, planningPageDict } from "@/lib/i18n/pages/planning-page"
 import type { WorkShiftApiItem, DepartmentApiItem } from "@/lib/api/employees"
 
 export type ScheduleWizardEmployee = {
@@ -83,10 +84,6 @@ type ScheduleWizardDialogProps = {
   }) => Promise<void>
 }
 
-const WEEK_KEY = ["L", "M", "Me", "J", "V", "S", "D"]
-const WEEK_FULL_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-const WEEK_FULL_EN = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
 const STEP_ICONS = [Users, Clock, CalendarRange, CheckCircle2]
 
 export function ScheduleWizardDialog({
@@ -97,8 +94,10 @@ export function ScheduleWizardDialog({
   workShifts,
   onConfirm,
 }: ScheduleWizardDialogProps) {
-  const { t, locale } = useI18n()
-  const weekFull = locale === "fr" ? WEEK_FULL_FR : WEEK_FULL_EN
+  const { t, locale, formatDate } = useI18n()
+  const trs = planningPageDict[locale].scheduleWizard
+  const weekFull = buildWeekdayLabels(formatDate, "long")
+  const weekNarrow = buildWeekdayLabels(formatDate, "narrow")
 
   const [step, setStep] = useState<WizardStep>(1)
   const [deptFilter, setDeptFilter] = useState<string>("all")
@@ -382,7 +381,7 @@ export function ScheduleWizardDialog({
                         id="shiftName"
                         value={shift.name}
                         onChange={(e) => setShift((p) => ({ ...p, name: e.target.value }))}
-                        placeholder="Ex: Quart matin 8h-17h"
+                        placeholder={trs.shiftNamePlaceholder}
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -425,9 +424,9 @@ export function ScheduleWizardDialog({
                   <div className="space-y-2">
                     <Label>{t.planning.workDays}</Label>
                     <div className="flex gap-2">
-                      {WEEK_KEY.map((key, idx) => (
+                      {weekNarrow.map((key, idx) => (
                         <button
-                          key={key}
+                          key={`workday-${idx}`}
                           type="button"
                           onClick={() => toggleWorkDay(idx)}
                           className={cn(
@@ -555,7 +554,7 @@ export function ScheduleWizardDialog({
 
               <div className="rounded-xl border border-primary/30 bg-primary/8 px-4 py-3 text-xs text-primary">
                 <Sparkles className="mb-1 h-3.5 w-3.5" />
-                {t.planning.confirmAssignment}: {selectedEmpIds.size} {t.employees.title.toLowerCase()} seront assignés au quart sélectionné à partir du {period.startDate}.
+                {t.planning.confirmAssignment}: {trs.assignSummary(selectedEmpIds.size, period.startDate)}
               </div>
             </div>
           )}

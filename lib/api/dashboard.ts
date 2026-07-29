@@ -20,8 +20,6 @@ import {
 } from "@/lib/api/employees"
 import { fetchAttendanceReport, type AttendanceReportResponse } from "@/lib/api/reports"
 
-const DASHBOARD_TENANT = _requireTenantCode(process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT, "NEXT_PUBLIC_HIK_EVENTS_TENANT")
-
 export type DashboardSystemStatus = "connected" | "disconnected" | "syncing"
 
 export type DashboardDataSourceStatus = "ok" | "warning" | "error"
@@ -87,14 +85,14 @@ function formatLastSeen(timestampMs: number | null, status: Device["status"], lo
       if (status === "offline") return "No activity"
       return "Unstable signal"
     }
-    if (status === "online") return "A surveiller"
-    if (status === "offline") return "Aucune activite"
+    if (status === "online") return "À surveiller"
+    if (status === "offline") return "Aucune activité"
     return "Signal instable"
   }
 
   const diffMs = Math.max(0, Date.now() - timestampMs)
   const diffMinutes = Math.floor(diffMs / 60000)
-  if (diffMinutes <= 0) return locale === "en" ? "Just now" : "A l'instant"
+  if (diffMinutes <= 0) return locale === "en" ? "Just now" : "À l'instant"
   if (diffMinutes < 60) return locale === "en" ? `${diffMinutes} min ago` : `Il y a ${diffMinutes} min`
   const diffHours = Math.floor(diffMinutes / 60)
   if (diffHours < 24) return locale === "en" ? `${diffHours} h ago` : `Il y a ${diffHours} h`
@@ -154,6 +152,45 @@ function computeLateArrivals(report: AttendanceReportResponse | null): number {
   }, 0)
 }
 
+const PRIORITY_STRINGS = {
+  en: {
+    apiTitle: "Partial API outage",
+    apiDesc: "One or more data sources are not responding.",
+    webhookTitle: "Webhook to check",
+    webhookDesc: "No recent event confirmed on the webhook stream.",
+    deniedTitle: "Recent denied access",
+    deniedDesc: "Denied access events detected on the live stream.",
+    diagnose: "Diagnose",
+    devicesTitle: "Devices to check",
+    devicesDesc: "Devices offline or in an uncertain state.",
+    devicesCta: "View devices",
+    pushTitle: "Pending employee push",
+    pushDesc: "Employees not yet synced to the gateway.",
+    pushCta: "Process queue",
+    correctionsTitle: "Attendance corrections",
+    correctionsDesc: "HR corrections awaiting follow-up.",
+    correctionsCta: "Review",
+  },
+  fr: {
+    apiTitle: "API partiellement hors ligne",
+    apiDesc: "Une ou plusieurs sources de données ne répondent pas.",
+    webhookTitle: "Webhook à vérifier",
+    webhookDesc: "Aucun événement récent confirmé sur le flux webhook.",
+    deniedTitle: "Accès refusés récents",
+    deniedDesc: "Événements d'accès refusés détectés sur le flux temps réel.",
+    diagnose: "Diagnostiquer",
+    devicesTitle: "Appareils à vérifier",
+    devicesDesc: "Appareils hors ligne ou avec état incertain.",
+    devicesCta: "Voir les appareils",
+    pushTitle: "Push employés en attente",
+    pushDesc: "Employés non synchronisés vers la passerelle.",
+    pushCta: "Traiter la file",
+    correctionsTitle: "Corrections de pointage",
+    correctionsDesc: "Corrections RH en attente de suivi.",
+    correctionsCta: "Valider",
+  },
+} as const
+
 function buildPriorityActions(params: {
   deniedEventsCount: number
   warningDevicesCount: number
@@ -161,26 +198,26 @@ function buildPriorityActions(params: {
   correctionCount: number
   apiIssueCount: number
   webhookIssue: boolean
+  locale: DashboardLocale
 }): PriorityAction[] {
+  const s = PRIORITY_STRINGS[params.locale]
   const healthAction: PriorityAction = params.apiIssueCount > 0
     ? {
         id: "critical-api",
-        title: "API hors ligne partielle",
-        description: "Une ou plusieurs sources de donnees ne repondent pas.",
+        title: s.apiTitle,
+        description: s.apiDesc,
         priority: "critical",
         count: params.apiIssueCount,
-        ctaLabel: "Diagnostiquer",
+        ctaLabel: s.diagnose,
         ctaHref: "/settings?tab=hikcentral",
       }
     : {
         id: "critical-webhook",
-        title: params.webhookIssue ? "Webhook a verifier" : "Acces refuses recents",
-        description: params.webhookIssue
-          ? "Aucun evenement recent confirme sur le flux webhook."
-          : "Evenements d'acces refuses detectes sur le flux temps reel.",
+        title: params.webhookIssue ? s.webhookTitle : s.deniedTitle,
+        description: params.webhookIssue ? s.webhookDesc : s.deniedDesc,
         priority: "critical",
         count: params.webhookIssue ? 1 : params.deniedEventsCount,
-        ctaLabel: "Diagnostiquer",
+        ctaLabel: s.diagnose,
         ctaHref: params.webhookIssue ? "/settings?tab=hikcentral" : "/access-logs?status=denied&date=today",
       }
 
@@ -188,29 +225,29 @@ function buildPriorityActions(params: {
     healthAction,
     {
       id: "warning-devices",
-      title: "Appareils a verifier",
-      description: "Appareils hors ligne ou avec etat incertain.",
+      title: s.devicesTitle,
+      description: s.devicesDesc,
       priority: "warning",
       count: params.warningDevicesCount,
-      ctaLabel: "Voir les appareils",
+      ctaLabel: s.devicesCta,
       ctaHref: "/devices?status=attention",
     },
     {
       id: "warning-pending-push",
-      title: "Push employes en attente",
-      description: "Employes non synchronises vers la gateway.",
+      title: s.pushTitle,
+      description: s.pushDesc,
       priority: "warning",
       count: params.pendingGatewayPushCount,
-      ctaLabel: "Traiter la file",
+      ctaLabel: s.pushCta,
       ctaHref: "/employees?focus=pending-sync",
     },
     {
       id: "info-corrections",
-      title: "Corrections de pointage",
-      description: "Corrections RH en attente de suivi.",
+      title: s.correctionsTitle,
+      description: s.correctionsDesc,
       priority: "info",
       count: params.correctionCount,
-      ctaLabel: "Valider",
+      ctaLabel: s.correctionsCta,
       ctaHref: "/reports?focus=corrections",
     },
   ]
@@ -325,7 +362,7 @@ function buildUpcomingLeaves(
         monthFr: MONTHS_FR[monthIndex],
         monthEn: MONTHS_EN[monthIndex],
         name: employeeNameById.get(leave.employee)
-          ?? (locale === "en" ? "Unknown employee" : "Employe inconnu"),
+          ?? (locale === "en" ? "Unknown employee" : "Employé inconnu"),
         duration: locale === "en"
           ? (days > 1 ? `${days} d` : "1 d")
           : (days > 1 ? `${days} j` : "1 j"),
@@ -353,7 +390,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 const API_TIMEOUT_MS = 5_000
 
 export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promise<DashboardPayload> {
-  const tenantCode = getActiveTenantCode(DASHBOARD_TENANT).trim() || undefined
+  const tenantCode = getActiveTenantCode().trim() || undefined
   const [eventsResult, reportResult, employeesResult, devicesResult, leavesResult] = await Promise.allSettled([
     withTimeout(fetchHikEvents({ tenant: tenantCode, limit: HIK_EVENTS_FETCH_LIMIT }), API_TIMEOUT_MS),
     withTimeout(fetchAttendanceReport({ tenant: tenantCode, period: "daily" }), API_TIMEOUT_MS),
@@ -382,11 +419,11 @@ export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promis
   const sourceStatuses: DashboardStatusDetails["sources"] = [
     {
       key: "accessEvents",
-      label: locale === "en" ? "Access stream" : "Flux acces",
+      label: locale === "en" ? "Access stream" : "Flux accès",
       status: eventsResult.status === "fulfilled" ? "ok" : "error",
       detail:
         eventsResult.status === "fulfilled"
-          ? (locale === "en" ? `${events.length} events loaded` : `${events.length} evenements charges`)
+          ? (locale === "en" ? `${events.length} events loaded` : `${events.length} événements chargés`)
           : (eventsResult.reason instanceof Error ? eventsResult.reason.message : (locale === "en" ? "Source unavailable" : "Source indisponible")),
     },
     {
@@ -395,7 +432,7 @@ export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promis
       status: reportResult.status === "fulfilled" ? "ok" : "error",
       detail:
         reportResult.status === "fulfilled"
-          ? (locale === "en" ? "Daily report loaded" : "Rapport journalier charge")
+          ? (locale === "en" ? "Daily report loaded" : "Rapport journalier chargé")
           : (reportResult.reason instanceof Error ? reportResult.reason.message : (locale === "en" ? "Source unavailable" : "Source indisponible")),
     },
     {
@@ -404,7 +441,7 @@ export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promis
       status: employeesResult.status === "fulfilled" ? "ok" : "error",
       detail:
         employeesResult.status === "fulfilled"
-          ? (locale === "en" ? `${employees.length} employees loaded` : `${employees.length} employes charges`)
+          ? (locale === "en" ? `${employees.length} employees loaded` : `${employees.length} employés chargés`)
           : (employeesResult.reason instanceof Error ? employeesResult.reason.message : (locale === "en" ? "Source unavailable" : "Source indisponible")),
     },
     {
@@ -439,10 +476,10 @@ export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promis
         : (locale === "en" ? "Webhook offline" : "Webhook hors ligne")
   const webhookDetail =
     webhookStatus === "healthy"
-      ? (locale === "en" ? "Event reception is operational" : "Reception des evenements operationnelle")
+      ? (locale === "en" ? "Event reception is operational" : "Réception des événements opérationnelle")
       : webhookStatus === "warning"
-        ? (locale === "en" ? "No recent events. Check connectivity and listeners." : "Aucun evenement recent recu. Verifiez la connectivite et les listeners.")
-        : (locale === "en" ? "Unable to reach events source." : "Impossible de contacter la source d'evenements.")
+        ? (locale === "en" ? "No recent events. Check connectivity and listeners." : "Aucun événement récent reçu. Vérifiez la connectivité et les listeners.")
+        : (locale === "en" ? "Unable to reach events source." : "Impossible de contacter la source d'événements.")
 
   const latestEventByDevIndex = new Map<string, number>()
   for (const event of events) {
@@ -462,7 +499,7 @@ export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promis
     return {
       id: String(event.id),
       employeeId: personId || "N/A",
-      name: employeeName || personId || (locale === "en" ? "Unknown employee" : "Employe inconnu"),
+      name: employeeName || personId || (locale === "en" ? "Unknown employee" : "Employé inconnu"),
       department: String(event.department_name ?? "").trim() || (locale === "en" ? "Unassigned" : "Non assigne"),
       deviceName: String(event.device.device_name ?? "").trim() || event.device.dev_index || (locale === "en" ? "Device" : "Appareil"),
       status: normalizeAccessStatus(event),
@@ -528,6 +565,7 @@ export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promis
     correctionCount,
     apiIssueCount,
     webhookIssue: webhookStatus !== "healthy",
+    locale,
   })
 
   const statusDetails: DashboardStatusDetails = {

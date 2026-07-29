@@ -12,6 +12,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, FileSpreadsheet, Loader2, Upload } from "lucide-react"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict, type EmployeesPageDict } from "@/lib/i18n/pages/employees-page"
 
 export type EmployeeImportRow = {
   name: string
@@ -73,15 +75,15 @@ function findHeaderIndex(headers: string[], aliases: string[]) {
   return headers.findIndex((header) => aliases.includes(header))
 }
 
-function parseEmployeeCsv(text: string): EmployeeImportRow[] {
+function parseEmployeeCsv(text: string, messages: EmployeesPageDict["importDialog"]): EmployeeImportRow[] {
   const sanitized = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").trim()
   if (!sanitized) {
-    throw new Error("Le fichier est vide.")
+    throw new Error(messages.emptyFile)
   }
 
   const lines = sanitized.split("\n").filter((line) => line.trim().length > 0)
   if (lines.length < 2) {
-    throw new Error("Ajoutez au moins une ligne d'en-tete et une ligne de donnees.")
+    throw new Error(messages.needHeaderAndRow)
   }
 
   const firstLine = lines[0]
@@ -141,7 +143,7 @@ function parseEmployeeCsv(text: string): EmployeeImportRow[] {
     .filter((row) => row.name || row.employeeId)
 
   if (parsedRows.length === 0) {
-    throw new Error("Aucune ligne exploitable n'a ete detectee dans ce CSV.")
+    throw new Error(messages.noUsableRow)
   }
 
   return parsedRows
@@ -152,6 +154,8 @@ export function ImportEmployeesDialog({
   onOpenChange,
   onImport,
 }: ImportEmployeesDialogProps) {
+  const { locale, t } = useI18n()
+  const tr = employeesDict[locale]
   const inputId = useId()
   const [fileName, setFileName] = useState("")
   const [rows, setRows] = useState<EmployeeImportRow[]>([])
@@ -177,11 +181,11 @@ export function ImportEmployeesDialog({
 
     try {
       const content = await file.text()
-      const parsedRows = parseEmployeeCsv(content)
+      const parsedRows = parseEmployeeCsv(content, tr.importDialog)
       setRows(parsedRows)
     } catch (parseError) {
       setRows([])
-      setError(parseError instanceof Error ? parseError.message : "Impossible de lire ce fichier.")
+      setError(parseError instanceof Error ? parseError.message : tr.importDialog.fileReadError)
     } finally {
       event.target.value = ""
     }
@@ -203,10 +207,9 @@ export function ImportEmployeesDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Importer des employes</DialogTitle>
+          <DialogTitle>{tr.importDialog.title}</DialogTitle>
           <DialogDescription>
-            Import local front-end depuis un CSV. Compatible avec l&apos;export de cette page ou un fichier structure
-            avec nom, prenom, matricule, departement, email et telephone.
+            {tr.importDialog.description}
           </DialogDescription>
         </DialogHeader>
 
@@ -214,21 +217,21 @@ export function ImportEmployeesDialog({
           <div className="rounded-2xl border border-dashed border-border/70 bg-background/40 p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Selection du fichier</p>
-                <p className="text-xs text-muted-foreground">CSV separe par `;` ou `,`.</p>
+                <p className="text-sm font-medium text-foreground">{tr.importDialog.fileSelection}</p>
+                <p className="text-xs text-muted-foreground">{tr.importDialog.fileHint}</p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 {rows.length > 0 ? (
                   <Badge variant="secondary" className="gap-1.5">
                     <FileSpreadsheet className="h-3.5 w-3.5" />
-                    {rows.length} ligne{rows.length > 1 ? "s" : ""}
+                    {tr.importDialog.lineCount(rows.length)}
                   </Badge>
                 ) : null}
                 <Button type="button" variant="outline" asChild>
                   <label htmlFor={inputId} className="cursor-pointer">
                     <Upload className="mr-2 h-4 w-4" />
-                    Choisir un fichier
+                    {tr.importDialog.chooseFile}
                   </label>
                 </Button>
               </div>
@@ -244,7 +247,7 @@ export function ImportEmployeesDialog({
 
             {fileName ? (
               <p className="mt-3 text-xs text-muted-foreground">
-                Fichier charge: <span className="font-medium text-foreground">{fileName}</span>
+                {tr.importDialog.loadedFile} <span className="font-medium text-foreground">{fileName}</span>
               </p>
             ) : null}
           </div>
@@ -261,41 +264,41 @@ export function ImportEmployeesDialog({
           <div className="rounded-2xl border border-border/70 bg-background/25">
             <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
               <div>
-                <p className="text-sm font-medium text-foreground">Apercu avant import</p>
+                <p className="text-sm font-medium text-foreground">{tr.importDialog.previewTitle}</p>
                 <p className="text-xs text-muted-foreground">
-                  Verification rapide des lignes detectees avant ajout dans la vue front.
+                  {tr.importDialog.previewDesc}
                 </p>
               </div>
               {rows.length > previewRows.length ? (
-                <Badge variant="outline">+{rows.length - previewRows.length} autres</Badge>
+                <Badge variant="outline">{tr.importDialog.moreRows(rows.length - previewRows.length)}</Badge>
               ) : null}
             </div>
 
             {rows.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                Chargez un fichier CSV pour previsualiser les employes detectes.
+                {tr.importDialog.emptyPreview}
               </div>
             ) : (
               <div className="divide-y divide-border/50">
                 {previewRows.map((row, index) => (
                   <div key={`${row.employeeId}-${index}`} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_auto] sm:items-center">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{row.name || "Sans nom"}</p>
+                      <p className="truncate text-sm font-medium text-foreground">{row.name || tr.importDialog.noName}</p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {row.email || "Email non renseigne"}
+                        {row.email || tr.importDialog.noEmail}
                         {row.phone ? ` • ${row.phone}` : ""}
                       </p>
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-xs text-muted-foreground">
-                        {row.department || "Departement libre"}
+                        {row.department || tr.importDialog.freeDepartment}
                       </p>
                       <p className="truncate text-xs text-muted-foreground/80">
-                        {row.position || "Poste non renseigne"}
+                        {row.position || tr.importDialog.noPosition}
                       </p>
                     </div>
                     <Badge variant="secondary" className="w-fit justify-self-start sm:justify-self-end">
-                      {row.employeeId || "ID a verifier"}
+                      {row.employeeId || tr.importDialog.idToCheck}
                     </Badge>
                   </div>
                 ))}
@@ -306,11 +309,11 @@ export function ImportEmployeesDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isImporting}>
-            Annuler
+            {t.common.cancel}
           </Button>
           <Button onClick={() => void handleImport()} disabled={rows.length === 0 || isImporting}>
             {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-            {isImporting ? "Import en cours..." : "Importer dans la vue"}
+            {isImporting ? tr.importDialog.importing : tr.importDialog.importAction}
           </Button>
         </DialogFooter>
       </DialogContent>

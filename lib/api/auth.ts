@@ -378,16 +378,19 @@ export async function refreshAccessToken(force = false): Promise<string | null> 
     if (!response.ok) {
       throw await parseApiError(response, "Token refresh failed")
     }
-    const payload = (await response.json()) as { access?: unknown }
+    const payload = (await response.json()) as { access?: unknown; refresh?: unknown }
     const access = String(payload.access ?? "").trim()
     if (!access) {
       throw new Error("Token refresh returned no access token.")
     }
+    // The backend rotates refresh tokens (ROTATE_REFRESH_TOKENS + blacklist):
+    // the old refresh token is dead after this call, so the rotated one must be kept.
+    const rotatedRefresh = String(payload.refresh ?? "").trim() || session.tokens.refresh
     persistSession({
       ...session,
       tokens: {
         access,
-        refresh: session.tokens.refresh,
+        refresh: rotatedRefresh,
       },
     })
     return access
@@ -425,14 +428,23 @@ export async function loginWithCredentials(identifier: string, password: string)
     throw await parseApiError(response, "Login failed")
   }
   const payload = (await response.json()) as LoginResponse
+  const tenants = payload.tenants ?? []
+  // Un compte dont TOUS les rôles sont "employee" est réservé à l'application
+  // mobile : le tableau de bord admin refuse la session (défense en profondeur —
+  // le backend n'expose de toute façon aucune donnée à ce rôle).
+  if (tenants.length > 0 && tenants.every((tenant) => tenant.role === "employee")) {
+    const error = new Error("EMPLOYEE_ONLY_ACCOUNT")
+    error.name = "EmployeeOnlyAccountError"
+    throw error
+  }
   const session: AuthSession = {
     tokens: {
       access: payload.access,
       refresh: payload.refresh,
     },
     user: payload.user,
-    tenants: payload.tenants ?? [],
-    activeTenantCode: String(payload.tenants?.[0]?.code ?? ""),
+    tenants,
+    activeTenantCode: String(tenants[0]?.code ?? ""),
     lastLoginAt: new Date().toISOString(),
   }
   persistSession(session)

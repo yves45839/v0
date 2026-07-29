@@ -6,9 +6,11 @@ import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Globe, LogOut, PanelLeft, UserRound } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
+import { shellDict } from "@/lib/i18n/pages/shell"
 import { logoutCurrentSession } from "@/lib/api/auth"
 import { toast } from "sonner"
 import { SectionTabs } from "@/components/dashboard/section-tabs"
+import { TenantSwitcher } from "@/components/dashboard/tenant-switcher"
 
 interface HeaderProps {
   systemStatus?: "connected" | "disconnected" | "syncing"
@@ -36,34 +38,21 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
   const { t, locale, toggleLocale } = useI18n()
+  const tr = shellDict[locale]
 
   const routeMeta = useMemo(
     () => [
       { href: "/access-logs", title: t.nav.accessLogs, subtitle: t.pages.accessLogsSubtitle },
       { href: "/reports", title: t.nav.reports, subtitle: t.pages.reportsSubtitle },
       { href: "/employees", title: t.employees.title, subtitle: t.employees.subtitle },
-      { href: "/planning/weekly", title: locale === "en" ? "Weekly schedule" : "Planning hebdomadaire", subtitle: locale === "en" ? "Drag-and-drop weekly grid with coverage tracking" : "Grille hebdo avec suivi de couverture" },
+      { href: "/planning/weekly", title: tr.weeklyScheduleTitle, subtitle: tr.weeklyScheduleSubtitle },
       { href: "/planning", title: t.planning.title, subtitle: t.planning.subtitle },
-      {
-        href: "/timesheet",
-        title: locale === "en" ? "Timesheet validation" : "Validation pointages",
-        subtitle:
-          locale === "en"
-            ? "Approve, edit or reject anomalies with full timeline context"
-            : "Validez, ajustez ou rejetez les anomalies avec la timeline complète",
-      },
-      {
-        href: "/absences",
-        title: locale === "en" ? "Time off requests" : "Demandes de congés",
-        subtitle:
-          locale === "en"
-            ? "Approve leave requests, spot conflicts and check team availability"
-            : "Validez les congés, repérez les conflits et vérifiez la couverture",
-      },
+      { href: "/timesheet", title: tr.timesheetTitle, subtitle: tr.timesheetSubtitle },
+      { href: "/absences", title: tr.absencesTitle, subtitle: tr.absencesSubtitle },
       { href: "/devices", title: t.devices.title, subtitle: t.devices.subtitle },
       { href: "/settings", title: t.nav.settings, subtitle: t.pages.settingsSubtitle },
-      { href: "/tenant-users", title: "Comptes", subtitle: "Gestion des utilisateurs, rôles et permissions" },
-      { href: "/profile", title: t.header.profile, subtitle: "Profil utilisateur et sécurité du compte" },
+      { href: "/tenant-users", title: tr.accountsTitle, subtitle: tr.accountsSubtitle },
+      { href: "/profile", title: t.header.profile, subtitle: tr.profileSubtitle },
       { href: "/zones", title: t.nav.zones, subtitle: t.pages.zonesSubtitle },
       { href: "/alerts", title: t.nav.alerts, subtitle: t.pages.alertsSubtitle },
       { href: "/surveillance", title: t.nav.surveillance, subtitle: t.pages.surveillanceSubtitle },
@@ -73,7 +62,7 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
       { href: "/billing", title: t.nav.billing, subtitle: t.pages.billingSubtitle },
       { href: "/", title: t.nav.dashboard, subtitle: t.pages.dashboardSubtitle },
     ],
-    [t]
+    [t, tr]
   )
 
   const currentRoute = useMemo(() => {
@@ -100,7 +89,7 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
     return (
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/76 shadow-[0_10px_26px_rgba(0,0,0,0.22)] backdrop-blur-xl supports-backdrop-filter:bg-background/64 md:hidden">
         <div className="mx-auto flex min-h-15 w-full max-w-430 items-center gap-3 px-4 md:px-5">
-          <Button variant="outline" size="icon" aria-label="Ouvrir le menu" onClick={toggleSidebar}>
+          <Button variant="outline" size="icon" aria-label={tr.openMenu} onClick={toggleSidebar}>
             <PanelLeft className="h-4 w-4" />
           </Button>
         </div>
@@ -114,7 +103,7 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
       <div className="mx-auto flex min-h-19 w-full max-w-430 items-center gap-3 px-4 md:px-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="icon" aria-label="Ouvrir le menu" onClick={toggleSidebar}>
+            <Button variant="outline" size="icon" aria-label={tr.openMenu} onClick={toggleSidebar}>
               <PanelLeft className="h-4 w-4" />
             </Button>
 
@@ -130,13 +119,14 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
           </div>
         </div>
         <div className="hidden items-center gap-2 sm:flex">
+          <TenantSwitcher />
           <Button
             variant="outline"
             size="sm"
             className="h-8 gap-1.5 px-2.5 font-semibold uppercase tracking-wide"
             onClick={toggleLocale}
-            aria-label={`Switch language (current: ${locale.toUpperCase()})`}
-            title={locale === "fr" ? "Switch to English" : "Passer en français"}
+            aria-label={tr.switchLanguageAria(locale.toUpperCase())}
+            title={tr.switchLanguageTitle}
           >
             <Globe className="h-3.5 w-3.5" />
             <span className="text-[11px]">{locale.toUpperCase()}</span>

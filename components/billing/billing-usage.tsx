@@ -1,28 +1,38 @@
 "use client"
 
+/**
+ * Utilisation & Limites — données réelles :
+ *   - Limites du plan : GET /api/billing/summary/ (subscription.plan + tenant.device_quota)
+ *   - Compteurs réels : GET /api/home/summary/ (via lib/api/billing-usage)
+ */
+import { useCallback, useEffect, useState } from "react"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
 import {
+  Activity,
   AlertTriangle,
-  ArrowUpRight,
   Check,
-  Clock,
   Cpu,
-  Globe,
+  Loader2,
   Lock,
+  RefreshCw,
   TrendingUp,
-  UserCog,
   Users,
-  X,
   Zap,
 } from "lucide-react"
-import { PLANS, currentSubscription, currentUsage } from "@/lib/mock-data/demo-billing"
+import { fetchBillingSummary, type BillingSummary } from "@/lib/api/billing"
+import {
+  fetchTenantUsageCounts,
+  type TenantUsageCounts,
+} from "@/lib/api/billing-usage"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict, type BillingDict } from "@/lib/i18n/pages/billing"
 import type { BillingTab } from "./billing-tabs"
 import { cn } from "@/lib/utils"
 
-function getPercent(used: number, limit: number | "illimite") {
-  if (limit === "illimite") return 0
-  return Math.min(100, Math.round((used / (limit as number)) * 100))
+function getPercent(used: number | null, limit: number | null): number {
+  if (used === null || limit === null || limit <= 0) return 0
+  return Math.min(100, Math.round((used / limit) * 100))
 }
 
 function StatusBar({
@@ -31,30 +41,36 @@ function StatusBar({
   limit,
   icon: Icon,
   description,
+  tr,
 }: {
   label: string
-  used: number
-  limit: number | "illimite"
+  used: number | null
+  limit: number | null
   icon: React.ElementType
   description?: string
+  tr: BillingDict
 }) {
+  const unlimited = limit === null || limit <= 0
   const percent = getPercent(used, limit)
-  const isCritical = percent >= 95
-  const isWarning = percent >= 80
-  const isUnlimited = limit === "illimite"
+  const isCritical = !unlimited && percent >= 95
+  const isWarning = !unlimited && percent >= 80
 
   return (
-    <div className={cn(
-      "overflow-hidden rounded-xl border p-4 space-y-3 transition-shadow hover:shadow-sm",
-      isCritical && "border-destructive/30 bg-destructive/4",
-      isWarning && !isCritical && "border-amber-400/30 bg-amber-500/4",
-    )}>
+    <div
+      className={cn(
+        "overflow-hidden rounded-xl border p-4 space-y-3 transition-shadow hover:shadow-sm",
+        isCritical && "border-destructive/30 bg-destructive/4",
+        isWarning && !isCritical && "border-amber-400/30 bg-amber-500/4"
+      )}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2.5">
-          <div className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-lg shrink-0",
-            isCritical ? "bg-destructive/15" : isWarning ? "bg-amber-500/15" : "bg-primary/10"
-          )}>
+          <div
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-lg shrink-0",
+              isCritical ? "bg-destructive/15" : isWarning ? "bg-amber-500/15" : "bg-primary/10"
+            )}
+          >
             <Icon className={cn("h-4 w-4", isCritical ? "text-destructive" : isWarning ? "text-amber-500" : "text-primary")} />
           </div>
           <div>
@@ -64,14 +80,14 @@ function StatusBar({
         </div>
         <div className="text-right shrink-0">
           <p className={cn("text-lg font-bold tabular-nums", isCritical ? "text-destructive" : isWarning ? "text-amber-500" : "")}>
-            <span>{used}</span>
-            <span className="text-sm font-normal text-muted-foreground"> / {isUnlimited ? "∞" : limit}</span>
+            <span>{used === null ? "—" : used}</span>
+            <span className="text-sm font-normal text-muted-foreground"> / {unlimited ? "∞" : limit}</span>
           </p>
-          {!isUnlimited && <p className="text-xs text-muted-foreground">{percent}% utilisé</p>}
+          {!unlimited && used !== null && <p className="text-xs text-muted-foreground">{tr.usage.percentUsed(percent)}</p>}
         </div>
       </div>
 
-      {!isUnlimited ? (
+      {!unlimited && used !== null ? (
         <div className="space-y-1.5">
           <Progress
             value={percent}
@@ -81,26 +97,31 @@ function StatusBar({
             )}
           />
           <div className="flex justify-between text-[11px] text-muted-foreground">
-            <span>{used} utilisé{used > 1 ? "s" : ""}</span>
-            <span>{(limit as number) - used} disponible</span>
+            <span>{tr.usage.usedCount(used)}</span>
+            <span>{tr.usage.availableCount(Math.max(0, limit - used))}</span>
           </div>
           {isCritical && (
             <div className="flex items-center gap-1.5 text-xs text-destructive">
               <AlertTriangle className="h-3 w-3" />
-              Limite presque atteinte — passez au plan supérieur
+              {tr.usage.almostLimit}
             </div>
           )}
           {isWarning && !isCritical && (
             <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
               <AlertTriangle className="h-3 w-3" />
-              Vous approchez de la limite du plan
+              {tr.usage.approachingLimit}
             </div>
           )}
         </div>
-      ) : (
+      ) : unlimited ? (
         <div className="flex items-center gap-1.5 text-xs text-success">
           <Check className="h-3 w-3" />
-          Illimité dans ce plan
+          {tr.usage.unlimitedInPlan}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <AlertTriangle className="h-3 w-3" />
+          {tr.usage.counterUnavailable}
         </div>
       )}
     </div>
@@ -112,185 +133,231 @@ interface BillingUsageProps {
 }
 
 export function BillingUsage({ onTabChange }: BillingUsageProps) {
-  const plan = PLANS.find((p) => p.id === currentSubscription.planId)!
-  const nextPlanIdx = PLANS.findIndex((p) => p.id === currentSubscription.planId) + 1
-  const nextPlan = nextPlanIdx < PLANS.length ? PLANS[nextPlanIdx] : null
+  const { locale, t, formatNumber } = useI18n()
+  const tr = billingDict[locale]
+  const [summary, setSummary] = useState<BillingSummary | null>(null)
+  const [error, setError] = useState<string>("")
+  const [loading, setLoading] = useState(true)
+  const [usage, setUsage] = useState<TenantUsageCounts | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    setError("")
+    Promise.allSettled([fetchBillingSummary(), fetchTenantUsageCounts()]).then(
+      ([summaryResult, usageResult]) => {
+        if (summaryResult.status === "fulfilled") {
+          setSummary(summaryResult.value)
+        } else {
+          const reason = summaryResult.reason
+          setError(reason instanceof Error ? reason.message : String(reason))
+        }
+        setUsage(usageResult.status === "fulfilled" ? usageResult.value : null)
+        setLoading(false)
+      }
+    )
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-2xl border bg-card p-16 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        {tr.usage.loading}
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-destructive/30 bg-destructive/5 py-16 text-center">
+        <AlertTriangle className="h-10 w-10 text-destructive" />
+        <div className="space-y-1">
+          <p className="font-semibold">{tr.usage.errorTitle}</p>
+          <p className="max-w-md text-sm text-muted-foreground">{error}</p>
+        </div>
+        <Button variant="outline" onClick={load} className="gap-2">
+          <RefreshCw className="h-4 w-4" />
+          {t.common.retry}
+        </Button>
+      </div>
+    )
+  }
+
+  const plan = summary?.subscription?.plan ?? null
+  const deviceQuota =
+    (summary?.tenant.device_quota ?? 0) > 0
+      ? summary!.tenant.device_quota
+      : plan && plan.device_quota > 0
+        ? plan.device_quota
+        : null
 
   const hasWarning =
-    getPercent(currentUsage.employees.used, currentUsage.employees.limit) >= 80 ||
-    getPercent(currentUsage.devices.used, currentUsage.devices.limit) >= 80 ||
-    getPercent(currentUsage.sites.used, currentUsage.sites.limit) >= 80
+    getPercent(usage?.devices ?? null, deviceQuota) >= 80
 
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold">Utilisation & Limites</h2>
-          <p className="text-sm text-muted-foreground">Suivez votre consommation en temps réel.</p>
+          <h2 className="text-xl font-bold">{tr.usage.title}</h2>
+          <p className="text-sm text-muted-foreground">{tr.usage.subtitle}</p>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-3.5 py-2 text-sm shrink-0">
           <Zap className="h-4 w-4 text-primary" />
-          <span>Plan <strong>{plan.name}</strong></span>
+          <span>
+            {tr.usage.planChipPrefix} <strong>{plan?.name ?? tr.shared.noActiveSubscription}</strong>
+          </span>
         </div>
       </div>
 
-      {/* ── Alerte si proche des limites ── */}
+      {/* ── Alerte proche des limites ── */}
       {hasWarning && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-500/8 p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Vous approchez de certaines limites</p>
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              {tr.usage.warningTitle}
+            </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Pensez à passer au plan supérieur pour éviter toute interruption de service.
+              {tr.usage.warningDesc}
             </p>
           </div>
-          <Button size="sm" variant="outline" className="shrink-0 gap-1.5 border-amber-400/30 text-amber-600 dark:text-amber-400" onClick={() => onTabChange("plans")}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1.5 border-amber-400/30 text-amber-600 dark:text-amber-400"
+            onClick={() => onTabChange("plans")}
+          >
             <TrendingUp className="h-3.5 w-3.5" />
-            Voir les plans
+            {tr.shared.seePlans}
           </Button>
         </div>
       )}
 
-      {/* ── Barres d'utilisation ── */}
+      {/* ── Barres d'utilisation (compteurs réels) ── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <StatusBar
-          label="Employés"
-          used={currentUsage.employees.used}
-          limit={currentUsage.employees.limit}
+          label={tr.usage.employeesLabel}
+          used={usage?.employees ?? null}
+          limit={null}
           icon={Users}
-          description="Comptes employés actifs"
+          description={tr.usage.employeesDesc}
+          tr={tr}
         />
         <StatusBar
-          label="Appareils"
-          used={currentUsage.devices.used}
-          limit={currentUsage.devices.limit}
+          label={tr.usage.devicesLabel}
+          used={usage?.devices ?? null}
+          limit={deviceQuota}
           icon={Cpu}
-          description="Portes et appareils connectés"
-        />
-        <StatusBar
-          label="Sites"
-          used={currentUsage.sites.used}
-          limit={currentUsage.sites.limit}
-          icon={Globe}
-          description="Sites de déploiement"
-        />
-        <StatusBar
-          label="Administrateurs"
-          used={currentUsage.admins.used}
-          limit={currentUsage.admins.limit}
-          icon={UserCog}
-          description="Comptes administrateurs"
+          description={tr.usage.devicesDesc}
+          tr={tr}
         />
       </div>
 
-      {/* ── Historique dispo ── */}
-      <div className="overflow-hidden rounded-xl border bg-card p-5 space-y-3">
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold text-sm">Historique des accès</h3>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex-1 rounded-lg border border-border/50 bg-muted/30 p-3.5">
-            <p className="text-xs text-muted-foreground mb-1">Disponible dans ce plan</p>
-            <p className="text-xl font-bold">
-              {currentUsage.historyDays === "illimite" ? "Illimité" : `${currentUsage.historyDays} jours`}
-            </p>
+      {/* ── Quota d'évènements du plan ── */}
+      {plan && (
+        <div className="overflow-hidden rounded-xl border bg-card p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <h3 className="font-semibold text-sm">{tr.usage.eventQuotaTitle}</h3>
           </div>
-          {nextPlan && typeof currentUsage.historyDays === "number" && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <ArrowUpRight className="h-4 w-4 text-success" />
-              <span className="text-success font-medium">
-                Plan {nextPlan.name} : {nextPlan.limits.historyDays === "illimite" ? "Illimité" : `${nextPlan.limits.historyDays} jours`}
-              </span>
-            </div>
-          )}
+          <div className="flex-1 rounded-lg border border-border/50 bg-muted/30 p-3.5">
+            <p className="text-xs text-muted-foreground mb-1">{tr.usage.includedInPlan(plan.name)}</p>
+            <p className="text-xl font-bold">
+              {plan.event_quota_per_month > 0
+                ? tr.shared.eventsPerMonth(formatNumber(plan.event_quota_per_month))
+                : tr.shared.unlimited}
+            </p>
+            {plan.is_metered && plan.metered_unit_label && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {tr.shared.meteredNote(plan.metered_unit_label)}
+              </p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Fonctionnalités actives / verrouillées ── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Actives */}
-        <div className="rounded-xl border border-success/25 bg-success/4 p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-success/15">
-              <Check className="h-3.5 w-3.5 text-success" />
-            </div>
-            <h3 className="font-semibold text-sm text-success">Fonctionnalités actives</h3>
-          </div>
-          <div className="space-y-2">
-            {plan.features.filter((f) => f.included).map((f) => (
-              <div key={f.label} className="flex items-center gap-2.5 text-sm">
-                <Check className="h-3.5 w-3.5 shrink-0 text-success" />
-                <span>{f.label}</span>
+      {plan ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border border-success/25 bg-success/4 p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-success/15">
+                <Check className="h-3.5 w-3.5 text-success" />
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Verrouillées */}
-        <div className="rounded-xl border border-border/60 bg-muted/20 p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted">
-              <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+              <h3 className="font-semibold text-sm text-success">{tr.usage.activeFeatures}</h3>
             </div>
-            <h3 className="font-semibold text-sm text-muted-foreground">Fonctionnalités non incluses</h3>
-          </div>
-          {plan.features.filter((f) => !f.included).length === 0 ? (
-            <p className="text-sm text-success flex items-center gap-2">
-              <Check className="h-4 w-4" />
-              Toutes les fonctionnalités sont incluses dans ce plan !
-            </p>
-          ) : (
             <div className="space-y-2">
-              {plan.features.filter((f) => !f.included).map((f) => (
-                <div key={f.label} className="flex items-center gap-2.5 text-sm text-muted-foreground/60">
-                  <Lock className="h-3.5 w-3.5 shrink-0" />
-                  <span className="line-through">{f.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Recommandation upgrade ── */}
-      {nextPlan && (
-        <div className={cn(
-          "relative overflow-hidden rounded-2xl border p-5",
-          nextPlan.id === "enterprise"
-            ? "border-amber-400/30 bg-linear-to-br from-amber-50/60 to-orange-50/40 dark:from-amber-950/30 dark:to-orange-950/20"
-            : "border-violet-400/30 bg-linear-to-br from-violet-50/60 to-purple-50/40 dark:from-violet-950/30 dark:to-purple-950/20"
-        )}>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Recommandation</p>
-              <h3 className="font-bold">Passez au plan <span className={nextPlan.id === "enterprise" ? "text-amber-500" : "text-violet-500"}>{nextPlan.name}</span></h3>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Débloquez des capacités supplémentaires : {nextPlan.limits.employees === "illimite" ? "employés illimités" : `jusqu'à ${nextPlan.limits.employees} employés`}, {nextPlan.limits.devices === "illimite" ? "appareils illimités" : `${nextPlan.limits.devices} appareils`}, et plus encore.
-              </p>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {nextPlan.features.filter((f) => f.included && !plan.features.find((pf) => pf.label === f.label)?.included).slice(0, 3).map((f) => (
-                  <span key={f.label} className="flex items-center gap-1 rounded-full border bg-background/60 px-2.5 py-0.5 text-[11px]">
-                    <Check className="h-3 w-3 text-success" />
-                    {f.label}
-                  </span>
+              {[
+                { label: tr.shared.prioritySupport, included: plan.has_priority_support },
+                { label: tr.shared.advancedAnalytics, included: plan.has_advanced_analytics },
+              ]
+                .filter((f) => f.included)
+                .map((f) => (
+                  <div key={f.label} className="flex items-center gap-2.5 text-sm">
+                    <Check className="h-3.5 w-3.5 shrink-0 text-success" />
+                    <span>{f.label}</span>
+                  </div>
                 ))}
-              </div>
+              {Object.entries(plan.features ?? {})
+                .filter(([, v]) => v === true)
+                .map(([key]) => (
+                  <div key={key} className="flex items-center gap-2.5 text-sm">
+                    <Check className="h-3.5 w-3.5 shrink-0 text-success" />
+                    <span>{key.replaceAll("_", " ")}</span>
+                  </div>
+                ))}
+              {!plan.has_priority_support &&
+                !plan.has_advanced_analytics &&
+                Object.values(plan.features ?? {}).every((v) => v !== true) && (
+                  <p className="text-sm text-muted-foreground">{tr.usage.baseFeaturesIncluded}</p>
+                )}
             </div>
-            <Button
-              className={cn(
-                "shrink-0 gap-2 shadow-md",
-                nextPlan.id === "enterprise"
-                  ? "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/25"
-                  : "bg-violet-600 hover:bg-violet-700 text-white shadow-violet-500/25"
-              )}
-              onClick={() => onTabChange("plans")}
-            >
-              <TrendingUp className="h-4 w-4" />
-              Passer au plan {nextPlan.name}
-            </Button>
           </div>
+
+          <div className="rounded-xl border border-border/60 bg-muted/20 p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted">
+                <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <h3 className="font-semibold text-sm text-muted-foreground">{tr.usage.notIncludedFeatures}</h3>
+            </div>
+            {plan.has_priority_support && plan.has_advanced_analytics ? (
+              <p className="text-sm text-success flex items-center gap-2">
+                <Check className="h-4 w-4" />
+                {tr.usage.allIncluded}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {[
+                  { label: tr.shared.prioritySupport, included: plan.has_priority_support },
+                  { label: tr.shared.advancedAnalytics, included: plan.has_advanced_analytics },
+                ]
+                  .filter((f) => !f.included)
+                  .map((f) => (
+                    <div key={f.label} className="flex items-center gap-2.5 text-sm text-muted-foreground/60">
+                      <Lock className="h-3.5 w-3.5 shrink-0" />
+                      <span className="line-through">{f.label}</span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border bg-card p-10 text-center">
+          <Zap className="h-8 w-8 text-muted-foreground" />
+          <p className="font-semibold">{tr.shared.noActiveSubscription}</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {tr.usage.noSubDesc}
+          </p>
+          <Button className="mt-1 gap-2" onClick={() => onTabChange("plans")}>
+            <TrendingUp className="h-4 w-4" />
+            {tr.shared.seePlans}
+          </Button>
         </div>
       )}
     </div>

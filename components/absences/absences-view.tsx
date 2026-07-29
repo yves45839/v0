@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
+import { absencesDict } from "@/lib/i18n/pages/absences"
 import { getActiveTenantCode, getAuthSession } from "@/lib/api/auth"
 import {
   createLeaveRequest,
@@ -43,20 +44,19 @@ function colorFromId(id: number | string): string {
   return `oklch(0.62 0.14 ${hue})`
 }
 
-function formatShortDate(value: string, locale: "fr" | "en"): string {
+function formatShortDate(value: string): string {
   const date = new Date(`${value}T00:00:00`)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(locale === "en" ? "en-GB" : "fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-  }).format(date)
+  const day = String(date.getDate()).padStart(2, "0")
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  return `${day}/${month}`
 }
 
 function relativeTime(value: string, locale: "fr" | "en"): string {
   const createdAt = Date.parse(value)
-  if (Number.isNaN(createdAt)) return locale === "en" ? "recently" : "recentement"
+  if (Number.isNaN(createdAt)) return absencesDict[locale].recently
   const minutes = Math.max(0, Math.round((Date.now() - createdAt) / 60000))
-  const rtf = new Intl.RelativeTimeFormat(locale === "en" ? "en" : "fr", { numeric: "auto" })
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" })
   if (minutes < 60) return rtf.format(-minutes, "minute")
   const hours = Math.round(minutes / 60)
   if (hours < 24) return rtf.format(-hours, "hour")
@@ -71,34 +71,66 @@ function mapLeaveType(type: LeaveRequestType): LeaveTypeCardKind {
   return "paid"
 }
 
-function mapLeaveToCard(row: LeaveRequestApiItem, employeeById: Map<number, EmployeeApiItem>): AbsenceRequest {
-  const employee = employeeById.get(row.employee)
-  const name = employee?.name?.trim() || `#${row.employee}`
+function requestDays(row: Pick<LeaveRequestApiItem, "start_date" | "end_date">): number {
   const startMs = Date.parse(`${row.start_date}T00:00:00`)
   const endMs = Date.parse(`${row.end_date}T00:00:00`)
   const dayDiffMs = endMs - startMs
-  const days = Number.isFinite(dayDiffMs) ? Math.max(1, Math.floor(dayDiffMs / 86_400_000) + 1) : 1
+  return Number.isFinite(dayDiffMs) ? Math.max(1, Math.floor(dayDiffMs / 86_400_000) + 1) : 1
+}
+
+function mapLeaveToCard(
+  row: LeaveRequestApiItem,
+  employeeById: Map<number, EmployeeApiItem>,
+  allRows: LeaveRequestApiItem[]
+): AbsenceRequest {
+  const employee = employeeById.get(row.employee)
+  const name = employee?.name?.trim() || `#${row.employee}`
+  const days = requestDays(row)
+
+  // Conflit réel : chevauchement avec une autre demande active (en attente ou validée).
+  const conflict = allRows.some(
+    (other) =>
+      other.id !== row.id &&
+      (other.status === "pending" || other.status === "approved") &&
+      other.start_date <= row.end_date &&
+      other.end_date >= row.start_date
+  )
+
+  // Solde utilisé : jours de congés payés déjà validés cette année pour cet employé.
+  const currentYear = new Date().getFullYear()
+  const balanceUsed = allRows
+    .filter(
+      (other) =>
+        other.id !== row.id &&
+        other.employee === row.employee &&
+        other.status === "approved" &&
+        other.leave_type === "paid" &&
+        new Date(`${other.start_date}T00:00:00`).getFullYear() === currentYear
+    )
+    .reduce((acc, other) => acc + requestDays(other), 0)
+
   return {
     id: row.id,
     name,
     initials: initialsFromName(name),
     avatarColor: colorFromId(row.id),
     kind: mapLeaveType(row.leave_type),
-    fromDate: formatShortDate(row.start_date, "fr"),
-    toDate: formatShortDate(row.end_date, "fr"),
+    fromDate: formatShortDate(row.start_date),
+    toDate: formatShortDate(row.end_date),
     days,
     requestedFr: relativeTime(row.created_at, "fr"),
     requestedEn: relativeTime(row.created_at, "en"),
     reasonFr: row.reason || "",
     reasonEn: row.reason || "",
-    conflict: false,
-    balanceUsed: 0,
+    conflict,
+    balanceUsed,
     balanceTotal: 25,
   }
 }
 
 export function AbsencesView() {
   const { locale } = useI18n()
+  const tr = absencesDict[locale]
   const [rows, setRows] = useState<LeaveRequestApiItem[]>([])
   const [employees, setEmployees] = useState<EmployeeApiItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -121,8 +153,8 @@ export function AbsencesView() {
   }, [rows, tab])
 
   const visibleRequests = useMemo(
-    () => filteredRows.map((row) => mapLeaveToCard(row, employeeById)),
-    [filteredRows, employeeById]
+    () => filteredRows.map((row) => mapLeaveToCard(row, employeeById, rows)),
+    [filteredRows, employeeById, rows]
   )
 
   const counts = useMemo(() => {
@@ -149,7 +181,7 @@ export function AbsencesView() {
         setSelectedId(leaveRows[0]?.id ?? null)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        toast.error(locale === "en" ? "Unable to load leave requests" : "Impossible de charger les demandes", {
+        toast.error(absencesDict[locale].loadFailed, {
           description: message,
         })
       } finally {
@@ -166,7 +198,7 @@ export function AbsencesView() {
   const patchStatus = async (id: AbsenceRequest["id"], status: LeaveRequestStatus, rejectionReason = "") => {
     const session = getAuthSession()
     if (!session?.user?.id) {
-      toast.error(locale === "en" ? "Authentication required" : "Authentification requise")
+      toast.error(tr.authRequired)
       return
     }
 
@@ -178,18 +210,10 @@ export function AbsencesView() {
           : { status, rejection_reason: rejectionReason, approved_by: null, approved_at: null }
       const updated = await updateLeaveRequest(id, payload)
       setRows((prev) => prev.map((row) => (row.id === Number(id) ? updated : row)))
-      toast.success(
-        status === "approved"
-          ? locale === "en"
-            ? "Request approved"
-            : "Demande validee"
-          : locale === "en"
-            ? "Request rejected"
-            : "Demande rejetee"
-      )
+      toast.success(status === "approved" ? tr.requestApproved : tr.requestRejected)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      toast.error(locale === "en" ? "Action failed" : "Echec de l'action", { description: message })
+      toast.error(tr.actionFailed, { description: message })
     } finally {
       setBusy(false)
     }
@@ -200,19 +224,13 @@ export function AbsencesView() {
   }
 
   const reject = (id: AbsenceRequest["id"]) => {
-    const reason = window.prompt(
-      locale === "en" ? "Optional rejection reason:" : "Raison du refus (optionnelle):",
-      ""
-    )
+    const reason = window.prompt(tr.rejectReasonPrompt, "")
     if (reason === null) return
     void patchStatus(id, "rejected", reason)
   }
 
   const discuss = (id: AbsenceRequest["id"]) => {
-    toast.message(
-      locale === "en" ? "Discussion thread coming soon" : "Discussion a venir",
-      { description: String(id) },
-    )
+    toast.message(tr.discussSoon, { description: String(id) })
   }
 
   const newRequest = async () => {
@@ -220,44 +238,39 @@ export function AbsencesView() {
     const tenantCode = getActiveTenantCode().trim()
     const tenantId = session?.tenants?.find((tenant) => tenant.code === tenantCode)?.id
     if (!tenantId) {
-      toast.error(locale === "en" ? "No active tenant selected" : "Aucun tenant actif selectionne")
+      toast.error(tr.noTenant)
       return
     }
     if (employees.length === 0) {
-      toast.error(locale === "en" ? "No employees available" : "Aucun employe disponible")
+      toast.error(tr.noEmployeesAvailable)
       return
     }
 
     const employeeDefault = String(employees[0].id)
     const employeeInput = window.prompt(
-      locale === "en"
-        ? `Employee ID (${employees.map((employee) => `${employee.id}:${employee.name}`).join(", ")})`
-        : `ID employe (${employees.map((employee) => `${employee.id}:${employee.name}`).join(", ")})`,
+      tr.employeeIdPrompt(employees.map((employee) => `${employee.id}:${employee.name}`).join(", ")),
       employeeDefault
     )
     if (employeeInput === null) return
     const employeeId = Number(employeeInput)
     if (!Number.isFinite(employeeId)) {
-      toast.error(locale === "en" ? "Invalid employee ID" : "ID employe invalide")
+      toast.error(tr.invalidEmployeeId)
       return
     }
 
-    const leaveTypeInput = window.prompt(
-      locale === "en" ? "Leave type: paid | sick | unpaid | special" : "Type: paid | sick | unpaid | special",
-      "paid"
-    )
+    const leaveTypeInput = window.prompt(tr.leaveTypePrompt, "paid")
     if (leaveTypeInput === null) return
     const leaveType = leaveTypeInput.trim().toLowerCase() as LeaveRequestType
     if (!["paid", "sick", "unpaid", "special"].includes(leaveType)) {
-      toast.error(locale === "en" ? "Invalid leave type" : "Type de conge invalide")
+      toast.error(tr.invalidLeaveType)
       return
     }
 
-    const startDate = window.prompt(locale === "en" ? "Start date (YYYY-MM-DD)" : "Date debut (YYYY-MM-DD)")
+    const startDate = window.prompt(tr.startDatePrompt)
     if (!startDate) return
-    const endDate = window.prompt(locale === "en" ? "End date (YYYY-MM-DD)" : "Date fin (YYYY-MM-DD)")
+    const endDate = window.prompt(tr.endDatePrompt)
     if (!endDate) return
-    const reason = window.prompt(locale === "en" ? "Reason (optional)" : "Motif (optionnel)", "") ?? ""
+    const reason = window.prompt(tr.reasonPrompt, "") ?? ""
 
     try {
       setBusy(true)
@@ -271,20 +284,20 @@ export function AbsencesView() {
       })
       setRows((prev) => [created, ...prev])
       setSelectedId(created.id)
-      toast.success(locale === "en" ? "Request created" : "Demande creee")
+      toast.success(tr.requestCreated)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      toast.error(locale === "en" ? "Creation failed" : "Creation echouee", { description: message })
+      toast.error(tr.creationFailed, { description: message })
     } finally {
       setBusy(false)
     }
   }
 
-  const tabs: { key: Tab; labelFr: string; labelEn: string; count: number }[] = [
-    { key: "pending", labelFr: "En attente", labelEn: "Pending", count: counts.pending },
-    { key: "approved", labelFr: "Validees", labelEn: "Approved", count: counts.approved },
-    { key: "refused", labelFr: "Refusees", labelEn: "Refused", count: counts.refused },
-    { key: "all", labelFr: "Toutes", labelEn: "All", count: counts.all },
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: "pending", label: tr.tabPending, count: counts.pending },
+    { key: "approved", label: tr.tabApproved, count: counts.approved },
+    { key: "refused", label: tr.tabRefused, count: counts.refused },
+    { key: "all", label: tr.tabAll, count: counts.all },
   ]
 
   return (
@@ -295,21 +308,17 @@ export function AbsencesView() {
             className="m-0 text-xl font-semibold tracking-tight md:text-2xl"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            {locale === "en" ? "Time off requests" : "Demandes de conges"}
+            {tr.title}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {locale === "en"
-              ? `${counts.pending} pending requests`
-              : `${counts.pending} demandes en attente`}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{tr.pendingCount(counts.pending)}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" className="h-9">
-            {locale === "en" ? "Leave policy" : "Regles de conge"}
+            {tr.leavePolicy}
           </Button>
           <Button size="sm" className="h-9" onClick={newRequest} disabled={busy}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
-            {locale === "en" ? "New request" : "Nouvelle demande"}
+            {tr.newRequest}
           </Button>
         </div>
       </header>
@@ -327,7 +336,7 @@ export function AbsencesView() {
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {locale === "en" ? tabDef.labelEn : tabDef.labelFr}
+            {tabDef.label}
             <span className="ml-1 opacity-60">{tabDef.count}</span>
           </button>
         ))}
@@ -338,19 +347,9 @@ export function AbsencesView() {
           {visibleRequests.length === 0 ? (
             <div className="rounded-xl border border-border/60 bg-card px-6 py-12 text-center">
               <p className="text-sm font-semibold text-foreground">
-                {loading
-                  ? locale === "en"
-                    ? "Loading requests..."
-                    : "Chargement des demandes..."
-                  : locale === "en"
-                    ? "Nothing to review here."
-                    : "Rien a examiner ici."}
+                {loading ? tr.loadingRequests : tr.emptyTitle}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {locale === "en"
-                  ? "Switch to the Pending tab to see the active queue."
-                  : "Passez a l'onglet En attente pour voir la file active."}
-              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{tr.emptyHint}</p>
             </div>
           ) : (
             visibleRequests.map((r) => (
@@ -366,7 +365,7 @@ export function AbsencesView() {
             ))
           )}
         </div>
-        <TeamAvailability />
+        <TeamAvailability requests={rows} loading={loading} />
       </div>
     </div>
   )

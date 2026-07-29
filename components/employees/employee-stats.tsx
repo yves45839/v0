@@ -2,6 +2,8 @@
 
 import { Card } from "@/components/ui/card"
 import { CheckCircle2, Users, AlertTriangle } from "lucide-react"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 
 type EmployeeStatsProps = {
   totalActive: number
@@ -14,6 +16,8 @@ export function EmployeeStats({
   totalEmployees,
   biometricAlerts,
 }: EmployeeStatsProps) {
+  const { locale } = useI18n()
+  const tr = employeesDict[locale]
   const activeRatio = totalEmployees ? Math.round((totalActive / totalEmployees) * 100) : 0
   const biometricCoverage = totalEmployees ? Math.max(0, 100 - Math.round((biometricAlerts / totalEmployees) * 100)) : 0
 
@@ -25,9 +29,9 @@ export function EmployeeStats({
             <CheckCircle2 className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Badges actifs</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.stats.activeBadges}</p>
             <p className="mt-2 text-3xl font-bold tabular-nums text-foreground">{totalActive}</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{activeRatio}% du parc deja synchronise.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{tr.stats.activeRatio(activeRatio)}</p>
           </div>
         </div>
       </Card>
@@ -38,9 +42,9 @@ export function EmployeeStats({
             <Users className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Effectif total</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.stats.totalHeadcount}</p>
             <p className="mt-2 text-3xl font-bold tabular-nums text-foreground">{totalEmployees}</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Base employee consolidee.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{tr.stats.consolidatedBase}</p>
           </div>
         </div>
       </Card>
@@ -51,9 +55,9 @@ export function EmployeeStats({
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Alertes biometrie</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.stats.biometricAlerts}</p>
             <p className="mt-2 text-3xl font-bold tabular-nums text-foreground">{biometricAlerts}</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{biometricCoverage}% de couverture complete.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{tr.stats.biometricCoverage(biometricCoverage)}</p>
           </div>
         </div>
       </Card>

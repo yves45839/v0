@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CheckCircle2, AlertTriangle, XCircle, Zap } from "lucide-react"
+import { CheckCircle2, AlertTriangle, XCircle, Zap, type LucideIcon } from "lucide-react"
 import { StatusChip } from "@/components/ui/status-chip"
 import type { StatusChipProps } from "@/components/ui/status-chip"
 import { cn } from "@/lib/utils"
@@ -18,7 +18,7 @@ const STATUS_CONFIG: Record<
   {
     variant: StatusChipProps["variant"]
     label: string
-    icon: React.ComponentType<{ className?: string }>
+    icon: LucideIcon
   }
 > = {
   compliant: {

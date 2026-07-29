@@ -9,6 +9,8 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/lib/i18n/context"
+import { buildWeekdayLabels, planningPageDict } from "@/lib/i18n/pages/planning-page"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   BriefcaseBusiness,
@@ -30,44 +32,24 @@ type WizardStepKey = "context" | "weekday_program" | "weekend_program" | "rules_
 type AssignmentScope = "employees" | "departments"
 
 const WEEK_DAYS = [
-  { key: 0, label: "Lun", group: "weekday" as const },
-  { key: 1, label: "Mar", group: "weekday" as const },
-  { key: 2, label: "Mer", group: "weekday" as const },
-  { key: 3, label: "Jeu", group: "weekday" as const },
-  { key: 4, label: "Ven", group: "weekday" as const },
-  { key: 5, label: "Sam", group: "weekend" as const },
-  { key: 6, label: "Dim", group: "weekend" as const },
+  { key: 0, group: "weekday" as const },
+  { key: 1, group: "weekday" as const },
+  { key: 2, group: "weekday" as const },
+  { key: 3, group: "weekday" as const },
+  { key: 4, group: "weekday" as const },
+  { key: 5, group: "weekend" as const },
+  { key: 6, group: "weekend" as const },
 ]
 
 const WEEKDAY_DAY_KEYS = [0, 1, 2, 3, 4]
 const WEEKEND_DAY_KEYS = [5, 6]
 
-const STEPS: Array<{ key: WizardStepKey; title: string; why: string }> = [
-  {
-    key: "context",
-    title: "Contexte du planning",
-    why: "Le nom, fuseau et objectif evitent les plannings ambigus et facilitent la maintenance.",
-  },
-  {
-    key: "weekday_program",
-    title: "Programme semaine",
-    why: "Definit les quarts de base du lundi au vendredi, y compris la rotation.",
-  },
-  {
-    key: "weekend_program",
-    title: "Programme week-end",
-    why: "Permet un comportement specifique pour samedi/dimanche sans bricolage posteriori.",
-  },
-  {
-    key: "rules_assign",
-    title: "Regles et affectation",
-    why: "Parametre les tolerances RH et prepare l'assignation des utilisateurs.",
-  },
-  {
-    key: "review",
-    title: "Validation finale",
-    why: "Verifie la coherence globale avant de creer le planning.",
-  },
+const STEP_KEYS: WizardStepKey[] = [
+  "context",
+  "weekday_program",
+  "weekend_program",
+  "rules_assign",
+  "review",
 ]
 
 const STEP_ICONS = [BriefcaseBusiness, CalendarDays, Shuffle, Users, ClipboardCheck]
@@ -134,7 +116,7 @@ function formatGmtOffset(minutes: number | null): string {
 }
 
 function buildTimezoneOptions(): TimezoneOption[] {
-  const supportedValuesOf = (Intl as Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
+  const supportedValuesOf = (Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
   const zones =
     typeof supportedValuesOf === "function" ? supportedValuesOf("timeZone") : FALLBACK_TIMEZONES
 
@@ -270,10 +252,10 @@ function caseToPayload(item: EditableWizardCase): PlanningWizardCase {
   }
 }
 
-function formatCaseDays(days: number[]) {
-  if (days.length === 0) return "Aucun jour"
+function formatCaseDays(days: number[], dayLabels: string[], noDaysLabel: string) {
+  if (days.length === 0) return noDaysLabel
   return WEEK_DAYS.filter((day) => days.includes(day.key))
-    .map((day) => day.label)
+    .map((day) => dayLabels[day.key] ?? "")
     .join(", ")
 }
 
@@ -285,18 +267,24 @@ export function PlanningCreationWizardDialog({
   departments,
   onSubmit,
 }: PlanningCreationWizardDialogProps) {
+  const { locale, formatDate } = useI18n()
+  const trw = planningPageDict[locale].wizard
+  const dayLabels = useMemo(
+    () => buildWeekdayLabels(formatDate, "short").map((label) => label.replace(/\.$/, "")),
+    [formatDate]
+  )
   const caseIdRef = useRef(3)
 
   const [stepIndex, setStepIndex] = useState(0)
   const [planningName, setPlanningName] = useState("")
   const [timezone, setTimezone] = useState("GMT")
   const [planningDescription, setPlanningDescription] = useState("")
-  const [weekdayCases, setWeekdayCases] = useState<EditableWizardCase[]>([
-    makeEditableCase(1, "Quart Jour", WEEKDAY_DAY_KEYS),
+  const [weekdayCases, setWeekdayCases] = useState<EditableWizardCase[]>(() => [
+    makeEditableCase(1, trw.defaults.dayShiftName, WEEKDAY_DAY_KEYS),
   ])
   const [weekendMode, setWeekendMode] = useState<WeekendMode>("same_as_week")
-  const [weekendCases, setWeekendCases] = useState<EditableWizardCase[]>([
-    makeEditableCase(2, "Quart Week-end", WEEKEND_DAY_KEYS),
+  const [weekendCases, setWeekendCases] = useState<EditableWizardCase[]>(() => [
+    makeEditableCase(2, trw.defaults.weekendShiftName, WEEKEND_DAY_KEYS),
   ])
   const [weekdayRotationEnabled, setWeekdayRotationEnabled] = useState(false)
   const [weekendRotationEnabled, setWeekendRotationEnabled] = useState(false)
@@ -314,9 +302,10 @@ export function PlanningCreationWizardDialog({
   const [includeSubDepartments, setIncludeSubDepartments] = useState(false)
   const [stepError, setStepError] = useState<string | null>(null)
 
-  const currentStep = STEPS[stepIndex]
+  const currentStepKey = STEP_KEYS[stepIndex]
+  const currentStepMeta = trw.steps[currentStepKey]
   const progressValue = useMemo(
-    () => Math.round((stepIndex / (STEPS.length - 1)) * 100),
+    () => Math.round((stepIndex / (STEP_KEYS.length - 1)) * 100),
     [stepIndex]
   )
   const timezoneOptions = useMemo(() => buildTimezoneOptions(), [])
@@ -350,9 +339,9 @@ export function PlanningCreationWizardDialog({
     setPlanningName("")
     setTimezone("GMT")
     setPlanningDescription("")
-    setWeekdayCases([makeEditableCase(1, "Quart Jour", WEEKDAY_DAY_KEYS)])
+    setWeekdayCases([makeEditableCase(1, trw.defaults.dayShiftName, WEEKDAY_DAY_KEYS)])
     setWeekendMode("same_as_week")
-    setWeekendCases([makeEditableCase(2, "Quart Week-end", WEEKEND_DAY_KEYS)])
+    setWeekendCases([makeEditableCase(2, trw.defaults.weekendShiftName, WEEKEND_DAY_KEYS)])
     setWeekdayRotationEnabled(false)
     setWeekendRotationEnabled(false)
     setPauseCounted(true)
@@ -382,10 +371,16 @@ export function PlanningCreationWizardDialog({
     const id = caseIdRef.current
     caseIdRef.current += 1
     if (scope === "weekday") {
-      setWeekdayCases((prev) => [...prev, makeEditableCase(id, `Quart S${prev.length + 1}`, WEEKDAY_DAY_KEYS)])
+      setWeekdayCases((prev) => [
+        ...prev,
+        makeEditableCase(id, trw.defaults.weekdayCaseName(prev.length + 1), WEEKDAY_DAY_KEYS),
+      ])
       return
     }
-    setWeekendCases((prev) => [...prev, makeEditableCase(id, `Quart WE${prev.length + 1}`, WEEKEND_DAY_KEYS)])
+    setWeekendCases((prev) => [
+      ...prev,
+      makeEditableCase(id, trw.defaults.weekendCaseName(prev.length + 1), WEEKEND_DAY_KEYS),
+    ])
   }
 
   const updateCase = (
@@ -456,29 +451,29 @@ export function PlanningCreationWizardDialog({
     rotationEnabled: boolean
   ): string | null => {
     if (items.length === 0) {
-      return `Ajoutez au moins un quart pour ${scopeLabel}.`
+      return trw.validation.addOne(scopeLabel)
     }
     if (rotationEnabled && items.length < 2) {
-      return `Ajoutez au moins 2 quarts pour activer une rotation ${scopeLabel}.`
+      return trw.validation.addTwoForRotation(scopeLabel)
     }
 
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index]
-      const linePrefix = `${scopeLabel} - quart ${index + 1}`
+      const linePrefix = trw.validation.linePrefix(scopeLabel, index + 1)
       if (!item.name.trim()) {
-        return `${linePrefix}: nom obligatoire.`
+        return trw.validation.nameRequired(linePrefix)
       }
       if (!isValidTime24h(item.startTime)) {
-        return `${linePrefix}: heure de debut invalide (HH:MM).`
+        return trw.validation.startInvalid(linePrefix)
       }
       if (!isValidTime24h(item.endTime)) {
-        return `${linePrefix}: heure de fin invalide (HH:MM).`
+        return trw.validation.endInvalid(linePrefix)
       }
       if (item.startTime === item.endTime) {
-        return `${linePrefix}: la fin doit etre differente du debut.`
+        return trw.validation.sameTime(linePrefix)
       }
       if (!rotationEnabled && item.days.length === 0) {
-        return `${linePrefix}: selectionnez au moins un jour.`
+        return trw.validation.selectDay(linePrefix)
       }
     }
     return null
@@ -486,11 +481,11 @@ export function PlanningCreationWizardDialog({
 
   const validateStep = (stepKey: WizardStepKey): string | null => {
     if (stepKey === "context" && !planningName.trim()) {
-      return "Renseignez le nom du planning."
+      return trw.validation.planningName
     }
 
     if (stepKey === "weekday_program") {
-      return validateCases(weekdayCases, "semaine", weekdayRotationEnabled)
+      return validateCases(weekdayCases, trw.validation.scopeWeekday, weekdayRotationEnabled)
     }
 
     if (stepKey === "weekend_program") {
@@ -499,42 +494,42 @@ export function PlanningCreationWizardDialog({
       }
       if (weekendMode === "same_as_week") {
         if (weekdayCases.length === 0) {
-          return "Configurez d'abord les quarts semaine."
+          return trw.validation.configureWeekFirst
         }
         if (weekendRotationEnabled && weekdayCases.length < 2) {
-          return "La rotation week-end basee sur la semaine exige au moins 2 quarts semaine."
+          return trw.validation.weekendRotationNeedsTwo
         }
         return null
       }
-      return validateCases(weekendCases, "week-end", weekendRotationEnabled)
+      return validateCases(weekendCases, trw.validation.scopeWeekend, weekendRotationEnabled)
     }
 
     if (stepKey === "rules_assign") {
       if (pauseCounted) {
         const pauseTolerance = parseInteger(pauseToleranceMinutes)
         if (pauseTolerance === null) {
-          return "Tolerance pause: entier positif attendu."
+          return trw.validation.pauseInt
         }
       }
       const lateTolerance = parseInteger(lateAllowableMinutes)
       if (lateTolerance === null) {
-        return "Retard tolere: entier positif attendu."
+        return trw.validation.lateInt
       }
       const earlyTolerance = parseInteger(earlyLeaveAllowableMinutes)
       if (earlyTolerance === null) {
-        return "Marge depart anticipe: entier positif attendu."
+        return trw.validation.earlyInt
       }
       if (overtimeEnabled) {
         const overtime = parseInteger(overtimeMinutes)
         if (overtime === null || overtime <= 0) {
-          return "Heures supplementaires: renseignez une valeur strictement positive."
+          return trw.validation.overtimePositive
         }
       }
       if (assignEnabled && assignmentScope === "employees" && selectedEmployeeIds.size === 0) {
-        return "Selectionnez au moins un utilisateur a affecter."
+        return trw.validation.selectUser
       }
       if (assignEnabled && assignmentScope === "departments" && selectedDepartmentIds.size === 0) {
-        return "Selectionnez au moins un departement a affecter."
+        return trw.validation.selectDepartment
       }
     }
 
@@ -551,13 +546,13 @@ export function PlanningCreationWizardDialog({
   }
 
   const goNext = () => {
-    const error = validateStep(currentStep.key)
+    const error = validateStep(currentStepKey)
     if (error) {
       setStepError(error)
       return
     }
     setStepError(null)
-    if (stepIndex < STEPS.length - 1) {
+    if (stepIndex < STEP_KEYS.length - 1) {
       setStepIndex((prev) => prev + 1)
     }
   }
@@ -573,16 +568,14 @@ export function PlanningCreationWizardDialog({
     const normalizedWeekendCases = weekendMode === "different" ? weekendCases.map(caseToPayload) : []
 
     const generatedDescription = [
-      `${normalizedWeekdayCases.length} quart(s) semaine`,
-      `week-end: ${
-        weekendMode === "rest"
-          ? "repos"
-          : weekendMode === "same_as_week"
-            ? "meme programme que semaine"
-            : `${normalizedWeekendCases.length} quart(s) dedies`
-      }`,
-      `rotation semaine: ${weekdayRotationEnabled ? "oui" : "non"}`,
-      `rotation week-end: ${effectiveWeekendRotationEnabled ? "oui" : "non"}`,
+      trw.generated.weekCases(normalizedWeekdayCases.length),
+      weekendMode === "rest"
+        ? trw.generated.weekendRest
+        : weekendMode === "same_as_week"
+          ? trw.generated.weekendSame
+          : trw.generated.weekendDedicated(normalizedWeekendCases.length),
+      trw.generated.weekRotation(weekdayRotationEnabled),
+      trw.generated.weekendRotation(effectiveWeekendRotationEnabled),
     ].join(" | ")
 
     return {
@@ -666,7 +659,7 @@ export function PlanningCreationWizardDialog({
                   : "border-border/60 bg-background/60 text-muted-foreground hover:bg-muted/60"
               )}
             >
-              {day.label}
+              {dayLabels[day.key]}
             </button>
           )
         })}
@@ -684,13 +677,9 @@ export function PlanningCreationWizardDialog({
       <div className="rounded-xl border border-border/60 bg-background/50 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium">
-                  Rotation {scope === "weekday" ? "semaine" : "week-end"}
-                </p>
+                <p className="text-sm font-medium">{trw.cases.rotationTitle(scope)}</p>
                 <p className="text-xs text-muted-foreground">
-                  {rotationEnabled
-                    ? "Detection automatique du quart au pointage: la liste des quarts est appliquee en sequence sur les jours cibles."
-                    : "Detection automatique du quart au pointage: chaque quart suit ses jours selectionnes."}
+                  {rotationEnabled ? trw.cases.rotationOnDesc : trw.cases.rotationOffDesc}
                 </p>
               </div>
               <Switch checked={rotationEnabled} onCheckedChange={onRotationChange} />
@@ -701,9 +690,7 @@ export function PlanningCreationWizardDialog({
         {items.map((item, index) => (
           <div key={`${scope}-case-${item.localId}`} className="space-y-3 rounded-xl border border-border/60 bg-background/50 p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold">
-                Quart {scope === "weekday" ? "semaine" : "week-end"} {index + 1}
-              </p>
+              <p className="text-sm font-semibold">{trw.cases.caseTitle(scope, index + 1)}</p>
               <Button
                 type="button"
                 size="sm"
@@ -713,7 +700,7 @@ export function PlanningCreationWizardDialog({
                 disabled={items.length <= 1}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Supprimer
+                {trw.cases.remove}
               </Button>
             </div>
 
@@ -726,7 +713,7 @@ export function PlanningCreationWizardDialog({
                     name: event.target.value,
                   }))
                 }
-                placeholder="Nom du quart"
+                placeholder={trw.cases.namePlaceholder}
                 className="h-10 rounded-xl border-border/60 bg-background/60 sm:col-span-3"
               />
               <Input
@@ -752,7 +739,7 @@ export function PlanningCreationWizardDialog({
                 className="h-10 rounded-xl border-border/60 bg-background/60"
               />
               <div className="rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
-                Jours: {formatCaseDays(item.days)}
+                {trw.cases.daysLabel(formatCaseDays(item.days, dayLabels, trw.cases.noDays))}
               </div>
             </div>
 
@@ -768,29 +755,29 @@ export function PlanningCreationWizardDialog({
         onClick={() => addCase(scope)}
       >
         <Plus className="h-4 w-4" />
-        Ajouter un quart
+        {trw.cases.addCase}
       </Button>
     </div>
   )
 
   const renderStepContent = () => {
-    if (currentStep.key === "context") {
+    if (currentStepKey === "context") {
       return (
         <div className="space-y-4">
           <div className="space-y-2">
-            <p className="text-sm font-medium">Nom du planning *</p>
+            <p className="text-sm font-medium">{trw.context.nameLabel}</p>
             <Input
               value={planningName}
               onChange={(event) => setPlanningName(event.target.value)}
-              placeholder="Ex: Planning Agence Abidjan"
+              placeholder={trw.context.namePlaceholder}
               className="h-11 rounded-xl border-border/60 bg-background/60"
             />
           </div>
           <div className="space-y-2">
-            <p className="text-sm font-medium">Fuseau horaire</p>
+            <p className="text-sm font-medium">{trw.context.timezoneLabel}</p>
             <Select value={timezone} onValueChange={setTimezone}>
               <SelectTrigger className="h-11 rounded-xl border-border/60 bg-background/60">
-                <SelectValue placeholder="Choisir un fuseau horaire" />
+                <SelectValue placeholder={trw.context.timezonePlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 {timezoneOptions.map((item) => (
@@ -802,11 +789,11 @@ export function PlanningCreationWizardDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <p className="text-sm font-medium">Description (optionnel)</p>
+            <p className="text-sm font-medium">{trw.context.descriptionLabel}</p>
             <Textarea
               value={planningDescription}
               onChange={(event) => setPlanningDescription(event.target.value)}
-              placeholder="Contexte operationnel, equipe cible, contraintes..."
+              placeholder={trw.context.descriptionPlaceholder}
               className="min-h-[92px] rounded-xl border-border/60 bg-background/60"
             />
           </div>
@@ -814,41 +801,36 @@ export function PlanningCreationWizardDialog({
       )
     }
 
-    if (currentStep.key === "weekday_program") {
+    if (currentStepKey === "weekday_program") {
       return renderCasesEditor("weekday", weekdayCases, weekdayRotationEnabled, setWeekdayRotationEnabled)
     }
 
-    if (currentStep.key === "weekend_program") {
+    if (currentStepKey === "weekend_program") {
       return (
         <div className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-2">
-            {renderModeButton("Meme programme que semaine", weekendMode !== "different", () =>
+            {renderModeButton(trw.weekend.sameAsWeek, weekendMode !== "different", () =>
               setWeekendMode("same_as_week")
             )}
-            {renderModeButton("Definir un quart special week-end", weekendMode === "different", () =>
+            {renderModeButton(trw.weekend.different, weekendMode === "different", () =>
               setWeekendMode("different")
             )}
           </div>
 
           <div className="rounded-xl border border-border/60 bg-background/50 px-4 py-3 text-sm text-muted-foreground">
-            Pour appliquer le meme programme le week-end, cochez Sam et/ou Dim dans l'etape "Programme semaine".
-            Si Sam/Dim ne sont pas coches, ces jours restent en repos.
+            {trw.weekend.hint}
           </div>
 
           {weekendMode === "same_as_week" ? (
             <div className="space-y-3 rounded-xl border border-border/60 bg-background/50 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium">Rotation week-end</p>
-                  <p className="text-xs text-muted-foreground">
-                    Detection automatique du quart au pointage: continue la rotation des quarts semaine sur samedi/dimanche.
-                  </p>
+                  <p className="text-sm font-medium">{trw.weekend.rotationTitle}</p>
+                  <p className="text-xs text-muted-foreground">{trw.weekend.rotationDesc}</p>
                 </div>
                 <Switch checked={weekendRotationEnabled} onCheckedChange={setWeekendRotationEnabled} />
               </div>
-              <p className="text-xs text-muted-foreground">
-                En mode non tournant, le week-end reutilise le quart de reference de la semaine.
-              </p>
+              <p className="text-xs text-muted-foreground">{trw.weekend.nonRotatingNote}</p>
             </div>
           ) : null}
 
@@ -859,22 +841,20 @@ export function PlanningCreationWizardDialog({
       )
     }
 
-    if (currentStep.key === "rules_assign") {
+    if (currentStepKey === "rules_assign") {
       return (
         <div className="space-y-4">
           <div className="rounded-xl border border-border/60 bg-background/50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium">Pause prise en compte</p>
-                <p className="text-xs text-muted-foreground">
-                  Conserve une tolerance de pause sur les calculs d'horaires.
-                </p>
+                <p className="text-sm font-medium">{trw.rules.pauseCounted}</p>
+                <p className="text-xs text-muted-foreground">{trw.rules.pauseDesc}</p>
               </div>
               <Switch checked={pauseCounted} onCheckedChange={setPauseCounted} />
             </div>
             {pauseCounted ? (
               <div className="mt-3">
-                <p className="mb-1 text-xs text-muted-foreground">Tolerance pause (minutes)</p>
+                <p className="mb-1 text-xs text-muted-foreground">{trw.rules.pauseTolerance}</p>
                 <Input
                   value={pauseToleranceMinutes}
                   onChange={(event) => setPauseToleranceMinutes(event.target.value)}
@@ -887,7 +867,7 @@ export function PlanningCreationWizardDialog({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-border/60 bg-background/50 p-4">
-              <p className="mb-1 text-xs text-muted-foreground">Retard tolere (minutes)</p>
+              <p className="mb-1 text-xs text-muted-foreground">{trw.rules.late}</p>
               <Input
                 value={lateAllowableMinutes}
                 onChange={(event) => setLateAllowableMinutes(event.target.value)}
@@ -896,7 +876,7 @@ export function PlanningCreationWizardDialog({
               />
             </div>
             <div className="rounded-xl border border-border/60 bg-background/50 p-4">
-              <p className="mb-1 text-xs text-muted-foreground">Depart anticipe tolere (minutes)</p>
+              <p className="mb-1 text-xs text-muted-foreground">{trw.rules.early}</p>
               <Input
                 value={earlyLeaveAllowableMinutes}
                 onChange={(event) => setEarlyLeaveAllowableMinutes(event.target.value)}
@@ -909,16 +889,14 @@ export function PlanningCreationWizardDialog({
           <div className="rounded-xl border border-border/60 bg-background/50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium">Heures supplementaires</p>
-                <p className="text-xs text-muted-foreground">
-                  Permet de fixer un seuil standard de depassement.
-                </p>
+                <p className="text-sm font-medium">{trw.rules.overtime}</p>
+                <p className="text-xs text-muted-foreground">{trw.rules.overtimeDesc}</p>
               </div>
               <Switch checked={overtimeEnabled} onCheckedChange={setOvertimeEnabled} />
             </div>
             {overtimeEnabled ? (
               <div className="mt-3">
-                <p className="mb-1 text-xs text-muted-foreground">Seuil heures supplementaires (minutes)</p>
+                <p className="mb-1 text-xs text-muted-foreground">{trw.rules.overtimeThreshold}</p>
                 <Input
                   value={overtimeMinutes}
                   onChange={(event) => setOvertimeMinutes(event.target.value)}
@@ -932,10 +910,8 @@ export function PlanningCreationWizardDialog({
           <div className="space-y-3 rounded-xl border border-border/60 bg-background/50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium">Affecter maintenant</p>
-                <p className="text-xs text-muted-foreground">
-                  Vous pouvez aussi affecter plus tard depuis la fiche planning.
-                </p>
+                <p className="text-sm font-medium">{trw.rules.assignNow}</p>
+                <p className="text-xs text-muted-foreground">{trw.rules.assignNowDesc}</p>
               </div>
               <Switch checked={assignEnabled} onCheckedChange={setAssignEnabled} />
             </div>
@@ -943,10 +919,10 @@ export function PlanningCreationWizardDialog({
             {assignEnabled ? (
               <div className="space-y-3">
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {renderModeButton("Employes", assignmentScope === "employees", () =>
+                  {renderModeButton(trw.rules.employees, assignmentScope === "employees", () =>
                     setAssignmentScope("employees")
                   )}
-                  {renderModeButton("Departements", assignmentScope === "departments", () =>
+                  {renderModeButton(trw.rules.departments, assignmentScope === "departments", () =>
                     setAssignmentScope("departments")
                   )}
                 </div>
@@ -954,7 +930,7 @@ export function PlanningCreationWizardDialog({
                 {assignmentScope === "departments" ? (
                   <div className="rounded-xl border border-border/60 bg-background/40 px-3 py-2">
                     <label className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-muted-foreground">Inclure les sous-departements</span>
+                      <span className="text-muted-foreground">{trw.rules.includeSubDepartments}</span>
                       <Switch checked={includeSubDepartments} onCheckedChange={setIncludeSubDepartments} />
                     </label>
                   </div>
@@ -965,8 +941,8 @@ export function PlanningCreationWizardDialog({
                   onChange={(event) => setAssignSearch(event.target.value)}
                   placeholder={
                     assignmentScope === "employees"
-                      ? "Rechercher un utilisateur"
-                      : "Rechercher un departement"
+                      ? trw.rules.searchUser
+                      : trw.rules.searchDepartment
                   }
                   className="h-10 rounded-xl border-border/60 bg-background/60"
                 />
@@ -982,7 +958,7 @@ export function PlanningCreationWizardDialog({
                         : selectAllVisibleDepartments
                     }
                   >
-                    Tout selectionner
+                    {trw.rules.selectAll}
                   </Button>
                   <Button
                     type="button"
@@ -995,7 +971,7 @@ export function PlanningCreationWizardDialog({
                         : clearDepartmentSelection
                     }
                   >
-                    Vider
+                    {trw.rules.clear}
                   </Button>
                 </div>
                 <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-xl border border-border/60 bg-background/40 p-2">
@@ -1043,10 +1019,10 @@ export function PlanningCreationWizardDialog({
                         )
                       })}
                   {assignmentScope === "employees" && filteredEmployees.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-muted-foreground">Aucun utilisateur trouve.</p>
+                    <p className="py-4 text-center text-xs text-muted-foreground">{trw.rules.noUserFound}</p>
                   ) : null}
                   {assignmentScope === "departments" && filteredDepartments.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-muted-foreground">Aucun departement trouve.</p>
+                    <p className="py-4 text-center text-xs text-muted-foreground">{trw.rules.noDepartmentFound}</p>
                   ) : null}
                 </div>
               </div>
@@ -1059,43 +1035,45 @@ export function PlanningCreationWizardDialog({
     return (
       <div className="space-y-4">
         <div className="rounded-xl border border-border/60 bg-background/50 p-4">
-          <p className="text-sm font-semibold">Planning</p>
+          <p className="text-sm font-semibold">{trw.review.planning}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {planningName || "Sans nom"} | {timezone || "GMT"}
+            {planningName || trw.review.noName} | {timezone || "GMT"}
           </p>
         </div>
 
         <div className="rounded-xl border border-border/60 bg-background/50 p-4">
-          <p className="text-sm font-semibold">Programme semaine</p>
+          <p className="text-sm font-semibold">{trw.review.weekProgram}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Rotation: {weekdayRotationEnabled ? "oui" : "non"} | {weekdayCases.length} quart(s)
+            {trw.review.rotation(weekdayRotationEnabled)} | {trw.review.caseCount(weekdayCases.length)}
           </p>
           <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
             {weekdayCases.map((item) => (
               <li key={`review-weekday-${item.localId}`}>
-                {item.name} ({item.startTime} - {item.endTime}) | {formatCaseDays(item.days)}
+                {item.name} ({item.startTime} - {item.endTime}) |{" "}
+                {formatCaseDays(item.days, dayLabels, trw.cases.noDays)}
               </li>
             ))}
           </ul>
         </div>
 
         <div className="rounded-xl border border-border/60 bg-background/50 p-4">
-          <p className="text-sm font-semibold">Programme week-end</p>
+          <p className="text-sm font-semibold">{trw.review.weekendProgram}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Mode:{" "}
+            {trw.review.modeLabel}{" "}
             {weekendMode === "rest"
-              ? "Repos"
+              ? trw.review.modeRest
               : weekendMode === "same_as_week"
-                ? "Meme programme que semaine"
-                : "Programme dedie"}
+                ? trw.review.modeSame
+                : trw.review.modeDedicated}
             {" | "}
-            Rotation: {weekendRotationEnabled ? "oui" : "non"}
+            {trw.review.rotation(weekendRotationEnabled)}
           </p>
           {weekendMode === "different" ? (
             <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
               {weekendCases.map((item) => (
                 <li key={`review-weekend-${item.localId}`}>
-                  {item.name} ({item.startTime} - {item.endTime}) | {formatCaseDays(item.days)}
+                  {item.name} ({item.startTime} - {item.endTime}) |{" "}
+                  {formatCaseDays(item.days, dayLabels, trw.cases.noDays)}
                 </li>
               ))}
             </ul>
@@ -1103,19 +1081,16 @@ export function PlanningCreationWizardDialog({
         </div>
 
         <div className="rounded-xl border border-primary/25 bg-primary/8 p-4 text-xs text-muted-foreground">
-          <p>Pause comptee: {pauseCounted ? `oui (${pauseToleranceMinutes} min)` : "non"}</p>
-          <p>Retard tolere: {lateAllowableMinutes} min</p>
-          <p>Depart anticipe tolere: {earlyLeaveAllowableMinutes} min</p>
-          <p>Heures supplementaires: {overtimeEnabled ? `${overtimeMinutes} min` : "non"}</p>
+          <p>{trw.review.pauseSummary(pauseCounted, pauseToleranceMinutes)}</p>
+          <p>{trw.review.lateSummary(lateAllowableMinutes)}</p>
+          <p>{trw.review.earlySummary(earlyLeaveAllowableMinutes)}</p>
+          <p>{trw.review.overtimeSummary(overtimeEnabled, overtimeMinutes)}</p>
           <p>
-            Affectation immediate:{" "}
             {!assignEnabled
-              ? "non"
+              ? trw.review.assignSummaryNone
               : assignmentScope === "employees"
-                ? `${selectedEmployeeIds.size} utilisateur(s)`
-                : `${selectedDepartmentIds.size} departement(s)${
-                    includeSubDepartments ? " (+ sous-departements)" : ""
-                  }`}
+                ? trw.review.assignSummaryEmployees(selectedEmployeeIds.size)
+                : trw.review.assignSummaryDepartments(selectedDepartmentIds.size, includeSubDepartments)}
           </p>
         </div>
       </div>
@@ -1129,31 +1104,31 @@ export function PlanningCreationWizardDialog({
           <div className="border-b border-border/60 px-6 py-5 lg:px-8">
             <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-widest text-primary">
               <Sparkles className="h-3.5 w-3.5" />
-              Wizard planning optimise
+              {trw.eyebrow}
             </div>
             <div className="mb-3 flex items-start justify-between gap-3">
-              <h2 className="text-2xl font-semibold leading-tight">{currentStep.title}</h2>
+              <h2 className="text-2xl font-semibold leading-tight">{currentStepMeta.title}</h2>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-card text-muted-foreground hover:text-foreground"
-                    aria-label="Pourquoi cette etape"
+                    aria-label={trw.whyAria}
                   >
                     <Info className="h-4 w-4" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={8} className="max-w-xs">
-                  {currentStep.why}
+                  {currentStepMeta.why}
                 </TooltipContent>
               </Tooltip>
             </div>
 
             <div className="mb-2 flex items-center gap-1">
-              {STEPS.map((step, index) => {
+              {STEP_KEYS.map((stepKey, index) => {
                 const Icon = STEP_ICONS[index]
                 return (
-                  <div key={`step-${step.key}`} className="flex flex-1 flex-col items-center gap-1">
+                  <div key={`step-${stepKey}`} className="flex flex-1 flex-col items-center gap-1">
                     <div
                       className={cn(
                         "flex h-8 w-8 items-center justify-center rounded-full border-2 text-[11px] font-bold transition-all",
@@ -1166,7 +1141,7 @@ export function PlanningCreationWizardDialog({
                     >
                       <Icon className="h-3.5 w-3.5" />
                     </div>
-                    {index < STEPS.length - 1 ? (
+                    {index < STEP_KEYS.length - 1 ? (
                       <div className={cn("h-0.5 w-full rounded-full", stepIndex > index ? "bg-emerald-500" : "bg-border/50")} />
                     ) : null}
                   </div>
@@ -1174,7 +1149,7 @@ export function PlanningCreationWizardDialog({
               })}
             </div>
             <p className="text-sm text-muted-foreground">
-              Etape {stepIndex + 1}/{STEPS.length}
+              {trw.stepProgress(stepIndex + 1, STEP_KEYS.length)}
             </p>
           </div>
 
@@ -1198,11 +1173,11 @@ export function PlanningCreationWizardDialog({
                   disabled={isSubmitting}
                 >
                   <ChevronLeft className="h-4 w-4" />
-                  {stepIndex === 0 ? "Annuler" : "Precedent"}
+                  {stepIndex === 0 ? trw.cancel : trw.previous}
                 </Button>
-                {stepIndex < STEPS.length - 1 ? (
+                {stepIndex < STEP_KEYS.length - 1 ? (
                   <Button type="button" className="h-10 rounded-xl" onClick={goNext} disabled={isSubmitting}>
-                    Suivant
+                    {trw.next}
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                 ) : (
@@ -1213,13 +1188,13 @@ export function PlanningCreationWizardDialog({
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Creer le planning
+                    {trw.create}
                   </Button>
                 )}
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Progression</span>
+                  <span>{trw.progression}</span>
                   <span>{progressValue}%</span>
                 </div>
                 <Progress value={progressValue} className="h-2.5" />

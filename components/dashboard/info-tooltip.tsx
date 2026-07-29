@@ -3,6 +3,8 @@
 import { HelpCircle } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/lib/i18n/context"
+import { shellDict } from "@/lib/i18n/pages/shell"
 
 interface InfoTooltipProps {
   content: string
@@ -11,12 +13,15 @@ interface InfoTooltipProps {
 }
 
 export function InfoTooltip({ content, side = "top", className }: InfoTooltipProps) {
+  const { locale } = useI18n()
+  const tr = shellDict[locale]
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label="Plus d'informations"
+          aria-label={tr.moreInfo}
           className={cn(
             "inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             className

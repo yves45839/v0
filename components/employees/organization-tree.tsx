@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import type { DepartmentApiItem, OrganizationApiItem } from "@/lib/api/employees"
 import { Building2, ChevronRight, Plus, Users } from "lucide-react"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 
 export type EmployeeScope =
   | { type: "all"; label: string }
@@ -34,6 +36,8 @@ export function OrganizationTree({
   onEmployeeDrop,
   onCreateDepartment,
 }: OrganizationTreeProps) {
+  const { locale } = useI18n()
+  const tr = employeesDict[locale]
   const [dragOverDepartmentId, setDragOverDepartmentId] = useState<number | null>(null)
   const departmentsByOrganization = new Map<number, DepartmentApiItem[]>()
   const childrenByDepartment = new Map<number | null, DepartmentApiItem[]>()
@@ -126,7 +130,7 @@ export function OrganizationTree({
               variant="ghost"
               size="icon"
               className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover/dept:opacity-100"
-              title="Créer un sous-département"
+              title={tr.tree.createSubDepartment}
               onClick={(event) => {
                 event.stopPropagation()
                 onCreateDepartment(department.organization, department.id)
@@ -150,10 +154,10 @@ export function OrganizationTree({
     <Card className="overflow-hidden rounded-none border-[#1c2133] bg-[#111318] p-0 shadow-none">
       <div className="border-b border-[#1c2133] px-3 py-2.5">
         <p className="font-display text-[13px] font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
-          Organisations
+          {tr.tree.title}
         </p>
         <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-[#4a5568]">
-          Glisser-deposer vers departement
+          {tr.tree.hint}
         </p>
       </div>
       <div className="space-y-2.5 p-3">
@@ -168,9 +172,9 @@ export function OrganizationTree({
         >
           <span className="flex min-w-0 items-center gap-2 text-xs font-medium">
             <Users className="h-3.5 w-3.5 shrink-0" />
-            Tous les employes
+            {tr.tree.allEmployees}
           </span>
-          <Badge variant="secondary" className="rounded-none border border-[#1c2133] bg-[#111318] px-1.5 font-mono text-[9px] text-[#7a8599]">Global</Badge>
+          <Badge variant="secondary" className="rounded-none border border-[#1c2133] bg-[#111318] px-1.5 font-mono text-[9px] text-[#7a8599]">{tr.tree.global}</Badge>
         </Button>
 
         <div className="space-y-2.5">
@@ -218,7 +222,7 @@ export function OrganizationTree({
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover/org:opacity-100"
-                      title="Créer un département"
+                      title={tr.tree.createDepartment}
                       onClick={() => onCreateDepartment(organization.id, null)}
                     >
                       <Plus className="h-3.5 w-3.5" />

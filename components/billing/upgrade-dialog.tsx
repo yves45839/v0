@@ -27,13 +27,13 @@ import {
 import { ProBadge } from "@/components/billing/pro-badge"
 import { fetchPlans, type Plan } from "@/lib/api/billing"
 import {
-  FEATURE_META,
-  TIER_LABELS,
   minPlanFor,
   tierOf,
   type FeatureKey,
   type PlanTier,
 } from "@/lib/billing/feature-access"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict, formatMoney } from "@/lib/i18n/pages/billing"
 
 type Props = {
   open: boolean
@@ -54,8 +54,10 @@ export function UpgradeDialog({
   title,
   description,
 }: Props) {
+  const { locale, localeTag, formatNumber } = useI18n()
+  const tr = billingDict[locale]
   const tier: PlanTier = requiredTier ?? (feature ? minPlanFor(feature) : "pro")
-  const meta = feature ? FEATURE_META[feature] : null
+  const meta = feature ? tr.upgrade.featureMeta[feature] : null
   const [plans, setPlans] = useState<Plan[] | null>(null)
 
   useEffect(() => {
@@ -73,11 +75,11 @@ export function UpgradeDialog({
     .sort((a, b) => parseFloat(a.amount) - parseFloat(b.amount))[0]
 
   const headline =
-    title ?? (meta ? `Débloquez « ${meta.title} »` : "Passez au plan supérieur")
+    title ?? (meta ? tr.upgrade.unlock(meta.title) : tr.upgrade.upgradeTitle)
   const subline =
     description ??
     meta?.description ??
-    `Cette fonctionnalité est incluse dans le plan ${TIER_LABELS[tier]}.`
+    tr.upgrade.includedIn(tr.upgrade.tierLabels[tier])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -98,38 +100,36 @@ export function UpgradeDialog({
                 <div>
                   <div className="text-sm font-semibold">{recommended.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {recommended.description ||
-                      "Tout ce qu'il faut pour passer en production."}
+                    {recommended.description || tr.upgrade.defaultPlanDesc}
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-bold leading-none">
-                    {formatPrice(recommended.amount, recommended.currency)}
+                    {formatMoney(recommended.amount, recommended.currency, localeTag)}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {recommended.interval === "year" ? "/an" : "/mois"}
+                    {tr.shared.intervalShort[recommended.interval]}
                   </div>
                 </div>
               </div>
 
               <ul className="mt-4 space-y-1.5 text-sm">
                 {recommended.has_priority_support && (
-                  <Bullet>Support prioritaire</Bullet>
+                  <Bullet>{tr.shared.prioritySupport}</Bullet>
                 )}
                 {recommended.has_advanced_analytics && (
-                  <Bullet>Analytique avancée</Bullet>
+                  <Bullet>{tr.shared.advancedAnalytics}</Bullet>
                 )}
                 <Bullet>
-                  {recommended.device_quota.toLocaleString("fr-FR")} dispositifs
+                  {tr.upgrade.devices(formatNumber(recommended.device_quota))}
                 </Bullet>
                 <Bullet>
-                  {recommended.event_quota_per_month.toLocaleString("fr-FR")}{" "}
-                  évènements / mois
+                  {tr.shared.eventsPerMonth(formatNumber(recommended.event_quota_per_month))}
                 </Bullet>
                 {recommended.trial_period_days > 0 &&
                   !recommended.trial_requires_card && (
                     <Bullet>
-                      Essai {recommended.trial_period_days} jours sans CB
+                      {tr.upgrade.trialNoCardBullet(recommended.trial_period_days)}
                     </Bullet>
                   )}
               </ul>
@@ -140,19 +140,18 @@ export function UpgradeDialog({
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">
-              Aucun plan {TIER_LABELS[tier]} configuré pour le moment. Contactez
-              le support pour une offre sur mesure.
+              {tr.upgrade.noPlanConfigured(tr.upgrade.tierLabels[tier])}
             </div>
           )}
         </div>
 
         <DialogFooter className="mt-2 gap-2 sm:justify-between">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Plus tard
+            {tr.upgrade.later}
           </Button>
           <Button asChild>
             <Link href="/pricing">
-              Voir tous les plans <ArrowRight className="ml-1.5 h-4 w-4" />
+              {tr.upgrade.seeAllPlans} <ArrowRight className="ml-1.5 h-4 w-4" />
             </Link>
           </Button>
         </DialogFooter>
@@ -168,18 +167,4 @@ function Bullet({ children }: { children: React.ReactNode }) {
       <span>{children}</span>
     </li>
   )
-}
-
-function formatPrice(amount: string, currency: string): string {
-  const value = parseFloat(amount)
-  if (!Number.isFinite(value)) return `${amount} ${currency.toUpperCase()}`
-  try {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-      maximumFractionDigits: currency.toLowerCase() === "xof" ? 0 : 2,
-    }).format(value)
-  } catch {
-    return `${value.toFixed(2)} ${currency.toUpperCase()}`
-  }
 }

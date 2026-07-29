@@ -1,0 +1,146 @@
+const en = {
+  serverUnreachable: "Unable to reach the server.",
+
+  // Industrial header
+  openNavigation: "Open the navigation",
+  title: "Dashboard",
+  tagline: (status: string) => `Hikvision monitoring · ${status} · recently updated`,
+  statusLive: "LIVE",
+  statusSync: "SYNC",
+  statusOffline: "OFFLINE",
+  searchPlaceholder: "Search...",
+  searchAria: "Search attendance logs",
+  notifications: "Notifications",
+  exportReport: "Export report",
+  profileFallback: "Profile",
+
+  // Presence chart
+  dayLabels: ["M", "T", "W", "T", "F", "S", "S"],
+  weekBucketLabels: ["W-4", "W-3", "W-2", "W-1", "This wk"],
+  monthBucketLabels: ["M-2", "M-1", "This month"],
+  presenceTitle7: "Presence - last 7 days",
+  presenceTitle30: "Presence - last 30 days",
+  presenceTitle90: "Presence - last 90 days",
+  presenceSubtitle: "All departments · entry punches",
+  range7: "7d",
+  range30: "30d",
+  range90: "90d",
+  timeRangeAria: "Time range",
+  noPresenceData: "No presence data for the period",
+  noPresenceHint: "Punches will appear here as soon as the first events are received",
+
+  // Device panel
+  devicesTitle: "Hikvision devices",
+  viewAll: "View all +",
+  onlineRatio: (total: number) => `/${total} online`,
+  onlineCount: (n: number) => `${n} online`,
+  avgLatency: "Avg latency monitored",
+  toHandle: (n: number) => `${n} to handle`,
+  noActiveIncident: "No active incidents",
+
+  // Priority strip
+  alertsCount: (n: number) => `${n} alert(s)`,
+  open: "Open",
+
+  // Recent activity
+  recentActivity: "Recent activity",
+  live: "Live",
+  fullHistory: "Full history +",
+  noEventsToday: "No events received today",
+  accessDenied: "Access denied",
+  entryPunch: "Check-in",
+  statusDenied: "DENIED",
+  statusPresent: "PRESENT",
+
+  // Error / loading
+  retry: "Retry",
+  loadingKpisAria: "Loading indicators",
+  kpisUnavailable: "Indicators unavailable",
+  loadingRealtimeAria: "Loading real-time data",
+  realtimeUnavailable: "Real-time data unavailable",
+
+  // KPI blocks
+  kpiAttendanceToday: "Punches today",
+  kpiAttendanceNote: "Today's check-ins and check-outs",
+  kpiAttendanceEmpty: "No punches received",
+  kpiDenied: "Denied access",
+  kpiDeniedNote: (n: number) => `${n} to review`,
+  kpiDeniedEmpty: "No denials today",
+  kpiEmployees: "Active employees",
+  kpiEmployeesNote: (active: number, total: number) => `${active}/${total} registered`,
+  kpiEmployeesEmpty: "No employees registered",
+  kpiDevices: "Devices online",
+  kpiDevicesNote: (online: number, total: number) => `${online}/${total} online`,
+  kpiDevicesEmpty: "No devices",
+}
+
+const fr: typeof en = {
+  serverUnreachable: "Impossible de contacter le serveur.",
+
+  openNavigation: "Ouvrir la navigation",
+  title: "Dashboard",
+  tagline: (status: string) => `Supervision Hikvision · ${status} · MAJ récente`,
+  statusLive: "LIVE",
+  statusSync: "SYNC",
+  statusOffline: "OFFLINE",
+  searchPlaceholder: "Rechercher...",
+  searchAria: "Rechercher dans les pointages",
+  notifications: "Notifications",
+  exportReport: "Exporter le rapport",
+  profileFallback: "Profil",
+
+  dayLabels: ["L", "M", "M", "J", "V", "S", "D"],
+  weekBucketLabels: ["S-4", "S-3", "S-2", "S-1", "Cette sem."],
+  monthBucketLabels: ["M-2", "M-1", "Ce mois"],
+  presenceTitle7: "Présence - 7 derniers jours",
+  presenceTitle30: "Présence - 30 derniers jours",
+  presenceTitle90: "Présence - 90 derniers jours",
+  presenceSubtitle: "Tous départements · pointages d'entrée",
+  range7: "7j",
+  range30: "30j",
+  range90: "90j",
+  timeRangeAria: "Plage de temps",
+  noPresenceData: "Aucune donnée de présence sur la période",
+  noPresenceHint: "Les pointages apparaîtront ici dès réception des premiers événements",
+
+  devicesTitle: "Appareils Hikvision",
+  viewAll: "Voir tout +",
+  onlineRatio: (total: number) => `/${total} en ligne`,
+  onlineCount: (n: number) => `${n} en ligne`,
+  avgLatency: "Latence moy. surveillée",
+  toHandle: (n: number) => `${n} à traiter`,
+  noActiveIncident: "Aucun incident actif",
+
+  alertsCount: (n: number) => `${n} alerte(s)`,
+  open: "Ouvrir",
+
+  recentActivity: "Activité récente",
+  live: "Live",
+  fullHistory: "Tout l'historique +",
+  noEventsToday: "Aucun événement reçu aujourd'hui",
+  accessDenied: "Accès refusé",
+  entryPunch: "Pointage d'entrée",
+  statusDenied: "REFUSÉ",
+  statusPresent: "PRÉSENT",
+
+  retry: "Réessayer",
+  loadingKpisAria: "Chargement des indicateurs",
+  kpisUnavailable: "Indicateurs indisponibles",
+  loadingRealtimeAria: "Chargement des données temps réel",
+  realtimeUnavailable: "Données temps réel indisponibles",
+
+  kpiAttendanceToday: "Pointages aujourd'hui",
+  kpiAttendanceNote: "Entrées et sorties du jour",
+  kpiAttendanceEmpty: "Aucun pointage reçu",
+  kpiDenied: "Accès refusés",
+  kpiDeniedNote: (n: number) => `${n} à vérifier`,
+  kpiDeniedEmpty: "Aucun refus aujourd'hui",
+  kpiEmployees: "Employés actifs",
+  kpiEmployeesNote: (active: number, total: number) => `${active}/${total} inscrits`,
+  kpiEmployeesEmpty: "Aucun employé inscrit",
+  kpiDevices: "Appareils en ligne",
+  kpiDevicesNote: (online: number, total: number) => `${online}/${total} en ligne`,
+  kpiDevicesEmpty: "Aucun appareil",
+}
+
+export const dashboardDict = { en, fr }

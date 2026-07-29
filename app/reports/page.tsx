@@ -66,6 +66,13 @@ import {
   type AttendanceReportResponse,
 } from "@/lib/api/reports"
 import { fetchDepartments, fetchEmployeesDetailed, type DepartmentApiItem } from "@/lib/api/employees"
+import { getActiveTenantCode } from "@/lib/api/auth"
+import { useI18n } from "@/lib/i18n/context"
+import {
+  ATTENDANCE_EXPORT_FIELD_IDS,
+  reportsPageDict,
+  type AttendanceExportFieldId,
+} from "@/lib/i18n/pages/reports-page"
 
 type DirectoryPerson = {
   personId: string
@@ -73,11 +80,7 @@ type DirectoryPerson = {
   departmentId: number | null
 }
 
-const PERIOD_OPTIONS: Array<{ value: AttendanceReportPeriod; label: string }> = [
-  { value: "daily", label: "Journalier" },
-  { value: "weekly", label: "Hebdomadaire" },
-  { value: "monthly", label: "Mensuel" },
-]
+const PERIOD_VALUES: AttendanceReportPeriod[] = ["daily", "weekly", "monthly"]
 
 type CorrectionFormState = {
   arrivalTime: string
@@ -111,66 +114,11 @@ const EXPORT_VIEWS_STORAGE_KEY = "reports.attendance.export.views.v1"
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"))
 const MINUTE_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"))
 
-type AttendanceExportFieldId =
-  | "tenant"
-  | "person_id"
-  | "employee_name"
-  | "department_name"
-  | "planning_name"
-  | "work_shift_name"
-  | "date"
-  | "status"
-  | "expected_work_period"
-  | "arrival_time"
-  | "departure_time"
-  | "arrival_delta_minutes"
-  | "departure_delta_minutes"
-  | "planned_minutes"
-  | "total_logs"
-  | "checkins"
-  | "checkouts"
-  | "unknown_events"
-  | "expected_checkin_at"
-  | "actual_checkin_at"
-  | "expected_checkout_at"
-  | "actual_checkout_at"
-
-type AttendanceExportFieldDefinition = {
-  id: AttendanceExportFieldId
-  label: string
-  hint: string
-}
-
 type SavedAttendanceExportView = {
   name: string
   fieldIds: AttendanceExportFieldId[]
   updatedAt: string
 }
-
-const ATTENDANCE_EXPORT_FIELDS: AttendanceExportFieldDefinition[] = [
-  { id: "tenant", label: "Tenant", hint: "Code tenant" },
-  { id: "person_id", label: "Person ID", hint: "Identifiant employe" },
-  { id: "employee_name", label: "Employe", hint: "Nom complet" },
-  { id: "department_name", label: "Departement", hint: "Service/departement" },
-  { id: "planning_name", label: "Planning", hint: "Planning associe" },
-  { id: "work_shift_name", label: "Shift", hint: "Shift associe" },
-  { id: "date", label: "Date", hint: "Jour de pointage" },
-  { id: "status", label: "Statut", hint: "Conforme, partiel, manquant..." },
-  { id: "expected_work_period", label: "Pointage attendu", hint: "Oui/Non selon planning" },
-  { id: "arrival_time", label: "Heure arrivee", hint: "Heure reelle d'arrivee" },
-  { id: "departure_time", label: "Heure depart", hint: "Heure reelle de depart" },
-  { id: "arrival_delta_minutes", label: "Ecart arrivee (min)", hint: "Retard en minutes" },
-  { id: "departure_delta_minutes", label: "Ecart depart (min)", hint: "Avance/depassement en minutes" },
-  { id: "planned_minutes", label: "Minutes planifiees", hint: "Duree theorique" },
-  { id: "total_logs", label: "Total logs", hint: "Nombre de logs du jour" },
-  { id: "checkins", label: "Entrees", hint: "Nombre d'entrees" },
-  { id: "checkouts", label: "Sorties", hint: "Nombre de sorties" },
-  { id: "unknown_events", label: "Inconnus", hint: "Evenements non classes" },
-  { id: "expected_checkin_at", label: "Arrivee attendue", hint: "Heure planifiee d'arrivee" },
-  { id: "actual_checkin_at", label: "Arrivee reelle", hint: "Date/heure reelle d'arrivee" },
-  { id: "expected_checkout_at", label: "Depart attendu", hint: "Heure planifiee de depart" },
-  { id: "actual_checkout_at", label: "Depart reel", hint: "Date/heure reelle de depart" },
-]
 
 const DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS: AttendanceExportFieldId[] = [
   "person_id",
@@ -182,9 +130,12 @@ const DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS: AttendanceExportFieldId[] = [
   "status",
 ]
 
-const ATTENDANCE_EXPORT_FIELD_ID_SET = new Set<AttendanceExportFieldId>(
-  ATTENDANCE_EXPORT_FIELDS.map((field) => field.id)
-)
+const ATTENDANCE_EXPORT_FIELD_ID_SET = new Set<AttendanceExportFieldId>(ATTENDANCE_EXPORT_FIELD_IDS)
+
+const CORRECTION_SUCCESS_MESSAGES = new Set([
+  reportsPageDict.en.correctionSaved,
+  reportsPageDict.fr.correctionSaved,
+])
 
 function sanitizeAttendanceExportFieldIds(value: unknown): AttendanceExportFieldId[] {
   if (!Array.isArray(value)) return [...DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS]
@@ -212,11 +163,14 @@ function formatMinutesAsHoursMinutes(totalMinutes: number): string {
   return `${hours}h ${String(minutes).padStart(2, "0")}m`
 }
 
-function formatIsoToHourMinute(isoValue: string | null | undefined): string {
+function formatIsoToHourMinute(
+  isoValue: string | null | undefined,
+  formatTime: (value: Date) => string
+): string {
   if (!isoValue) return "-"
   const date = new Date(isoValue)
   if (Number.isNaN(date.getTime())) return "-"
-  return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false })
+  return formatTime(date)
 }
 
 function minutesBetween(startIso: string | null | undefined, endIso: string | null | undefined): number {
@@ -236,12 +190,13 @@ function splitTimeParts(value: string): { hour: string; minute: string } {
 
 type TimeSelectFieldProps = {
   label: string
+  clearLabel: string
   value: string
   onChange: (value: string) => void
   optional?: boolean
 }
 
-function TimeSelectField({ label, value, onChange, optional = false }: TimeSelectFieldProps) {
+function TimeSelectField({ label, clearLabel, value, onChange, optional = false }: TimeSelectFieldProps) {
   const { hour, minute } = splitTimeParts(value)
 
   const onHourChange = (nextHour: string) => {
@@ -287,7 +242,7 @@ function TimeSelectField({ label, value, onChange, optional = false }: TimeSelec
         </Select>
         {optional && value ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onChange("")}>
-            Effacer
+            {clearLabel}
           </Button>
         ) : null}
       </div>
@@ -400,7 +355,9 @@ const STATUS_TONE: Record<string, ReportTone> = {
 
 export default function ReportsPage() {
   const searchParams = useSearchParams()
-  const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
+  const { locale, localeTag, formatDate, formatTime } = useI18n()
+  const tr = reportsPageDict[locale]
+  const tenantCode = getActiveTenantCode()
   const [selectedPeriod, setSelectedPeriod] = useState<AttendanceReportPeriod>("weekly")
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("all")
@@ -457,13 +414,13 @@ export default function ReportsPage() {
   }, [peopleOptions])
 
   const selectedPeopleLabel = useMemo(() => {
-    if (selectedPersonIds.length === 0) return "Toutes les personnes"
+    if (selectedPersonIds.length === 0) return tr.allPeople
     if (selectedPersonIds.length === 1) {
       const match = people.find((person) => person.personId === selectedPersonIds[0])
       return match ? `${match.name} (${match.personId})` : selectedPersonIds[0]
     }
-    return `${selectedPersonIds.length} personnes`
-  }, [people, selectedPersonIds])
+    return tr.peopleCount(selectedPersonIds.length)
+  }, [people, selectedPersonIds, tr])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -514,7 +471,7 @@ export default function ReportsPage() {
         return [...current, fieldId]
       }
       if (current.length <= 1) {
-        toast.warning("Selectionnez au moins un champ.")
+        toast.warning(tr.selectAtLeastOneField)
         return current
       }
       return current.filter((value) => value !== fieldId)
@@ -525,7 +482,7 @@ export default function ReportsPage() {
     const trimmedName = exportViewName.trim()
     if (!trimmedName) {
       setExportViewNameError(true)
-      toast.warning("Nom de vue requis.")
+      toast.warning(tr.viewNameRequiredToast)
       return
     }
     setExportViewNameError(false)
@@ -539,17 +496,17 @@ export default function ReportsPage() {
       return [nextView, ...withoutSameName]
     })
     setExportViewName("")
-    toast.success(`Vue "${trimmedName}" enregistree.`)
+    toast.success(tr.viewSaved(trimmedName))
   }
 
   const applySavedExportView = (view: SavedAttendanceExportView) => {
     setSelectedExportFieldIds(view.fieldIds)
-    toast.success(`Vue "${view.name}" appliquee.`)
+    toast.success(tr.viewApplied(view.name))
   }
 
   const deleteSavedExportView = (viewNameToDelete: string) => {
     setSavedExportViews((current) => current.filter((view) => view.name !== viewNameToDelete))
-    toast.success(`Vue "${viewNameToDelete}" supprimee.`)
+    toast.success(tr.viewDeleted(viewNameToDelete))
   }
 
   useEffect(() => {
@@ -600,10 +557,10 @@ export default function ReportsPage() {
         }))
       )
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossible de charger annuaire personnes/departements."
+      const message = err instanceof Error ? err.message : tr.directoryLoadError
       setError(message)
     }
-  }, [tenantCode])
+  }, [tenantCode, tr])
 
   const loadReport = useCallback(async () => {
     setLoading(true)
@@ -623,7 +580,7 @@ export default function ReportsPage() {
       })
       setReport(payload)
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossible de charger le rapport."
+      const message = err instanceof Error ? err.message : tr.reportLoadError
       setError(message)
     } finally {
       setLoading(false)
@@ -637,6 +594,7 @@ export default function ReportsPage() {
     tenantCode,
     selectedPersonIds,
     selectedDepartmentId,
+    tr,
   ])
 
   useEffect(() => {
@@ -682,7 +640,7 @@ export default function ReportsPage() {
       return
     }
     if (!tenantForCorrection) {
-      setCorrectionMessage("Tenant introuvable pour cette personne. Configure NEXT_PUBLIC_HIK_EVENTS_TENANT ou charge un rapport filtre par tenant.")
+      setCorrectionMessage(tr.tenantNotFound)
       return
     }
 
@@ -716,12 +674,12 @@ export default function ReportsPage() {
         notes: row.notes || "",
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossible de charger la correction."
+      const message = err instanceof Error ? err.message : tr.correctionLoadError
       setCorrectionMessage(message)
     } finally {
       setCorrectionLoading(false)
     }
-  }, [correctionDate, selectedCorrectionPersonId, tenantForCorrection])
+  }, [correctionDate, selectedCorrectionPersonId, tenantForCorrection, tr])
 
   useEffect(() => {
     void loadDirectory()
@@ -757,26 +715,17 @@ export default function ReportsPage() {
         tenant: employee.tenant,
         personId: employee.person_id,
         employeeName: employee.employee_name || employee.person_id,
-        departmentName: employee.department_name || "Non assigne",
+        departmentName: employee.department_name || tr.unassigned,
         date: detail.date,
         status: detail.status,
-        statusLabel:
-          detail.status === "compliant"
-            ? "Conforme"
-            : detail.status === "partial"
-              ? "Partiel"
-              : detail.status === "missing"
-                ? "Manquant"
-                : detail.status === "unexpected_activity"
-                  ? "Inattendu"
-                  : "Repos",
+        statusLabel: tr.statusLabels[detail.status],
         arrivalIso: detail.actual_checkin_at ?? null,
         departureIso: detail.actual_checkout_at ?? null,
         arrivalDeltaMinutes: detail.arrival_delta_minutes ?? null,
         departureDeltaMinutes: detail.departure_delta_minutes ?? null,
       }))
     )
-  }, [report?.compliance?.employees])
+  }, [report?.compliance?.employees, tr])
 
   const visibleDetailRows = useMemo(() => {
     return attendanceDetailRows.filter((row) => {
@@ -801,14 +750,14 @@ export default function ReportsPage() {
   const sortedDetailRows = useMemo(() => {
     const sorted = [...visibleDetailRows]
     sorted.sort((a, b) => {
-      if (detailSortBy === "employee") return a.employeeName.localeCompare(b.employeeName, "fr")
-      if (detailSortBy === "department") return a.departmentName.localeCompare(b.departmentName, "fr")
-      if (detailSortBy === "status") return a.statusLabel.localeCompare(b.statusLabel, "fr")
-      return a.date.localeCompare(b.date, "fr")
+      if (detailSortBy === "employee") return a.employeeName.localeCompare(b.employeeName, localeTag)
+      if (detailSortBy === "department") return a.departmentName.localeCompare(b.departmentName, localeTag)
+      if (detailSortBy === "status") return a.statusLabel.localeCompare(b.statusLabel, localeTag)
+      return a.date.localeCompare(b.date, localeTag)
     })
     if (detailSortOrder === "desc") sorted.reverse()
     return sorted
-  }, [visibleDetailRows, detailSortBy, detailSortOrder])
+  }, [visibleDetailRows, detailSortBy, detailSortOrder, localeTag])
 
   const detailTotalPages = Math.max(1, Math.ceil(sortedDetailRows.length / DETAIL_PAGE_SIZE))
   const paginatedDetailRows = useMemo(() => {
@@ -891,9 +840,9 @@ export default function ReportsPage() {
   }
 
   const handleExport = async (format: AttendanceReportExportFormat) => {
-    // Validation plage personnalisée
+    // Custom range validation
     if (customRangeEnabled && customStartDate && customEndDate && customEndDate < customStartDate) {
-      setError("La date de fin doit être postérieure à la date de début.")
+      setError(tr.endDateBeforeStart)
       return
     }
     setExportLoading(format)
@@ -920,11 +869,11 @@ export default function ReportsPage() {
       anchor.click()
       document.body.removeChild(anchor)
       window.URL.revokeObjectURL(objectUrl)
-      toast.success(`Rapport exporté en ${format.toUpperCase()}`)
+      toast.success(tr.exportSuccess(format.toUpperCase()))
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossible d'exporter le rapport."
+      const message = err instanceof Error ? err.message : tr.exportReportError
       setError(message)
-      toast.error("Erreur lors de l'export du rapport")
+      toast.error(tr.exportErrorToast)
     } finally {
       setExportLoading(null)
     }
@@ -932,11 +881,11 @@ export default function ReportsPage() {
 
   const handleSaveCorrection = async () => {
     if (!selectedCorrectionPersonId) {
-      setCorrectionMessage("Selectionnez une personne pour enregistrer la correction.")
+      setCorrectionMessage(tr.selectPersonToSave)
       return
     }
     if (!tenantForCorrection) {
-      setCorrectionMessage("Tenant introuvable pour cette personne. Configure NEXT_PUBLIC_HIK_EVENTS_TENANT ou charge un rapport filtre par tenant.")
+      setCorrectionMessage(tr.tenantNotFound)
       return
     }
 
@@ -945,39 +894,39 @@ export default function ReportsPage() {
     const normalizedArrival = hasArrivalInput ? normalizeTimeValue(correctionForm.arrivalTime) : null
     const normalizedDeparture = hasDepartureInput ? normalizeTimeValue(correctionForm.departureTime) : null
     if (hasArrivalInput && !normalizedArrival) {
-      setCorrectionMessage("Heure d'arrivee invalide ou incomplete. Exemple valide: 08:00.")
+      setCorrectionMessage(tr.invalidArrival)
       return
     }
     if (hasDepartureInput && !normalizedDeparture) {
-      setCorrectionMessage("Heure de depart invalide ou incomplete. Exemple valide: 17:00.")
+      setCorrectionMessage(tr.invalidDeparture)
       return
     }
 
     const hasBreakStart = (correctionForm.breakStartTime || "").trim().length > 0
     const hasBreakEnd = (correctionForm.breakEndTime || "").trim().length > 0
     if (hasBreakStart !== hasBreakEnd) {
-      setCorrectionMessage("Renseigne les deux champs de pause (debut et fin), ou laisse les deux vides.")
+      setCorrectionMessage(tr.breakBothOrNone)
       return
     }
     const normalizedBreakStart = hasBreakStart ? normalizeTimeValue(correctionForm.breakStartTime) : null
     const normalizedBreakEnd = hasBreakEnd ? normalizeTimeValue(correctionForm.breakEndTime) : null
     if (hasBreakStart && !normalizedBreakStart) {
-      setCorrectionMessage("Heure de debut pause invalide. Exemple valide: 12:30.")
+      setCorrectionMessage(tr.invalidBreakStart)
       return
     }
     if (hasBreakEnd && !normalizedBreakEnd) {
-      setCorrectionMessage("Heure de fin pause invalide. Exemple valide: 13:00.")
+      setCorrectionMessage(tr.invalidBreakEnd)
       return
     }
     if (normalizedArrival && normalizedDeparture && normalizedArrival === normalizedDeparture) {
-      setCorrectionMessage("L'heure de depart doit etre differente de l'heure d'arrivee.")
+      setCorrectionMessage(tr.departureEqualsArrival)
       return
     }
 
     const hasOvertimeInput = (correctionForm.overtimeHours || "").trim().length > 0
     const hasNotesInput = (correctionForm.notes || "").trim().length > 0
     if (!hasArrivalInput && !hasDepartureInput && !hasBreakStart && !hasBreakEnd && !hasOvertimeInput && !hasNotesInput) {
-      setCorrectionMessage("Renseigne au moins un champ a corriger (arrivee, depart, pause, heures sup ou commentaire).")
+      setCorrectionMessage(tr.atLeastOneField)
       return
     }
 
@@ -995,17 +944,17 @@ export default function ReportsPage() {
         overtimeHours: hasOvertimeInput ? correctionForm.overtimeHours : undefined,
         notes: hasNotesInput ? correctionForm.notes : undefined,
       })
-      setCorrectionMessage("Correction enregistree.")
-      toast.success("Correction enregistrée avec succès")
+      setCorrectionMessage(tr.correctionSaved)
+      toast.success(tr.correctionSavedToast)
       await Promise.all([loadSelectedCorrection(), loadReport()])
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "Impossible d'enregistrer la correction."
+      const raw = err instanceof Error ? err.message : tr.correctionSaveError
       if (raw.includes("arrival_time is required")) {
-        setCorrectionMessage("Heure d'arrivee obligatoire.")
+        setCorrectionMessage(tr.arrivalRequired)
       } else if (raw.includes("departure_time is required")) {
-        setCorrectionMessage("Heure de depart obligatoire.")
+        setCorrectionMessage(tr.departureRequired)
       } else if (raw.includes("break_start_time and break_end_time")) {
-        setCorrectionMessage("Renseigne les deux champs de pause (debut et fin).")
+        setCorrectionMessage(tr.breakBothRequired)
       } else {
         setCorrectionMessage(raw)
       }
@@ -1026,13 +975,13 @@ export default function ReportsPage() {
             <div className="flex flex-col gap-3 border-b border-[#1c2133] px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">
-                  Conformite &amp; presence
+                  {tr.pageKicker}
                 </p>
                 <h1 className="mt-1 font-display text-[22px] font-bold uppercase leading-none tracking-[0.08em] text-[#e2e8f0]">
-                  Rapports
+                  {tr.pageTitle}
                 </h1>
                 <p className="mt-1 max-w-2xl text-xs text-[#7a8599]">
-                  Analyse de presence, conformite et corrections de pointage exportables.
+                  {tr.pageSubtitle}
                 </p>
               </div>
 
@@ -1049,7 +998,7 @@ export default function ReportsPage() {
                   ) : (
                     <RefreshCcw className="mr-2 h-4 w-4" />
                   )}
-                  {loading ? "Chargement..." : "Actualiser"}
+                  {loading ? tr.loading : tr.refresh}
                 </Button>
                 <Button
                   variant="outline"
@@ -1066,10 +1015,10 @@ export default function ReportsPage() {
                     setCustomEndDate(new Date().toISOString().slice(0, 10))
                     setIncludeLateTotals(false)
                     setIncludeOvertimeTotals(false)
-                    toast.success("Filtres de rapport reinitialises")
+                    toast.success(tr.filtersReset)
                   }}
                 >
-                  Reinitialiser
+                  {tr.reset}
                 </Button>
                 <Button
                   size="sm"
@@ -1077,34 +1026,34 @@ export default function ReportsPage() {
                   disabled={loading}
                   onClick={async () => {
                     await loadReport()
-                    toast.success("Rapport regenere")
+                    toast.success(tr.reportRegenerated)
                   }}
                 >
                   <FileText className="mr-2 h-4 w-4" />
-                  Generer
+                  {tr.generate}
                 </Button>
               </div>
             </div>
 
             <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
               <ReportsMetricCard
-                label="Pointages analyses"
+                label={tr.metricLogsLabel}
                 value={report?.summary.total_logs ?? "-"}
-                note="Volume total"
+                note={tr.metricLogsNote}
                 tone="blue"
                 icon={Clock}
               />
               <ReportsMetricCard
-                label="Employes couverts"
+                label={tr.metricEmployeesLabel}
                 value={report?.summary.total_employees ?? "-"}
-                note="Perimetre"
+                note={tr.metricEmployeesNote}
                 tone="green"
                 icon={Users}
               />
               <ReportsMetricCard
-                label="Corrections chargees"
+                label={tr.metricCorrectionsLabel}
                 value={report?.corrections?.length ?? 0}
-                note="Ajustements"
+                note={tr.metricCorrectionsNote}
                 tone="amber"
                 icon={AlertTriangle}
               />
@@ -1119,9 +1068,9 @@ export default function ReportsPage() {
                   <Filter className="size-4" />
                 </div>
                 <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">Parametrage</p>
+                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">{tr.settingsKicker}</p>
                   <h2 className="mt-1 font-display text-[15px] font-semibold uppercase leading-none tracking-[0.06em] text-[#e2e8f0]">
-                    Filtres &amp; exports
+                    {tr.filtersTitle}
                   </h2>
                 </div>
               </div>
@@ -1131,18 +1080,18 @@ export default function ReportsPage() {
               {/* Period pills + date */}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center border border-[#1c2133] bg-[#0b0d13] p-1">
-                  {PERIOD_OPTIONS.map((option) => {
-                    const isSelected = selectedPeriod === option.value
+                  {PERIOD_VALUES.map((option) => {
+                    const isSelected = selectedPeriod === option
                     return (
                       <button
-                        key={option.value}
+                        key={option}
                         type="button"
-                        onClick={() => setSelectedPeriod(option.value)}
+                        onClick={() => setSelectedPeriod(option)}
                         className={`px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em] transition-colors ${
                           isSelected ? "bg-[var(--brand-accent)] text-[#0b0d13]" : "text-[#4a5568] hover:text-[#e2e8f0]"
                         }`}
                       >
-                        {option.label}
+                        {tr.periodLabels[option]}
                       </button>
                     )
                   })}
@@ -1162,7 +1111,7 @@ export default function ReportsPage() {
                 <label className="flex items-center gap-2 border border-[#1c2133] bg-[#0b0d13] px-3 py-1.5">
                   <Switch checked={customRangeEnabled} onCheckedChange={setCustomRangeEnabled} />
                   <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                    Plage personnalisee
+                    {tr.customRange}
                   </span>
                 </label>
 
@@ -1170,7 +1119,7 @@ export default function ReportsPage() {
                   <>
                     <Input
                       type="date"
-                      aria-label="Date de début"
+                      aria-label={tr.startDateAria}
                       value={customStartDate}
                       onChange={(event) => setCustomStartDate(event.target.value)}
                       className="h-9 w-40 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-xs text-[#e2e8f0]"
@@ -1178,7 +1127,7 @@ export default function ReportsPage() {
                     <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">→</span>
                     <Input
                       type="date"
-                      aria-label="Date de fin"
+                      aria-label={tr.endDateAria}
                       value={customEndDate}
                       min={customStartDate}
                       onChange={(event) => setCustomEndDate(event.target.value)}
@@ -1186,13 +1135,13 @@ export default function ReportsPage() {
                     />
                     {customEndDate && customEndDate < customStartDate ? (
                       <span className="w-full font-mono text-[10px] text-red-400">
-                        La date de fin doit être après la date de début.
+                        {tr.endDateBeforeStart}
                       </span>
                     ) : null}
                     {customStartDate && customEndDate && customEndDate >= customStartDate &&
                       Math.ceil((new Date(customEndDate).getTime() - new Date(customStartDate).getTime()) / 86400000) > 92 ? (
                       <span className="w-full font-mono text-[10px] text-amber-400">
-                        Plage supérieure à 92 jours — l'export peut être volumineux.
+                        {tr.longRangeWarning}
                       </span>
                     ) : null}
                   </>
@@ -1207,7 +1156,7 @@ export default function ReportsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les departements</SelectItem>
+                    <SelectItem value="all">{tr.allDepartments}</SelectItem>
                     {departments.map((department) => (
                       <SelectItem key={department.id} value={String(department.id)}>
                         {department.name}
@@ -1229,7 +1178,7 @@ export default function ReportsPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="max-h-80 w-80">
-                    <DropdownMenuLabel>Selection des personnes</DropdownMenuLabel>
+                    <DropdownMenuLabel>{tr.peopleSelection}</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <Button
                       variant="ghost"
@@ -1237,7 +1186,7 @@ export default function ReportsPage() {
                       className="mb-1 w-full justify-start text-xs"
                       onClick={() => setSelectedPersonIds([])}
                     >
-                      Reinitialiser
+                      {tr.reset}
                     </Button>
                     {peopleOptions.map((person) => (
                       <DropdownMenuCheckboxItem
@@ -1254,7 +1203,7 @@ export default function ReportsPage() {
 
               {/* Exports */}
               <div className="flex flex-wrap items-center gap-1.5 border-t border-[#1c2133] pt-3">
-                <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[#4a5568]">Exports</span>
+                <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.exportsLabel}</span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1262,7 +1211,7 @@ export default function ReportsPage() {
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#a78bfa]/60 hover:text-[#a78bfa]"
                 >
                   <Filter className="mr-2 h-3.5 w-3.5" />
-                  Champs ({selectedExportFieldIds.length})
+                  {tr.fieldsButton(selectedExportFieldIds.length)}
                 </Button>
                 <Button
                   variant="outline"
@@ -1272,7 +1221,7 @@ export default function ReportsPage() {
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[var(--success)]/60 hover:text-[var(--success)]"
                 >
                   <FileSpreadsheet className="mr-2 h-3.5 w-3.5" />
-                  {exportLoading === "excel" ? "Export..." : "Excel"}
+                  {exportLoading === "excel" ? tr.exporting : "Excel"}
                 </Button>
                 <Button
                   variant="outline"
@@ -1282,7 +1231,7 @@ export default function ReportsPage() {
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[var(--destructive)]/60 hover:text-[var(--destructive)]"
                 >
                   <FileText className="mr-2 h-3.5 w-3.5" />
-                  {exportLoading === "pdf" ? "Export..." : "PDF"}
+                  {exportLoading === "pdf" ? tr.exporting : "PDF"}
                 </Button>
                 <Button
                   variant="outline"
@@ -1292,7 +1241,7 @@ export default function ReportsPage() {
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[var(--info)]/60 hover:text-[var(--info)]"
                 >
                   <Download className="mr-2 h-3.5 w-3.5" />
-                  {exportLoading === "csv" ? "Export..." : "CSV"}
+                  {exportLoading === "csv" ? tr.exporting : "CSV"}
                 </Button>
               </div>
             </div>
@@ -1305,7 +1254,7 @@ export default function ReportsPage() {
                   <AlertTriangle className="h-4 w-4" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--destructive)]/70">Erreur</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--destructive)]/70">{tr.errorKicker}</p>
                   <p className="mt-1 text-sm text-[var(--destructive)]">{error}</p>
                 </div>
               </div>
@@ -1320,14 +1269,14 @@ export default function ReportsPage() {
                 className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[var(--brand-accent)] data-[state=active]:text-[#0b0d13]"
               >
                 <TrendingUp className="mr-2 h-3.5 w-3.5" />
-                Recap
+                {tr.tabRecap}
               </TabsTrigger>
               <TabsTrigger
                 value="details"
                 className="rounded-none font-mono text-[10px] uppercase tracking-[0.12em] data-[state=active]:bg-[var(--brand-accent)] data-[state=active]:text-[#0b0d13]"
               >
                 <Clock className="mr-2 h-3.5 w-3.5" />
-                Arrivees / departs
+                {tr.tabDetails}
               </TabsTrigger>
             </TabsList>
 
@@ -1335,20 +1284,20 @@ export default function ReportsPage() {
               <div className="flex flex-wrap items-center gap-3 border border-[#1c2133] bg-[#111318] px-4 py-3">
                 <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
                   <Switch checked={includeLateTotals} onCheckedChange={setIncludeLateTotals} />
-                  Inclure total retard
+                  {tr.includeLateTotals}
                 </label>
                 <span className="hidden h-5 w-px bg-[#1c2133] sm:block" />
                 <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
                   <Switch checked={includeOvertimeTotals} onCheckedChange={setIncludeOvertimeTotals} />
-                  Inclure total heures sup
+                  {tr.includeOvertimeTotals}
                 </label>
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 <ReportsMetricCard
-                  label="Jours OK / Total"
+                  label={tr.metricOkDaysLabel}
                   value={`${recapTotals.totalOkDays} / ${recapTotals.totalExpectedDays}`}
-                  note="Jours conformes"
+                  note={tr.metricOkDaysNote}
                   tone="orange"
                   icon={CheckCircle2}
                   onClick={() => {
@@ -1362,17 +1311,17 @@ export default function ReportsPage() {
                   }
                 />
                 <ReportsMetricCard
-                  label="Heures travaillees"
+                  label={tr.metricWorkedLabel}
                   value={formatMinutesAsHoursMinutes(recapTotals.workedMinutes)}
-                  note="Cumul periode"
+                  note={tr.metricPeriodNote}
                   tone="blue"
                   icon={Timer}
                 />
                 {includeLateTotals ? (
                   <ReportsMetricCard
-                    label="Total retard"
+                    label={tr.metricLateLabel}
                     value={formatMinutesAsHoursMinutes(recapTotals.lateMinutes)}
-                    note="A surveiller"
+                    note={tr.metricLateNote}
                     tone="amber"
                     icon={AlertTriangle}
                     onClick={() => {
@@ -1383,21 +1332,21 @@ export default function ReportsPage() {
                 ) : null}
                 {includeOvertimeTotals ? (
                   <ReportsMetricCard
-                    label="Heures sup"
+                    label={tr.metricOvertimeLabel}
                     value={formatMinutesAsHoursMinutes(recapTotals.overtimeMinutes)}
-                    note="Cumul periode"
+                    note={tr.metricPeriodNote}
                     tone="green"
                     icon={TrendingUp}
                   />
                 ) : null}
                 <ReportsMetricCard
-                  label="Taux conformite"
+                  label={tr.metricComplianceLabel}
                   value={
                     complianceSummary?.compliance_rate != null
                       ? `${complianceSummary.compliance_rate}%`
                       : "-"
                   }
-                  note="Indice global"
+                  note={tr.metricComplianceNote}
                   tone="violet"
                   icon={TrendingUp}
                   onClick={() => {
@@ -1415,7 +1364,7 @@ export default function ReportsPage() {
                   <div className="relative w-full sm:max-w-xs">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#4a5568]" />
                     <Input
-                      placeholder="Rechercher nom / ID / departement..."
+                      placeholder={tr.searchPlaceholder}
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
                       className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] pl-10 text-sm text-[#e2e8f0] placeholder:text-[#4a5568] focus-visible:ring-[var(--brand-accent)]/35"
@@ -1425,13 +1374,7 @@ export default function ReportsPage() {
                   <div className="flex flex-wrap items-center gap-1.5">
                     <div className="flex items-center border border-[#1c2133] bg-[#0b0d13] p-1">
                       {(["all", "compliant", "late", "missing", "incident"] as const).map((option) => {
-                        const labels = {
-                          all: "Tous",
-                          compliant: "Conformes",
-                          late: "Retards",
-                          missing: "Absences",
-                          incident: "Incidents",
-                        } as const
+                        const labels = tr.focusLabels
                         const isSelected = detailFocus === option
                         return (
                           <button
@@ -1456,13 +1399,13 @@ export default function ReportsPage() {
                     >
                       <SelectTrigger className="h-9 w-36 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.08em] text-[#e2e8f0]">
                         <ArrowUpDown className="mr-2 h-4 w-4" />
-                        <SelectValue placeholder="Tri" />
+                        <SelectValue placeholder={tr.sortPlaceholder} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="date">Date</SelectItem>
-                        <SelectItem value="employee">Employe</SelectItem>
-                        <SelectItem value="department">Departement</SelectItem>
-                        <SelectItem value="status">Statut</SelectItem>
+                        <SelectItem value="date">{tr.sortDate}</SelectItem>
+                        <SelectItem value="employee">{tr.sortEmployee}</SelectItem>
+                        <SelectItem value="department">{tr.sortDepartment}</SelectItem>
+                        <SelectItem value="status">{tr.sortStatus}</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button
@@ -1471,10 +1414,10 @@ export default function ReportsPage() {
                       onClick={() => setDetailSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
                       className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--brand-accent)]/60 hover:text-[var(--brand-accent)]"
                     >
-                      {detailSortOrder === "asc" ? "Asc" : "Desc"}
+                      {detailSortOrder === "asc" ? tr.sortAsc : tr.sortDesc}
                     </Button>
                     <span className="border border-[#1c2133] bg-[#0b0d13] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] tabular-nums">
-                      {sortedDetailRows.length} ligne{sortedDetailRows.length !== 1 ? "s" : ""}
+                      {tr.rowCount(sortedDetailRows.length)}
                     </span>
                   </div>
                 </div>
@@ -1485,13 +1428,13 @@ export default function ReportsPage() {
                   <Table className="min-w-245">
                     <TableHeader>
                       <TableRow className="border-b border-[#1c2133] hover:bg-transparent">
-                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Personne</TableHead>
-                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Departement</TableHead>
-                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Date</TableHead>
-                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Arrivee</TableHead>
-                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Depart</TableHead>
-                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Conformite</TableHead>
-                        <TableHead className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Action</TableHead>
+                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.thPerson}</TableHead>
+                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.thDepartment}</TableHead>
+                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.thDate}</TableHead>
+                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.thArrival}</TableHead>
+                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.thDeparture}</TableHead>
+                        <TableHead className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.thCompliance}</TableHead>
+                        <TableHead className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.thAction}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1500,7 +1443,7 @@ export default function ReportsPage() {
                           <TableCell colSpan={7} className="py-10 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
                             <div className="flex items-center justify-center gap-2">
                               <Loader2 className="size-4 animate-spin text-[var(--brand-accent)]" />
-                              Chargement du rapport...
+                              {tr.loadingReport}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1508,14 +1451,14 @@ export default function ReportsPage() {
                       {!loading && attendanceDetailRows.length === 0 && (
                         <TableRow className="border-[#1c2133]">
                           <TableCell colSpan={7} className="py-10 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                            Aucun detail de presence disponible. Ajustez les filtres ou actualisez le rapport.
+                            {tr.noDetails}
                           </TableCell>
                         </TableRow>
                       )}
                       {!loading && attendanceDetailRows.length > 0 && sortedDetailRows.length === 0 && (
                         <TableRow className="border-[#1c2133]">
                           <TableCell colSpan={7} className="py-10 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                            Aucun resultat pour ce filtre detaille.
+                            {tr.noFilterResults}
                           </TableCell>
                         </TableRow>
                       )}
@@ -1543,10 +1486,10 @@ export default function ReportsPage() {
                                 {row.date}
                               </TableCell>
                               <TableCell className="font-mono text-sm tabular-nums text-[#e2e8f0]">
-                                {formatIsoToHourMinute(row.arrivalIso)}
+                                {formatIsoToHourMinute(row.arrivalIso, formatTime)}
                               </TableCell>
                               <TableCell className="font-mono text-sm tabular-nums text-[#e2e8f0]">
-                                {formatIsoToHourMinute(row.departureIso)}
+                                {formatIsoToHourMinute(row.departureIso, formatTime)}
                               </TableCell>
                               <TableCell>
                                 <span
@@ -1567,7 +1510,7 @@ export default function ReportsPage() {
                                   }}
                                 >
                                   <Eye className="mr-1 h-3.5 w-3.5" />
-                                  Inspecter
+                                  {tr.inspect}
                                 </Button>
                               </TableCell>
                             </TableRow>
@@ -1580,7 +1523,7 @@ export default function ReportsPage() {
                 <div className="flex items-center justify-between border-t border-[#1c2133] px-3 py-2">
                   <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568] tabular-nums">
                     {sortedDetailRows.length === 0
-                      ? "0 resultat"
+                      ? tr.zeroResults
                       : `${Math.min((detailPage - 1) * DETAIL_PAGE_SIZE + 1, sortedDetailRows.length)}-${Math.min(detailPage * DETAIL_PAGE_SIZE, sortedDetailRows.length)} / ${sortedDetailRows.length}`}
                   </p>
                   <div className="flex items-center gap-1.5">
@@ -1592,7 +1535,7 @@ export default function ReportsPage() {
                       className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--brand-accent)]/60 hover:text-[var(--brand-accent)]"
                     >
                       <ChevronLeft className="mr-1 h-4 w-4" />
-                      Prec
+                      {tr.prev}
                     </Button>
                     <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] tabular-nums">
                       {detailPage}/{detailTotalPages}
@@ -1604,7 +1547,7 @@ export default function ReportsPage() {
                       onClick={() => setDetailPage((prev) => Math.min(detailTotalPages, prev + 1))}
                       className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--brand-accent)]/60 hover:text-[var(--brand-accent)]"
                     >
-                      Suiv
+                      {tr.next}
                       <ChevronRight className="ml-1 h-4 w-4" />
                     </Button>
                   </div>
@@ -1621,26 +1564,26 @@ export default function ReportsPage() {
                   <div className="flex size-9 items-center justify-center bg-[#1e1530] text-[#a78bfa]">
                     <Filter className="h-4 w-4" />
                   </div>
-                  Champs personnalises d&apos;export
+                  {tr.exportFieldsTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Selectionnez les colonnes a inclure dans les exports Excel, PDF et CSV.
+                  {tr.exportFieldsDescription}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2 border border-[#1c2133] bg-[#0b0d13] px-3 py-2">
                   <span className="border border-[#1c2133] bg-[#1a1f2e] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] tabular-nums">
-                    {selectedExportFieldIds.length} / {ATTENDANCE_EXPORT_FIELDS.length} champs
+                    {tr.fieldsCount(selectedExportFieldIds.length, ATTENDANCE_EXPORT_FIELD_IDS.length)}
                   </span>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     className="h-7 rounded-none border border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--success)]/60 hover:text-[var(--success)]"
-                    onClick={() => setSelectedExportFieldIds(ATTENDANCE_EXPORT_FIELDS.map((field) => field.id))}
+                    onClick={() => setSelectedExportFieldIds([...ATTENDANCE_EXPORT_FIELD_IDS])}
                   >
-                    Tout selectionner
+                    {tr.selectAll}
                   </Button>
                   <Button
                     type="button"
@@ -1649,26 +1592,26 @@ export default function ReportsPage() {
                     className="h-7 rounded-none border border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--destructive)]/60 hover:text-[var(--destructive)]"
                     onClick={() => setSelectedExportFieldIds([...DEFAULT_ATTENDANCE_EXPORT_FIELD_IDS])}
                   >
-                    Reinitialiser
+                    {tr.reset}
                   </Button>
                 </div>
 
                 <div className="grid max-h-72 gap-1.5 overflow-y-auto border border-[#1c2133] bg-[#0b0d13] p-2 md:grid-cols-2">
-                  {ATTENDANCE_EXPORT_FIELDS.map((field) => (
+                  {ATTENDANCE_EXPORT_FIELD_IDS.map((fieldId) => (
                     <label
-                      key={field.id}
+                      key={fieldId}
                       className="flex cursor-pointer items-start gap-3 border border-[#1c2133] bg-[#111318] p-2 transition hover:border-[var(--brand-accent)]/40"
                     >
                       <Checkbox
-                        checked={selectedExportFieldIds.includes(field.id)}
-                        onCheckedChange={(checked) => toggleExportField(field.id, checked === true)}
+                        checked={selectedExportFieldIds.includes(fieldId)}
+                        onCheckedChange={(checked) => toggleExportField(fieldId, checked === true)}
                       />
                       <span className="space-y-0.5">
                         <span className="block font-display text-xs font-semibold uppercase tracking-[0.04em] text-[#e2e8f0]">
-                          {field.label}
+                          {tr.exportFields[fieldId].label}
                         </span>
                         <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[#7a8599]">
-                          {field.hint}
+                          {tr.exportFields[fieldId].hint}
                         </span>
                       </span>
                     </label>
@@ -1676,7 +1619,7 @@ export default function ReportsPage() {
                 </div>
 
                 <div className="space-y-2 border border-[#1c2133] bg-[#0b0d13] p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#7a8599]">Sauvegarder la vue</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#7a8599]">{tr.saveViewTitle}</p>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       value={exportViewName}
@@ -1684,7 +1627,7 @@ export default function ReportsPage() {
                         setExportViewName(event.target.value)
                         if (exportViewNameError && event.target.value.trim()) setExportViewNameError(false)
                       }}
-                      placeholder="Nom de vue (ex: RH mensuel)"
+                      placeholder={tr.viewNamePlaceholder}
                       aria-invalid={exportViewNameError}
                       className={`h-9 rounded-none bg-[#1a1f2e] text-[#e2e8f0] placeholder:text-[#4a5568] sm:flex-1 ${exportViewNameError ? "border-red-500" : "border-[#1c2133]"}`}
                     />
@@ -1693,11 +1636,11 @@ export default function ReportsPage() {
                       onClick={handleSaveExportView}
                       className="h-9 rounded-none border border-[var(--brand-accent)] bg-[var(--brand-accent)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--brand-accent)]"
                     >
-                      Sauvegarder
+                      {tr.saveButton}
                     </Button>
                   </div>
                   {exportViewNameError ? (
-                    <p className="font-mono text-[10px] text-red-400">Le nom de la vue est obligatoire.</p>
+                    <p className="font-mono text-[10px] text-red-400">{tr.viewNameRequiredInline}</p>
                   ) : null}
                   {savedExportViews.length > 0 ? (
                     <div className="space-y-1 pt-1">
@@ -1710,7 +1653,7 @@ export default function ReportsPage() {
                             {view.name}
                           </span>
                           <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-[#4a5568] tabular-nums">
-                            {new Date(view.updatedAt).toLocaleDateString("fr-FR")}
+                            {formatDate(new Date(view.updatedAt))}
                           </span>
                           <Button
                             type="button"
@@ -1719,7 +1662,7 @@ export default function ReportsPage() {
                             className="h-7 rounded-none border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--info)]/60 hover:text-[var(--info)]"
                             onClick={() => applySavedExportView(view)}
                           >
-                            Appliquer
+                            {tr.applyButton}
                           </Button>
                           <Button
                             type="button"
@@ -1728,14 +1671,14 @@ export default function ReportsPage() {
                             className="h-7 rounded-none border border-[#1c2133] bg-[#1a1f2e] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599] hover:border-[var(--destructive)]/60 hover:text-[var(--destructive)]"
                             onClick={() => deleteSavedExportView(view.name)}
                           >
-                            Supprimer
+                            {tr.deleteButton}
                           </Button>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                      Aucune vue sauvegardee pour le moment.
+                      {tr.noSavedViews}
                     </p>
                   )}
                 </div>
@@ -1747,7 +1690,7 @@ export default function ReportsPage() {
                   onClick={() => setExportFieldsDialogOpen(false)}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:text-[#e2e8f0]"
                 >
-                  Fermer
+                  {tr.close}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1758,41 +1701,41 @@ export default function ReportsPage() {
             <DialogContent className="sm:max-w-xl rounded-none border border-[#1c2133] bg-[#111318] text-[#e2e8f0]">
               <DialogHeader>
                 <DialogTitle className="font-display text-base font-bold uppercase tracking-[0.06em] text-[#e2e8f0]">
-                  Detail de presence
+                  {tr.detailTitle}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">
-                  Inspection d&apos;une ligne de conformite pour controle operationnel.
+                  {tr.detailDescription}
                 </DialogDescription>
               </DialogHeader>
               {selectedDetailRow ? (
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Employe</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.dlgEmployee}</p>
                     <p className="mt-1 font-display text-sm font-semibold text-[#e2e8f0]">{selectedDetailRow.employeeName}</p>
                     <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599]">{selectedDetailRow.personId}</p>
                   </div>
                   <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Departement</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.dlgDepartment}</p>
                     <p className="mt-1 font-display text-sm font-semibold text-[#e2e8f0]">{selectedDetailRow.departmentName}</p>
                   </div>
                   <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Date</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.dlgDate}</p>
                     <p className="mt-1 font-mono text-sm tabular-nums text-[#e2e8f0]">{selectedDetailRow.date}</p>
                   </div>
                   <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Statut</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.dlgStatus}</p>
                     <p className="mt-1 font-display text-sm font-semibold text-[#e2e8f0]">{selectedDetailRow.statusLabel}</p>
                   </div>
                   <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Arrivee / Depart</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.dlgArrivalDeparture}</p>
                     <p className="mt-1 font-mono text-sm tabular-nums text-[#e2e8f0]">
-                      {formatIsoToHourMinute(selectedDetailRow.arrivalIso)} → {formatIsoToHourMinute(selectedDetailRow.departureIso)}
+                      {formatIsoToHourMinute(selectedDetailRow.arrivalIso, formatTime)} → {formatIsoToHourMinute(selectedDetailRow.departureIso, formatTime)}
                     </p>
                   </div>
                   <div className="border border-[#1c2133] bg-[#0b0d13] p-3">
-                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">Retard / Depassement</p>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#4a5568]">{tr.dlgLateOverrun}</p>
                     <p className="mt-1 font-mono text-sm tabular-nums text-[#e2e8f0]">
-                      {selectedDetailRow.arrivalDeltaMinutes ?? 0} min / {selectedDetailRow.departureDeltaMinutes ?? 0} min
+                      {tr.deltaMinutes(selectedDetailRow.arrivalDeltaMinutes ?? 0, selectedDetailRow.departureDeltaMinutes ?? 0)}
                     </p>
                   </div>
                 </div>
@@ -1804,16 +1747,16 @@ export default function ReportsPage() {
                     if (!selectedDetailRow) return
                     try {
                       await navigator.clipboard.writeText(JSON.stringify(selectedDetailRow, null, 2))
-                      toast.success("Ligne copiee")
+                      toast.success(tr.rowCopied)
                     } catch {
-                      toast.error("Copie impossible")
+                      toast.error(tr.copyFailed)
                     }
                   }}
                   disabled={!selectedDetailRow}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[var(--info)]/60 hover:text-[var(--info)]"
                 >
                   <Copy className="mr-2 h-4 w-4" />
-                  Copier JSON
+                  {tr.copyJson}
                 </Button>
                 <Button
                   variant="outline"
@@ -1831,13 +1774,13 @@ export default function ReportsPage() {
                   }}
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[var(--brand-accent)]/60 hover:text-[var(--brand-accent)]"
                 >
-                  Corriger ce pointage
+                  {tr.correctThisEntry}
                 </Button>
                 <Button
                   onClick={() => setDetailDialogOpen(false)}
                   className="h-9 rounded-none border border-[var(--brand-accent)] bg-[var(--brand-accent)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--brand-accent)]"
                 >
-                  Fermer
+                  {tr.close}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1851,9 +1794,9 @@ export default function ReportsPage() {
                   <Clock className="size-4" />
                 </div>
                 <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">Ajustement</p>
+                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-[#4a5568]">{tr.adjustmentKicker}</p>
                   <h2 className="mt-1 font-display text-[15px] font-semibold uppercase leading-none tracking-[0.06em] text-[#e2e8f0]">
-                    Correction de pointage
+                    {tr.correctionTitle}
                   </h2>
                 </div>
               </div>
@@ -1861,7 +1804,7 @@ export default function ReportsPage() {
 
             <div className="space-y-3 p-3">
               <div className="border border-[#1c2133] bg-[#0b0d13] p-3 font-mono text-[10px] uppercase tracking-[0.1em] text-[#7a8599]">
-                <span className="text-[var(--warning)]">Aide :</span> Arrivee = premiere entree de la journee. Depart = sortie de fin de journee. Pause = debut et fin. Heures sup = nombre d&apos;heures supplementaires (ex: 1.5).
+                <span className="text-[var(--warning)]">{tr.helpLabel}</span> {tr.helpText}
               </div>
 
               <div className="grid gap-2 md:grid-cols-3">
@@ -1872,10 +1815,10 @@ export default function ReportsPage() {
                   }
                 >
                   <SelectTrigger className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[11px] uppercase tracking-[0.08em] text-[#e2e8f0]">
-                    <SelectValue placeholder="Choisir une personne" />
+                    <SelectValue placeholder={tr.choosePerson} />
                   </SelectTrigger>
                   <SelectContent>
-                    {peopleOptions.length === 0 && <SelectItem value="__empty__">Aucune personne</SelectItem>}
+                    {peopleOptions.length === 0 && <SelectItem value="__empty__">{tr.noPeople}</SelectItem>}
                     {peopleOptions.map((person) => (
                       <SelectItem key={person.personId} value={person.personId}>
                         {person.name} ({person.personId})
@@ -1923,7 +1866,7 @@ export default function ReportsPage() {
                     </span>
                   ) : (
                     <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                      Selection requise
+                      {tr.selectionRequired}
                     </span>
                   )}
                   {tenantForCorrection ? (
@@ -1932,7 +1875,7 @@ export default function ReportsPage() {
                     </span>
                   ) : (
                     <span className="ml-auto font-mono text-[9px] uppercase tracking-[0.1em] text-[#4a5568]">
-                      Tenant: non detecte
+                      {tr.tenantNotDetected}
                     </span>
                   )}
                 </div>
@@ -1940,17 +1883,19 @@ export default function ReportsPage() {
 
               <div className="grid gap-2 md:grid-cols-3">
                 <TimeSelectField
-                  label="Heure d'arrivee"
+                  label={tr.arrivalTimeLabel}
+                  clearLabel={tr.clear}
                   value={correctionForm.arrivalTime}
                   onChange={(value) => setCorrectionForm((prev) => ({ ...prev, arrivalTime: value }))}
                 />
                 <TimeSelectField
-                  label="Heure de depart"
+                  label={tr.departureTimeLabel}
+                  clearLabel={tr.clear}
                   value={correctionForm.departureTime}
                   onChange={(value) => setCorrectionForm((prev) => ({ ...prev, departureTime: value }))}
                 />
                 <div className="space-y-1">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">Heures sup (optionnel)</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599]">{tr.overtimeOptionalLabel}</p>
                   <Input
                     type="number"
                     min="0"
@@ -1959,18 +1904,20 @@ export default function ReportsPage() {
                     onChange={(event) =>
                       setCorrectionForm((prev) => ({ ...prev, overtimeHours: event.target.value }))
                     }
-                    placeholder="Ex: 2 ou 1.5"
+                    placeholder={tr.overtimePlaceholder}
                     className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] tabular-nums"
                   />
                 </div>
                 <TimeSelectField
-                  label="Debut pause (optionnel)"
+                  label={tr.breakStartOptionalLabel}
+                  clearLabel={tr.clear}
                   value={correctionForm.breakStartTime}
                   optional
                   onChange={(value) => setCorrectionForm((prev) => ({ ...prev, breakStartTime: value }))}
                 />
                 <TimeSelectField
-                  label="Fin pause (optionnel)"
+                  label={tr.breakEndOptionalLabel}
+                  clearLabel={tr.clear}
                   value={correctionForm.breakEndTime}
                   optional
                   onChange={(value) => setCorrectionForm((prev) => ({ ...prev, breakEndTime: value }))}
@@ -1980,14 +1927,14 @@ export default function ReportsPage() {
               <Textarea
                 value={correctionForm.notes}
                 onChange={(event) => setCorrectionForm((prev) => ({ ...prev, notes: event.target.value }))}
-                placeholder="Commentaire (optionnel)"
+                placeholder={tr.notesPlaceholder}
                 className="rounded-none border-[#1c2133] bg-[#1a1f2e] text-sm text-[#e2e8f0] placeholder:text-[#4a5568]"
               />
 
               {correctionMessage && (
                 <div
                   className={`border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] ${
-                    correctionMessage.includes("enregistree")
+                    CORRECTION_SUCCESS_MESSAGES.has(correctionMessage)
                       ? "border-[var(--success)]/30 bg-[#0d2a1a]/60 text-[var(--success)]"
                       : "border-[var(--warning)]/30 bg-[#2a1e06]/60 text-[var(--warning)]"
                   }`}
@@ -2003,7 +1950,7 @@ export default function ReportsPage() {
                   className="h-9 rounded-none border border-[var(--brand-accent)] bg-[var(--brand-accent)] font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] hover:bg-[var(--brand-accent)]"
                 >
                   {correctionSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                  {correctionSaving ? "Enregistrement..." : "Enregistrer la correction"}
+                  {correctionSaving ? tr.savingButton : tr.saveCorrectionButton}
                 </Button>
                 <Button
                   variant="outline"
@@ -2012,7 +1959,7 @@ export default function ReportsPage() {
                   className="h-9 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[var(--info)]/60 hover:text-[var(--info)]"
                 >
                   {correctionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
-                  {correctionLoading ? "Chargement..." : "Recharger"}
+                  {correctionLoading ? tr.loading : tr.reloadButton}
                 </Button>
               </div>
             </div>

@@ -30,6 +30,8 @@ import {
   type PaymentIntentResponse,
 } from "@/lib/api/billing"
 import { getStripePromise } from "@/lib/stripe-client"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict, formatMoneyCents, type BillingDict } from "@/lib/i18n/pages/billing"
 
 type Props = {
   amountCents: number
@@ -56,6 +58,8 @@ export function StripePaymentElement({
   onSuccess,
   onError,
 }: Props) {
+  const { locale, localeTag } = useI18n()
+  const tr = billingDict[locale]
   const [intent, setIntent] = useState<PaymentIntentResponse | null>(null)
   const [error, setError] = useState<string>("")
 
@@ -90,7 +94,7 @@ export function StripePaymentElement({
   if (error) {
     return (
       <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-        Impossible d&apos;initialiser le paiement&nbsp;: {error}
+        {tr.paymentElement.initError}{error}
       </div>
     )
   }
@@ -98,7 +102,7 @@ export function StripePaymentElement({
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Préparation du formulaire de paiement…
+        {tr.paymentElement.preparing}
       </div>
     )
   }
@@ -109,8 +113,9 @@ export function StripePaymentElement({
       options={{ clientSecret: intent.client_secret, appearance: APPEARANCE }}
     >
       <CheckoutForm
-        amountLabel={formatAmount(amountCents, currency)}
+        amountLabel={formatMoneyCents(amountCents, currency, localeTag)}
         onSuccess={onSuccess}
+        tr={tr}
       />
     </Elements>
   )
@@ -119,9 +124,11 @@ export function StripePaymentElement({
 function CheckoutForm({
   amountLabel,
   onSuccess,
+  tr,
 }: {
   amountLabel: string
   onSuccess?: (paymentIntentId: string) => void
+  tr: BillingDict
 }) {
   const stripe = useStripe()
   const elements = useElements()
@@ -144,7 +151,7 @@ function CheckoutForm({
     })
 
     if (error) {
-      setErrorMessage(error.message ?? "Le paiement a échoué.")
+      setErrorMessage(error.message ?? tr.paymentElement.paymentFailed)
       setSubmitting(false)
       return
     }
@@ -167,23 +174,12 @@ function CheckoutForm({
         {submitting ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Traitement…
+            {tr.paymentElement.processing}
           </>
         ) : (
-          <>Payer {amountLabel}</>
+          <>{tr.paymentElement.pay(amountLabel)}</>
         )}
       </Button>
     </form>
   )
-}
-
-function formatAmount(cents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(cents / 100)
-  } catch {
-    return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`
-  }
 }

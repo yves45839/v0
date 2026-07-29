@@ -11,6 +11,8 @@ import { BillingUsage } from "@/components/billing/billing-usage"
 import { BillingSupport } from "@/components/billing/billing-support"
 import { BillingCustomOffer } from "@/components/billing/billing-custom-offer"
 import type { BillingTab } from "@/components/billing/billing-tabs"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict } from "@/lib/i18n/pages/billing"
 import { cn } from "@/lib/utils"
 import {
   BarChart3,
@@ -22,18 +24,30 @@ import {
   Sparkles,
 } from "lucide-react"
 
-const TABS = [
-  { id: "overview" as BillingTab, label: "Vue d'ensemble", shortLabel: "Vue", icon: LayoutDashboard },
-  { id: "plans" as BillingTab, label: "Plans & Abonnements", shortLabel: "Plans", icon: Sparkles },
-  { id: "payment-methods" as BillingTab, label: "Moyens de paiement", shortLabel: "Paiement", icon: CreditCard },
-  { id: "invoices" as BillingTab, label: "Factures & Historique", shortLabel: "Factures", icon: FileText },
-  { id: "usage" as BillingTab, label: "Utilisation & Limites", shortLabel: "Utilisation", icon: BarChart3 },
-  { id: "support" as BillingTab, label: "Tickets & Support", shortLabel: "Support", icon: Headphones },
-  { id: "custom" as BillingTab, label: "Offre sur mesure", shortLabel: "Sur mesure", icon: Building2 },
-]
+const TAB_ICONS: Record<BillingTab, React.ElementType> = {
+  overview: LayoutDashboard,
+  plans: Sparkles,
+  "payment-methods": CreditCard,
+  invoices: FileText,
+  usage: BarChart3,
+  support: Headphones,
+  custom: Building2,
+}
 
 export function BillingPageClient() {
+  const { locale } = useI18n()
+  const tr = billingDict[locale]
   const [activeTab, setActiveTab] = useState<BillingTab>("overview")
+
+  const tabs: { id: BillingTab; label: string; shortLabel: string }[] = [
+    { id: "overview", ...toLabels(tr.page.tabs.overview) },
+    { id: "plans", ...toLabels(tr.page.tabs.plans) },
+    { id: "payment-methods", ...toLabels(tr.page.tabs.paymentMethods) },
+    { id: "invoices", ...toLabels(tr.page.tabs.invoices) },
+    { id: "usage", ...toLabels(tr.page.tabs.usage) },
+    { id: "support", ...toLabels(tr.page.tabs.support) },
+    { id: "custom", ...toLabels(tr.page.tabs.custom) },
+  ]
 
   function renderContent() {
     switch (activeTab) {
@@ -44,11 +58,11 @@ export function BillingPageClient() {
       case "payment-methods":
         return <BillingPaymentMethods />
       case "invoices":
-        return <BillingInvoices onTabChange={setActiveTab} />
+        return <BillingInvoices />
       case "usage":
         return <BillingUsage onTabChange={setActiveTab} />
       case "support":
-        return <BillingSupport />
+        return <BillingSupport onTabChange={setActiveTab} />
       case "custom":
         return <BillingCustomOffer />
       default:
@@ -72,9 +86,9 @@ export function BillingPageClient() {
                   <CreditCard className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold tracking-tight">Abonnements & Paiements</h1>
+                  <h1 className="text-xl font-bold tracking-tight">{tr.page.title}</h1>
                   <p className="text-xs text-muted-foreground">
-                    Gérez votre plan, vos moyens de paiement, vos factures et votre support.
+                    {tr.page.subtitle}
                   </p>
                 </div>
               </div>
@@ -83,8 +97,8 @@ export function BillingPageClient() {
             {/* ── Onglets ── */}
             <div className="overflow-x-auto px-4 sm:px-6 lg:px-8">
               <div className="flex min-w-max gap-0.5 border-t border-border/40 pt-0">
-                {TABS.map((tab) => {
-                  const TabIcon = tab.icon
+                {tabs.map((tab) => {
+                  const TabIcon = TAB_ICONS[tab.id]
                   const isActive = tab.id === activeTab
                   return (
                     <button
@@ -117,4 +131,8 @@ export function BillingPageClient() {
       </div>
     </div>
   )
+}
+
+function toLabels(entry: { label: string; short: string }) {
+  return { label: entry.label, shortLabel: entry.short }
 }

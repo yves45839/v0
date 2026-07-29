@@ -1,5 +1,20 @@
 export type DashboardSystemStatus = "connected" | "disconnected" | "syncing"
 
+/** État d'une section chargée de façon asynchrone (loading → error | ready). */
+export type AsyncSection<T> =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; data: T }
+
+/** Données des widgets détaillés du dashboard (flux accès, appareils, présence…). */
+export interface DashboardWidgetsData {
+  accessEvents: AccessEvent[]
+  devices: Device[]
+  priorityActions: PriorityAction[]
+  presenceWeek: PresenceWeekData
+  upcomingLeaves: UpcomingLeaveItem[]
+}
+
 export interface DashboardKPIData {
   presentToday: { count: number; total: number }
   totalAbsences: number

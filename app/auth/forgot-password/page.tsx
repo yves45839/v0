@@ -10,10 +10,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LRLogoMark } from "@/components/brand/lr-logo-mark"
+import { useI18n } from "@/lib/i18n/context"
+import { authDict } from "@/lib/i18n/pages/auth"
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function ForgotPasswordPage() {
+  const { locale, formatDateTime } = useI18n()
+  const tr = authDict[locale]
   const [identifier, setIdentifier] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [resetResponse, setResetResponse] = useState<PasswordResetRequestResponse | null>(null)
@@ -25,11 +29,11 @@ export default function ForgotPasswordPage() {
     setError(null)
 
     if (!identifier.trim()) {
-      setError("Email ou nom d’utilisateur obligatoire.")
+      setError(tr.forgotIdentifierRequired)
       return
     }
     if (identifier.includes("@") && !EMAIL_RE.test(identifier.trim())) {
-      setError("Le format de l’adresse email est invalide.")
+      setError(tr.emailInvalid)
       return
     }
 
@@ -37,11 +41,11 @@ export default function ForgotPasswordPage() {
     try {
       const response = await requestPasswordReset(identifier.trim())
       setResetResponse(response)
-      toast.success("Demande envoyée")
+      toast.success(tr.requestSentToast)
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Impossible d’envoyer la demande."
+      const detail = err instanceof Error ? err.message : tr.requestError
       setError(detail)
-      toast.error("Échec de la demande")
+      toast.error(tr.requestFailedToast)
     } finally {
       setSubmitting(false)
     }
@@ -76,8 +80,8 @@ export default function ForgotPasswordPage() {
             <div className="flex items-center gap-3">
               <LRLogoMark className="h-10 w-11 text-[18px]" />
               <div>
-                <CardTitle className="text-lg">LR Time</CardTitle>
-                <CardDescription>Mot de passe oublié</CardDescription>
+                <CardTitle className="text-lg">{tr.brand}</CardTitle>
+                <CardDescription>{tr.forgotTitle}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -85,47 +89,45 @@ export default function ForgotPasswordPage() {
             {resetResponse ? (
               <div className="space-y-3 text-sm">
                 <p className="text-foreground">
-                  {resetResponse.email_sent
-                    ? "Si ce compte existe, un email de réinitialisation vient d’être envoyé. Consultez votre boîte mail puis cliquez sur le lien reçu."
-                    : "Si ce compte existe, un code OTP a été généré. Utilisez-le sur la page de réinitialisation."}
+                  {resetResponse.email_sent ? tr.resetEmailSent : tr.resetOtpGenerated}
                 </p>
                 {resetResponse.expires_at ? (
                   <p className="text-xs text-muted-foreground">
-                    Lien / code valable jusqu&apos;au :{" "}
+                    {tr.validUntil}{" "}
                     <span className="font-medium text-foreground">
-                      {new Date(resetResponse.expires_at).toLocaleString("fr-FR")}
+                      {formatDateTime(resetResponse.expires_at)}
                     </span>
                   </p>
                 ) : null}
                 <div className="flex flex-col gap-2 pt-1">
                   <Button asChild variant="outline">
-                    <Link href="/login">Retour à la connexion</Link>
+                    <Link href="/login">{tr.backToLogin}</Link>
                   </Button>
                   <Button asChild variant="ghost" className="text-xs">
-                    <Link href="/auth/reset-password">J&apos;ai mon code / token →</Link>
+                    <Link href="/auth/reset-password">{tr.haveCodeOrToken}</Link>
                   </Button>
                 </div>
               </div>
             ) : (
               <form className="space-y-4" onSubmit={onSubmit}>
                 <div className="space-y-2">
-                  <Label htmlFor="identifier">Email ou nom d&apos;utilisateur</Label>
+                  <Label htmlFor="identifier">{tr.identifierLabel}</Label>
                   <Input
                     id="identifier"
                     value={identifier}
                     onChange={(event) => setIdentifier(event.target.value)}
-                    placeholder="prenom.nom@société.com"
+                    placeholder={tr.identifierPlaceholder}
                     autoComplete="username"
                   />
                 </div>
                 {error ? <p role="alert" className="text-xs text-red-400">{error}</p> : null}
                 <Button type="submit" disabled={submitting} className="w-full">
                   {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Envoyer le lien de réinitialisation
+                  {tr.sendResetLink}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
                   <Link href="/login" className="text-primary hover:underline">
-                    Retour à la connexion
+                    {tr.backToLogin}
                   </Link>
                 </p>
               </form>

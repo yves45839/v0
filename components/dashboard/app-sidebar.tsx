@@ -17,6 +17,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { AUTH_EVENTS, getAuthSession } from "@/lib/api/auth"
+import { useI18n } from "@/lib/i18n/context"
+import { shellDict } from "@/lib/i18n/pages/shell"
 import { SectionKey, useSectionDefinitions, findSectionForPath } from "@/components/dashboard/section-tabs"
 import { LRLogoMark } from "@/components/brand/lr-logo-mark"
 
@@ -62,14 +64,16 @@ function getInitials(label: string): string {
   return (compact.slice(0, 2) || "LR").toUpperCase()
 }
 
-function getSidebarUser(): SidebarUser {
+type ShellTr = (typeof shellDict)["en"]
+
+function getSidebarUser(tr: ShellTr): SidebarUser {
   const session = getAuthSession()
   const user = session?.user
   const name =
     `${user?.first_name ?? ""} ${user?.last_name ?? ""}`.trim() ||
     user?.username ||
     user?.email ||
-    "Utilisateur"
+    tr.userFallback
   const activeTenant =
     session?.tenants.find((tenant) => tenant.code === session.activeTenantCode) ??
     session?.tenants[0]
@@ -77,7 +81,7 @@ function getSidebarUser(): SidebarUser {
   return {
     initials: getInitials(name),
     name,
-    role: (activeTenant?.role || "Admin").replace(/[_-]/g, " ").toUpperCase(),
+    role: (activeTenant?.role || tr.roleFallback).replace(/[_-]/g, " ").toUpperCase(),
   }
 }
 
@@ -90,6 +94,8 @@ function SidebarNav({
   user,
 }: SidebarNavProps) {
   const sections = useSectionDefinitions()
+  const { locale } = useI18n()
+  const tr = shellDict[locale]
 
   const compact = collapsed && !mobile
 
@@ -119,7 +125,7 @@ function SidebarNav({
       >
         <Link
           href="/"
-          aria-label="LR Time"
+          aria-label={tr.brandHomeAria}
           className={cn("flex min-w-0 items-center", compact ? "justify-center" : "gap-3")}
           onClick={onNavigate}
         >
@@ -134,9 +140,9 @@ function SidebarNav({
         {!mobile && (
           <button
             type="button"
-            aria-label={compact ? "Etendre la barre laterale" : "Reduire la barre laterale"}
+            aria-label={compact ? tr.expandSidebar : tr.collapseSidebar}
             aria-expanded={!compact}
-            title={compact ? "Etendre" : "Reduire"}
+            title={compact ? tr.expand : tr.collapse}
             onClick={onToggle}
             className={cn(
               "ml-auto inline-flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
@@ -153,11 +159,11 @@ function SidebarNav({
           "dense-scrollbar relative flex-1 overflow-y-auto py-5",
           compact ? "space-y-2 px-2" : "space-y-2 px-2.5"
         )}
-        aria-label="Menu principal"
+        aria-label={tr.mainMenuAria}
       >
         {!compact && (
           <p className="px-1.5 pb-1 text-[10px] font-medium uppercase text-muted-foreground">
-            Menu
+            {tr.menu}
           </p>
         )}
         {navItems.map((item) => {
@@ -204,8 +210,8 @@ function SidebarNav({
             <Link
               href="/settings"
               onClick={onNavigate}
-              title="Parametres"
-              aria-label="Parametres"
+              title={tr.settings}
+              aria-label={tr.settings}
               className="flex h-9 w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
               <Settings className="h-4 w-4" />
@@ -231,8 +237,8 @@ function SidebarNav({
             <Link
               href="/settings"
               onClick={onNavigate}
-              title="Parametres"
-              aria-label="Parametres"
+              title={tr.settings}
+              aria-label={tr.settings}
               className="flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
               <Settings className="h-4 w-4" />
@@ -246,9 +252,11 @@ function SidebarNav({
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const { locale } = useI18n()
+  const tr = shellDict[locale]
   const [mobileOpen, setMobileOpen] = useState(false)
   const [desktopOpen, setDesktopOpen] = useState(true)
-  const [sidebarUser, setSidebarUser] = useState<SidebarUser>(() => getSidebarUser())
+  const [sidebarUser, setSidebarUser] = useState<SidebarUser>(() => getSidebarUser(shellDict[locale]))
 
   useEffect(() => {
     const savedDesktopOpen = window.localStorage.getItem(DESKTOP_SIDEBAR_OPEN_KEY)
@@ -297,15 +305,16 @@ export function AppSidebar() {
 
   useEffect(() => {
     const syncSidebarIdentity = () => {
-      setSidebarUser(getSidebarUser())
+      setSidebarUser(getSidebarUser(tr))
     }
+    syncSidebarIdentity()
     window.addEventListener(AUTH_EVENTS.SESSION_CHANGED, syncSidebarIdentity)
     window.addEventListener("storage", syncSidebarIdentity)
     return () => {
       window.removeEventListener(AUTH_EVENTS.SESSION_CHANGED, syncSidebarIdentity)
       window.removeEventListener("storage", syncSidebarIdentity)
     }
-  }, [])
+  }, [tr])
 
   return (
     <>
@@ -325,7 +334,7 @@ export function AppSidebar() {
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-[88vw] max-w-[250px] border-r border-sidebar-border bg-sidebar text-sidebar-foreground p-0 md:hidden">
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <SheetTitle className="sr-only">{tr.navigation}</SheetTitle>
           <div className="flex h-full flex-col overflow-hidden">
             <SidebarNav
               mobile

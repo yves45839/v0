@@ -52,6 +52,8 @@ import {
 } from "@/lib/api/employees"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 
 function normalizeFaceData(faceData: string): string {
   const trimmed = String(faceData || "").trim()
@@ -82,11 +84,11 @@ function addYearsToIsoDate(dateIso: string, years: number): string {
   return baseDate.toISOString().split("T")[0]
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+function readFileAsDataUrl(file: File, errorMessage: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result ?? ""))
-    reader.onerror = () => reject(new Error("Impossible de lire le fichier image."))
+    reader.onerror = () => reject(new Error(errorMessage))
     reader.readAsDataURL(file)
   })
 }
@@ -146,6 +148,10 @@ type FingerprintDraft = {
   template: string
 }
 
+function createLocalEmployeeId(): string {
+  return `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 export function AddEmployeeModal({
   open,
   onOpenChange,
@@ -157,6 +163,8 @@ export function AddEmployeeModal({
   devices,
   tenantCode,
 }: AddEmployeeModalProps) {
+  const { locale, t } = useI18n()
+  const tr = employeesDict[locale]
   const isEditing = !!employeeToEdit
   const [activeTab, setActiveTab] = useState("info")
   const [viewMode, setViewMode] = useState<"creation" | "profile">("creation")
@@ -254,18 +262,18 @@ export function AddEmployeeModal({
     const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
     const MAX_SIZE_MB = 5
     if (!ALLOWED_TYPES.includes(file.type)) {
-      setApiError("Format non supporté. Utilisez JPEG, PNG ou WebP.")
+      setApiError(tr.modal.unsupportedFormat)
       e.target.value = ""
       return
     }
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      setApiError(`La photo ne doit pas dépasser ${MAX_SIZE_MB} Mo.`)
+      setApiError(tr.modal.photoTooLarge(MAX_SIZE_MB))
       e.target.value = ""
       return
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file)
+      const dataUrl = await readFileAsDataUrl(file, tr.modal.fileReadError)
       const normalizedFaceData = normalizeFaceData(dataUrl)
       setFormData((prev) => ({
         ...prev,
@@ -277,7 +285,7 @@ export function AddEmployeeModal({
       setFaceEnrollMessage("")
       setApiError("")
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : "Impossible de charger la photo.")
+      setApiError(error instanceof Error ? error.message : tr.modal.photoLoadError)
     }
   }
 
@@ -299,7 +307,7 @@ export function AddEmployeeModal({
     if (!Number.isInteger(fingerIndex) || fingerIndex < 1 || fingerIndex > 10) {
       setErrors((prev) => ({
         ...prev,
-        fingerprints: "Le doigt doit etre compris entre 1 et 10.",
+        fingerprints: tr.modal.fingerRange,
       }))
       return
     }
@@ -307,7 +315,7 @@ export function AddEmployeeModal({
     if (!template) {
       setErrors((prev) => ({
         ...prev,
-        fingerprints: "Le template d'empreinte est requis.",
+        fingerprints: tr.modal.fingerTemplateRequired,
       }))
       return
     }
@@ -315,7 +323,7 @@ export function AddEmployeeModal({
     if (formData.fingerprints.length >= 10) {
       setErrors((prev) => ({
         ...prev,
-        fingerprints: "Maximum 10 empreintes par employe.",
+        fingerprints: tr.modal.maxFingerprints,
       }))
       return
     }
@@ -354,31 +362,31 @@ export function AddEmployeeModal({
     } catch (error) {
       setOnlineReaders([])
       setSelectedReaderDevIndex("")
-      setCardReadError(error instanceof Error ? error.message : "Impossible de charger les lecteurs en ligne")
+      setCardReadError(error instanceof Error ? error.message : tr.modal.readersLoadError)
     } finally {
       setIsLoadingReaders(false)
     }
-  }, [tenantCode])
+  }, [tenantCode, tr])
 
   const handleReadCard = async () => {
     if (!selectedReaderDevIndex) {
-      setCardReadError("Selectionnez un lecteur en ligne.")
+      setCardReadError(tr.modal.selectOnlineReader)
       return
     }
 
     setIsReadingCard(true)
     setCardReadError("")
-    setCardReadMessage("Presentez la carte sur le lecteur...")
+    setCardReadMessage(tr.modal.presentCard)
     try {
       const result = await readCardFromReader(selectedReaderDevIndex, {
         tenantCode,
         timeoutSeconds: 15,
       })
       handleInputChange("cardNumber", result.card_no)
-      setCardReadMessage(`Carte lue: ${result.card_no}`)
+      setCardReadMessage(tr.modal.cardRead(result.card_no))
     } catch (error) {
       setCardReadMessage("")
-      setCardReadError(error instanceof Error ? error.message : "Lecture de carte impossible")
+      setCardReadError(error instanceof Error ? error.message : tr.modal.cardReadError)
     } finally {
       setIsReadingCard(false)
     }
@@ -386,21 +394,21 @@ export function AddEmployeeModal({
 
   const handleCaptureFingerprint = async () => {
     if (!isEmployeeApiEnabled()) {
-      setFingerprintCaptureError("API employee desactivee.")
+      setFingerprintCaptureError(tr.modal.apiDisabled)
       return
     }
     if (!isEditing || !employeeToEdit?.apiId) {
-      setFingerprintCaptureError("Enrolement disponible uniquement apres creation de l'employe.")
+      setFingerprintCaptureError(tr.modal.enrollOnlyAfterCreation)
       return
     }
     if (!selectedReaderDevIndex) {
-      setFingerprintCaptureError("Selectionnez un lecteur en ligne.")
+      setFingerprintCaptureError(tr.modal.selectOnlineReader)
       return
     }
 
     const fingerIndex = Number(fingerprintDraft.fingerIndex)
     if (!Number.isInteger(fingerIndex) || fingerIndex < 1 || fingerIndex > 10) {
-      setFingerprintCaptureError("Choisissez un doigt valide (1 a 10).")
+      setFingerprintCaptureError(tr.modal.pickValidFinger)
       return
     }
 
@@ -408,7 +416,7 @@ export function AddEmployeeModal({
       (device) => String(device.dev_index || "").trim() === selectedReaderDevIndex
     )
     if (!selectedReader) {
-      setFingerprintCaptureError("Lecteur non resolu dans les devices du tenant.")
+      setFingerprintCaptureError(tr.modal.readerNotResolved)
       return
     }
 
@@ -416,17 +424,17 @@ export function AddEmployeeModal({
       formData.fingerprints.length >= 10 &&
       !formData.fingerprints.some((row) => row.fingerIndex === fingerIndex)
     ) {
-      setFingerprintCaptureError("Maximum 10 empreintes par employe.")
+      setFingerprintCaptureError(tr.modal.maxFingerprints)
       return
     }
 
     setIsCapturingFingerprint(true)
     setFingerprintCaptureError("")
-    setFingerprintCaptureMessage("Placez le doigt sur le lecteur...")
+    setFingerprintCaptureMessage(tr.modal.placeFinger)
     try {
       const employeeApiId = Number(employeeToEdit.apiId)
       if (!Number.isFinite(employeeApiId)) {
-        throw new Error("Identifiant API employe invalide.")
+        throw new Error(tr.modal.invalidEmployeeApiId)
       }
 
       const response = await enrollFingerprintFromReader(selectedReader.id, {
@@ -438,7 +446,7 @@ export function AddEmployeeModal({
 
       const capturedTemplate = String(response.finger_template ?? "").trim()
       if (!capturedTemplate) {
-        throw new Error("Template d'empreinte non retourne par le lecteur.")
+        throw new Error(tr.modal.noTemplateReturned)
       }
 
       upsertFingerprint(fingerIndex, capturedTemplate)
@@ -450,11 +458,11 @@ export function AddEmployeeModal({
         return next
       })
       setFingerprintCaptureMessage(
-        `Empreinte doigt ${fingerIndex} capturee (qualite: ${response.finger_quality ?? "N/A"}).`
+        tr.modal.fingerprintCaptured(fingerIndex, String(response.finger_quality ?? "N/A"))
       )
     } catch (error) {
       setFingerprintCaptureMessage("")
-      setFingerprintCaptureError(error instanceof Error ? error.message : "Capture empreinte impossible")
+      setFingerprintCaptureError(error instanceof Error ? error.message : tr.modal.fingerprintCaptureError)
     } finally {
       setIsCapturingFingerprint(false)
     }
@@ -462,15 +470,15 @@ export function AddEmployeeModal({
 
   const handleEnrollFace = async () => {
     if (!isEmployeeApiEnabled()) {
-      setFaceEnrollError("API employee desactivee.")
+      setFaceEnrollError(tr.modal.apiDisabled)
       return
     }
     if (!isEditing || !employeeToEdit?.apiId) {
-      setFaceEnrollError("Enrolement disponible uniquement apres creation de l'employe.")
+      setFaceEnrollError(tr.modal.enrollOnlyAfterCreation)
       return
     }
     if (!selectedReaderDevIndex) {
-      setFaceEnrollError("Selectionnez un lecteur en ligne.")
+      setFaceEnrollError(tr.modal.selectOnlineReader)
       return
     }
 
@@ -478,23 +486,23 @@ export function AddEmployeeModal({
       (device) => String(device.dev_index || "").trim() === selectedReaderDevIndex
     )
     if (!selectedReader) {
-      setFaceEnrollError("Lecteur non resolu dans les devices du tenant.")
+      setFaceEnrollError(tr.modal.readerNotResolved)
       return
     }
 
     const faceData = normalizeFaceData(formData.faceData || formData.photoPreview)
     if (!faceData) {
-      setFaceEnrollError("Importez une photo faciale avant l'enrolement sur lecteur.")
+      setFaceEnrollError(tr.modal.importFacePhotoFirst)
       return
     }
 
     setIsEnrollingFace(true)
     setFaceEnrollError("")
-    setFaceEnrollMessage("Enrolement visage en cours sur le lecteur...")
+    setFaceEnrollMessage(tr.modal.faceEnrollInProgress)
     try {
       const employeeApiId = Number(employeeToEdit.apiId)
       if (!Number.isFinite(employeeApiId)) {
-        throw new Error("Identifiant API employe invalide.")
+        throw new Error(tr.modal.invalidEmployeeApiId)
       }
 
       const response = await enrollFaceFromReader(selectedReader.id, {
@@ -511,11 +519,11 @@ export function AddEmployeeModal({
         photoPreview: prev.photoPreview || toFacePreviewUrl(faceData),
       }))
       setFaceEnrollMessage(
-        `Visage enrôle (${response.success_count}/${response.target_readers_count} lecteur(s)).`
+        tr.modal.faceEnrolled(response.success_count, response.target_readers_count)
       )
     } catch (error) {
       setFaceEnrollMessage("")
-      setFaceEnrollError(error instanceof Error ? error.message : "Enrolement visage impossible")
+      setFaceEnrollError(error instanceof Error ? error.message : tr.modal.faceEnrollError)
     } finally {
       setIsEnrollingFace(false)
     }
@@ -528,23 +536,23 @@ export function AddEmployeeModal({
     const PHONE_RE = /^[+]?[\d\s\-().]{7,20}$/
 
     if (!formData.employeeNo.trim()) {
-      newErrors.employeeNo = "L'ID employé est requis."
+      newErrors.employeeNo = tr.modal.employeeIdRequired
     } else if (formData.employeeNo.trim().length > 20) {
-      newErrors.employeeNo = "L'ID employé ne peut pas dépasser 20 caractères."
+      newErrors.employeeNo = tr.modal.employeeIdTooLong
     }
     if (!formData.name.trim()) {
-      newErrors.name = "Le nom est requis."
+      newErrors.name = tr.modal.nameRequired
     } else if (formData.name.trim().length > 100) {
-      newErrors.name = "Le nom ne peut pas dépasser 100 caractères."
+      newErrors.name = tr.modal.nameTooLong
     }
     if (formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = "Email invalide."
+      newErrors.email = tr.modal.emailInvalid
     }
     if (formData.phone.trim() && !PHONE_RE.test(formData.phone.trim())) {
-      newErrors.phone = "Format de téléphone invalide. Ex : +225 07 00 00 00 00"
+      newErrors.phone = tr.modal.phoneInvalid
     }
     if (!formData.departmentId) {
-      newErrors.department = "Le département est requis."
+      newErrors.department = tr.modal.departmentRequired
     }
     if (normalizedCardNumber) {
       const hasDuplicateCardNumber = employees.some((employee) => {
@@ -554,27 +562,27 @@ export function AddEmployeeModal({
         return existingCardNumber === normalizedCardNumber
       })
       if (hasDuplicateCardNumber) {
-        newErrors.cardNumber = "Ce numéro de carte est déjà attribué à un autre employé."
+        newErrors.cardNumber = tr.modal.cardDuplicate
       }
     }
     if (formData.fingerprints.length > 10) {
-      newErrors.fingerprints = "Maximum 10 empreintes par employé."
+      newErrors.fingerprints = tr.modal.maxFingerprints
     } else {
       const slots = formData.fingerprints.map((row) => row.fingerIndex)
       if (slots.length !== new Set(slots).size) {
-        newErrors.fingerprints = "Chaque doigt (finger index) doit être unique."
+        newErrors.fingerprints = tr.modal.fingerIndexUnique
       } else if (formData.fingerprints.some((row) => !row.template.trim())) {
-        newErrors.fingerprints = "Chaque empreinte doit contenir un template."
+        newErrors.fingerprints = tr.modal.templateRequired
       }
     }
     if (!formData.validityStart) {
-      newErrors.validityStart = "La date de début de validité est requise."
+      newErrors.validityStart = tr.modal.validityStartRequired
     }
     if (!formData.validityEnd) {
-      newErrors.validityEnd = "La date de fin de validité est requise."
+      newErrors.validityEnd = tr.modal.validityEndRequired
     }
     if (formData.validityStart && formData.validityEnd && formData.validityEnd < formData.validityStart) {
-      newErrors.validityEnd = "La date de fin doit être supérieure ou égale à la date de début."
+      newErrors.validityEnd = tr.modal.validityOrder
     }
 
     setErrors(newErrors)
@@ -617,12 +625,12 @@ export function AddEmployeeModal({
     if (isEmployeeApiEnabled()) {
       try {
         if (!selectedDepartment) {
-          throw new Error("Departement invalide")
+          throw new Error(tr.modal.invalidDepartment)
         }
 
         if (isEditing) {
           if (!employeeToEdit?.apiId) {
-            throw new Error("Impossible de modifier cet employe: identifiant API manquant")
+            throw new Error(tr.modal.missingApiId)
           }
 
           const updatedEmployee = await updateEmployee(employeeToEdit.apiId, {
@@ -668,7 +676,7 @@ export function AddEmployeeModal({
           )
           const parsedId = Number(createdEmployee.id)
           if (!Number.isFinite(parsedId)) {
-            throw new Error("Identifiant employe invalide apres creation.")
+            throw new Error(tr.modal.invalidIdAfterCreation)
           }
           savedEmployeeApiId = parsedId
         }
@@ -684,9 +692,9 @@ export function AddEmployeeModal({
           )
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Erreur API employee"
+        const message = error instanceof Error ? error.message : tr.modal.apiError
         setApiError(message)
-        toast.error("Echec de l'enregistrement", { description: message })
+        toast.error(tr.modal.saveFailed, { description: message })
         setIsSubmitting(false)
         return
       }
@@ -696,8 +704,9 @@ export function AddEmployeeModal({
       .filter((name): name is string => Boolean(name))
 
     const payload: Employee = {
-      id: employeeToEdit?.id ?? `new-${Date.now()}`,
+      id: employeeToEdit?.id ?? createLocalEmployeeId(),
       apiId: savedEmployeeApiId,
+      mobileStatus: employeeToEdit?.mobileStatus ?? "none",
       tenantId: selectedDepartment?.tenant ?? employeeToEdit?.tenantId ?? null,
       employeeId: formData.employeeNo.trim(),
       name: formData.name,
@@ -734,10 +743,8 @@ export function AddEmployeeModal({
     }
 
     onAddEmployee(payload)
-    toast.success(isEditing ? "Employe modifie" : "Employe cree", {
-      description: isEditing
-        ? "Les changements ont ete appliques avec succes."
-        : "Le nouvel employe est pret et synchronise.",
+    toast.success(isEditing ? tr.modal.employeeUpdatedToast : tr.modal.employeeCreatedToast, {
+      description: isEditing ? tr.modal.employeeUpdatedDesc : tr.modal.employeeCreatedDesc,
     })
     setIsSubmitting(false)
     resetForm()
@@ -795,9 +802,7 @@ export function AddEmployeeModal({
   const handleClose = () => {
     // Si c'est une création (pas d'édition) et que le formulaire a été touché, confirmer
     if (!isEditing && isFormDirty) {
-      const confirmed = window.confirm(
-        "Des données ont été saisies. Voulez-vous vraiment fermer sans enregistrer ?"
-      )
+      const confirmed = window.confirm(tr.modal.closeConfirm)
       if (!confirmed) return
     }
     resetForm()
@@ -853,7 +858,7 @@ export function AddEmployeeModal({
           <div className="absolute -left-12 bottom-0 h-36 w-36 rounded-full bg-cyan-400/6 blur-[60px]" />
 
           <DialogHeader className="relative gap-3 px-5 pb-3 pt-3 sm:px-6 lg:px-8 lg:pb-4 lg:pt-4">
-            <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Vue du formulaire">
+            <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label={tr.modal.formViewAria}>
               <button
                 type="button"
                 role="tab"
@@ -866,7 +871,7 @@ export function AddEmployeeModal({
                     : "border-white/10 bg-white/6 text-white/70 hover:bg-white/10"
                 )}
               >
-                {isEditing ? "Edition" : "Creation"}
+                {isEditing ? tr.modal.editionTab : tr.modal.creationTab}
               </button>
               <button
                 type="button"
@@ -880,11 +885,11 @@ export function AddEmployeeModal({
                     : "border-white/10 bg-white/6 text-white/70 hover:bg-white/10"
                 )}
               >
-                Profil
+                {tr.modal.profileTab}
               </button>
               {apiError && (
                 <Badge variant="outline" className="border-destructive/25 bg-destructive/8 text-destructive">
-                  Erreur
+                  {tr.modal.errorBadge}
                 </Badge>
               )}
             </div>
@@ -899,26 +904,24 @@ export function AddEmployeeModal({
             >
               <div className="space-y-1.5">
                 <DialogTitle className="text-lg font-bold tracking-tight text-white sm:text-xl">
-                  {isEditing ? "Modifier l'employe" : "Ajouter un employe"}
+                  {isEditing ? tr.modal.editTitle : tr.modal.addTitle}
                 </DialogTitle>
                 <DialogDescription className="max-w-xl text-xs leading-relaxed text-slate-300/80">
-                  {isEditing
-                    ? "Mettez a jour les informations, acces et biometrie de cet employe."
-                    : "Renseignez identite, habilitations et biometrie en quelques etapes."}
+                  {isEditing ? tr.modal.editDesc : tr.modal.addDesc}
                 </DialogDescription>
 
                 <div className="flex flex-wrap gap-1.5">
                   <Badge variant="outline" className="border-white/6 bg-white/4 text-[10px] text-slate-300">
-                    {identityReady ? "Identite OK" : "Identite incomplete"}
+                    {identityReady ? tr.modal.identityOk : tr.modal.identityIncomplete}
                   </Badge>
                   <Badge variant="outline" className="border-white/6 bg-white/4 text-[10px] text-slate-300">
-                    {selectedAccessGroupsCount} groupe{selectedAccessGroupsCount > 1 ? "s" : ""}
+                    {tr.modal.groupCount(selectedAccessGroupsCount)}
                   </Badge>
                   <Badge variant="outline" className="border-white/6 bg-white/4 text-[10px] text-slate-300">
-                    {selectedDevicesCount} lecteur{selectedDevicesCount > 1 ? "s" : ""}
+                    {tr.modal.readerCount(selectedDevicesCount)}
                   </Badge>
                   <Badge variant="outline" className="border-white/6 bg-white/4 text-[10px] text-slate-300">
-                    {fingerprintCount} empreinte{fingerprintCount > 1 ? "s" : ""}
+                    {tr.modal.fingerprintCount(fingerprintCount)}
                   </Badge>
                 </div>
               </div>
@@ -926,17 +929,17 @@ export function AddEmployeeModal({
               {viewMode === "creation" && (
                 <div className="hidden gap-1.5 xl:grid">
                   <div className="rounded-xl border border-white/6 bg-white/3 px-3 py-2 backdrop-blur-sm">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Profil</p>
-                    <p className="mt-0.5 truncate text-sm font-semibold text-white">{formData.name.trim() || "Nouveau"}</p>
-                    <p className="text-[10px] text-slate-500">{formData.employeeNo.trim() || "ID a renseigner"}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{tr.modal.profileCard}</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-white">{formData.name.trim() || tr.modal.newProfile}</p>
+                    <p className="text-[10px] text-slate-500">{formData.employeeNo.trim() || tr.modal.idToFill}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="rounded-xl border border-white/6 bg-white/3 px-3 py-2 backdrop-blur-sm">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Photo</p>
-                      <p className="mt-0.5 text-xs font-semibold text-white">{hasFaceAsset ? "Prete" : "Aucune"}</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{tr.modal.photoCard}</p>
+                      <p className="mt-0.5 text-xs font-semibold text-white">{hasFaceAsset ? tr.modal.photoReady : tr.modal.photoNone}</p>
                     </div>
                     <div className="rounded-xl border border-white/6 bg-white/3 px-3 py-2 backdrop-blur-sm">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Lecteurs</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{tr.modal.readersCard}</p>
                       <p className="mt-0.5 text-xs font-semibold tabular-nums text-white">{selectedDevicesCount}</p>
                     </div>
                   </div>
@@ -956,7 +959,7 @@ export function AddEmployeeModal({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={formData.photoPreview}
-                        alt="Photo employe"
+                        alt={tr.modal.employeePhotoAlt}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -966,14 +969,14 @@ export function AddEmployeeModal({
                     )}
                   </Avatar>
                   <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Profil</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.profileCard}</p>
                     <p className="mt-1 truncate text-lg font-bold text-foreground">
-                      {formData.name.trim() || "Nouveau employe"}
+                      {formData.name.trim() || tr.modal.newEmployee}
                     </p>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {formData.position.trim() || "Fonction a renseigner"}
+                      {formData.position.trim() || tr.modal.positionToFill}
                       {" · "}
-                      {(departments.find((d) => String(d.id) === formData.departmentId)?.name) || "Departement a choisir"}
+                      {(departments.find((d) => String(d.id) === formData.departmentId)?.name) || tr.modal.departmentToPick}
                     </p>
                   </div>
                 </div>
@@ -981,21 +984,21 @@ export function AddEmployeeModal({
 
               <div className="grid gap-4 md:grid-cols-2">
                 <section className="rounded-2xl border border-border/60 bg-card/60 p-5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Identite</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.identitySection}</p>
                   <dl className="mt-3 space-y-2 text-sm">
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">ID employe</dt><dd className="font-mono text-foreground">{formData.employeeNo.trim() || "—"}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Email</dt><dd className="truncate text-foreground">{formData.email.trim() || "—"}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Telephone</dt><dd className="text-foreground">{formData.phone.trim() || "—"}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Validite</dt><dd className="font-mono text-foreground">{formData.validityStart} → {formData.validityEnd}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{tr.modal.employeeIdShort}</dt><dd className="font-mono text-foreground">{formData.employeeNo.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t.employees.email}</dt><dd className="truncate text-foreground">{formData.email.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t.employees.phone}</dt><dd className="text-foreground">{formData.phone.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{tr.modal.validityLabel}</dt><dd className="font-mono text-foreground">{formData.validityStart} → {formData.validityEnd}</dd></div>
                   </dl>
                 </section>
 
                 <section className="rounded-2xl border border-border/60 bg-card/60 p-5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Acces</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.accessSection}</p>
                   <dl className="mt-3 space-y-2 text-sm">
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Numero de badge</dt><dd className="font-mono text-foreground">{formData.cardNumber.trim() || "—"}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Groupes d'acces</dt><dd className="text-foreground">{selectedAccessGroupsCount}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Lecteurs autorises</dt><dd className="text-foreground">{selectedDevicesCount}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{tr.modal.badgeNumber}</dt><dd className="font-mono text-foreground">{formData.cardNumber.trim() || "—"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{tr.modal.accessGroupsLabel}</dt><dd className="text-foreground">{selectedAccessGroupsCount}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{tr.modal.allowedReaders}</dt><dd className="text-foreground">{selectedDevicesCount}</dd></div>
                   </dl>
                   {selectedAccessGroupsCount > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1013,10 +1016,10 @@ export function AddEmployeeModal({
                 </section>
 
                 <section className="rounded-2xl border border-border/60 bg-card/60 p-5 md:col-span-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Biometrie</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.biometricsSection}</p>
                   <dl className="mt-3 space-y-2 text-sm">
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Photo</dt><dd className="text-foreground">{hasFaceAsset ? "Prete" : "Non fournie"}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Empreintes</dt><dd className="text-foreground">{fingerprintCount} / 10</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{tr.modal.photoLabel}</dt><dd className="text-foreground">{hasFaceAsset ? tr.modal.photoReady : tr.modal.photoNotProvided}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{tr.modal.fingerprintsLabel}</dt><dd className="text-foreground">{fingerprintCount} / 10</dd></div>
                   </dl>
                 </section>
               </div>
@@ -1028,7 +1031,7 @@ export function AddEmployeeModal({
                   className="rounded-xl"
                   onClick={() => setViewMode("creation")}
                 >
-                  Retour a l'edition
+                  {tr.modal.backToEdit}
                 </Button>
               </div>
             </div>
@@ -1040,16 +1043,16 @@ export function AddEmployeeModal({
             <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl p-1">
               <TabsTrigger value="info" className="relative min-h-9 gap-2 text-xs">
                 <User className="h-4 w-4" />
-                Informations
+                {tr.modal.tabInfo}
                 {hasInfoErrors && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />}
               </TabsTrigger>
               <TabsTrigger value="access" className="min-h-9 gap-2 text-xs">
                 <CreditCard className="h-4 w-4" />
-                Acces
+                {tr.modal.tabAccess}
               </TabsTrigger>
               <TabsTrigger value="biometric" className="relative min-h-9 gap-2 text-xs">
                 <Fingerprint className="h-4 w-4" />
-                Biometrie
+                {tr.modal.tabBiometric}
                 {hasBiometricErrors && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />}
               </TabsTrigger>
             </TabsList>
@@ -1059,7 +1062,7 @@ export function AddEmployeeModal({
             <TabsContent value="info" className="mt-0 space-y-3">
               <div className="grid gap-3 xl:grid-cols-[240px_minmax(0,1fr)]">
                 <section className="rounded-2xl border border-border/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))] p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Portrait</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.portrait}</p>
                   <div className="mt-2 flex flex-col items-center gap-2 text-center">
                     <div className="relative">
                       <Avatar className="h-20 w-20 border-2 border-dashed border-border/60 shadow-[0_12px_28px_rgba(0,0,0,0.15)]">
@@ -1092,23 +1095,23 @@ export function AddEmployeeModal({
                     </div>
 
                     <div className="space-y-0.5">
-                      <p className="text-sm font-bold text-foreground">{formData.name.trim() || "Nouveau"}</p>
+                      <p className="text-sm font-bold text-foreground">{formData.name.trim() || tr.modal.newProfile}</p>
                       <p className="text-[10px] text-muted-foreground/80">
-                        Photo recommandee pour la biometrie.
+                        {tr.modal.photoRecommended}
                       </p>
                     </div>
 
                     <div className="grid w-full grid-cols-2 gap-1.5 xl:grid-cols-2">
                       <div className="rounded-lg border border-border/60 bg-background/30 px-2 py-1.5 text-left">
-                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Profil</p>
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.profileCard}</p>
                         <p className="text-[11px] text-foreground">
-                          {identityReady ? "Complet" : "A completer"}
+                          {identityReady ? tr.modal.profileComplete : tr.modal.profileToComplete}
                         </p>
                       </div>
                       <div className="rounded-lg border border-border/60 bg-background/30 px-2 py-1.5 text-left">
-                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Photo</p>
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.photoCard}</p>
                         <p className="text-[11px] text-foreground">
-                          {hasFaceAsset ? "Prete" : "Aucune"}
+                          {hasFaceAsset ? tr.modal.photoReady : tr.modal.photoNone}
                         </p>
                       </div>
                     </div>
@@ -1119,8 +1122,8 @@ export function AddEmployeeModal({
                   <section className="rounded-2xl border border-border/60 bg-card/80 p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-4">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Identite</p>
-                        <h3 className="text-sm font-bold text-foreground">Informations principales</h3>
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.identitySection}</p>
+                        <h3 className="text-sm font-bold text-foreground">{tr.modal.mainInfo}</h3>
                       </div>
                     </div>
 
@@ -1128,38 +1131,38 @@ export function AddEmployeeModal({
                       <div className="space-y-1">
                         <Label htmlFor="employeeNo" className="flex items-center gap-2 text-xs">
                           <User className="h-3.5 w-3.5 text-muted-foreground" />
-                          ID Employé
+                          {tr.modal.employeeIdLabel}
                         </Label>
                         <Input
                           id="employeeNo"
                           aria-invalid={Boolean(errors.employeeNo)}
-                          placeholder="Ex: EMP-001"
+                          placeholder={tr.modal.employeeIdPlaceholder}
                           value={formData.employeeNo}
                           maxLength={20}
                           onChange={(e) => handleInputChange("employeeNo", e.target.value)}
                           className={cn("h-9 rounded-xl", errors.employeeNo && "border-destructive")}
                         />
                         <p className={cn("text-[10px] leading-tight", errors.employeeNo ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.employeeNo || "Auto: EMP-001 (modifiable, 20 car. max)."}
+                          {errors.employeeNo || tr.modal.employeeIdHelp}
                         </p>
                       </div>
 
                       <div className="space-y-1">
                         <Label htmlFor="name" className="flex items-center gap-2 text-xs">
                           <User className="h-3.5 w-3.5 text-muted-foreground" />
-                          Nom complet
+                          {tr.modal.fullNameLabel}
                         </Label>
                         <Input
                           id="name"
                           aria-invalid={Boolean(errors.name)}
-                          placeholder="Ex: Jean Dupont"
+                          placeholder={tr.modal.fullNamePlaceholder}
                           value={formData.name}
                           maxLength={100}
                           onChange={(e) => handleInputChange("name", e.target.value)}
                           className={cn("h-9 rounded-xl", errors.name && "border-destructive")}
                         />
                         <p className={cn("text-[10px] leading-tight", errors.name ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.name || "Affiche dans les listes et journaux."}
+                          {errors.name || tr.modal.fullNameHelp}
                         </p>
                       </div>
                     </div>
@@ -1167,21 +1170,21 @@ export function AddEmployeeModal({
 
                   <section className="rounded-2xl border border-border/60 bg-card/80 p-3 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-4">
                     <div className="mb-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Organisation</p>
-                      <h3 className="text-sm font-bold text-foreground">Contexte professionnel</h3>
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.orgSection}</p>
+                      <h3 className="text-sm font-bold text-foreground">{tr.modal.professionalContext}</h3>
                     </div>
 
                     <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
                       <div className="space-y-1">
                         <Label htmlFor="email" className="flex items-center gap-2 text-xs">
                           <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                          Email
+                          {t.employees.email}
                         </Label>
                         <Input
                           id="email"
                           type="email"
                           aria-invalid={Boolean(errors.email)}
-                          placeholder="Ex: jean.dupont@company.com"
+                          placeholder={tr.modal.emailPlaceholder}
                           value={formData.email}
                           maxLength={150}
                           autoComplete="email"
@@ -1189,19 +1192,19 @@ export function AddEmployeeModal({
                           className={cn("h-9 rounded-xl", errors.email && "border-destructive")}
                         />
                         <p className={cn("text-[10px] leading-tight", errors.email ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.email || "Identifiant de contact."}
+                          {errors.email || tr.modal.emailHelp}
                         </p>
                       </div>
 
                       <div className="space-y-1">
                         <Label htmlFor="phone" className="flex items-center gap-2 text-xs">
                           <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                          Téléphone
+                          {t.employees.phone}
                         </Label>
                         <Input
                           id="phone"
                           type="tel"
-                          placeholder="Ex: +225 07 00 00 00 00"
+                          placeholder={tr.modal.phonePlaceholder}
                           value={formData.phone}
                           maxLength={20}
                           inputMode="tel"
@@ -1210,59 +1213,59 @@ export function AddEmployeeModal({
                           className={cn("h-9 rounded-xl", errors.phone && "border-destructive")}
                         />
                         <p className={cn("text-[10px] leading-tight", errors.phone ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.phone || "Contact sécurité ou opérations."}
+                          {errors.phone || tr.modal.phoneHelp}
                         </p>
                       </div>
 
                       <div className="space-y-1">
                         <Label className="flex items-center gap-2 text-xs">
                           <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          Departement
+                          {tr.modal.departmentLabel}
                         </Label>
                         <Select
                           value={formData.departmentId}
                           onValueChange={(value) => handleInputChange("departmentId", value)}
                         >
                           <SelectTrigger className={cn("h-9 rounded-xl", errors.department && "border-destructive")}>
-                            <SelectValue placeholder="Selectionner un departement" />
+                            <SelectValue placeholder={tr.modal.departmentPlaceholder} />
                           </SelectTrigger>
                           <SelectContent>
                             {departments.map((dept) => {
                               const isRoot = dept.parent === null || dept.parent === undefined
                               return (
                                 <SelectItem key={dept.id} value={String(dept.id)}>
-                                  {dept.name}{isRoot ? " (racine)" : ""}
+                                  {dept.name}{isRoot ? tr.modal.rootSuffix : ""}
                                 </SelectItem>
                               )
                             })}
                           </SelectContent>
                         </Select>
                         <p className={cn("text-[10px] leading-tight", errors.department ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.department || "Defaut: organisation racine."}
+                          {errors.department || tr.modal.departmentHelp}
                         </p>
                       </div>
 
                       <div className="space-y-1">
                         <Label htmlFor="position" className="flex items-center gap-2 text-xs">
                           <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
-                          Poste
+                          {tr.modal.positionLabel}
                         </Label>
                         <Input
                           id="position"
-                          placeholder="Ex: Technicien sécurité (optionnel)"
+                          placeholder={tr.modal.positionPlaceholder}
                           value={formData.position}
                           maxLength={80}
                           onChange={(e) => handleInputChange("position", e.target.value)}
                           className={cn("h-9 rounded-xl", errors.position && "border-destructive")}
                         />
                         <p className={cn("text-[10px] leading-tight", errors.position ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.position || "Fonction dans le tableau et la fiche."}
+                          {errors.position || tr.modal.positionHelp}
                         </p>
                       </div>
 
                       <div className="space-y-1">
                         <Label htmlFor="validityStart" className="flex items-center gap-2 text-xs">
-                          Debut validite
+                          {tr.modal.validityStartLabel}
                         </Label>
                         <Input
                           id="validityStart"
@@ -1273,13 +1276,13 @@ export function AddEmployeeModal({
                           className={cn("h-9 rounded-xl", errors.validityStart && "border-destructive")}
                         />
                         <p className={cn("text-[10px] leading-tight", errors.validityStart ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.validityStart || "Par defaut: date de creation."}
+                          {errors.validityStart || tr.modal.validityStartHelp}
                         </p>
                       </div>
 
                       <div className="space-y-1">
                         <Label htmlFor="validityEnd" className="flex items-center gap-2 text-xs">
-                          Fin validite
+                          {tr.modal.validityEndLabel}
                         </Label>
                         <Input
                           id="validityEnd"
@@ -1290,7 +1293,7 @@ export function AddEmployeeModal({
                           className={cn("h-9 rounded-xl", errors.validityEnd && "border-destructive")}
                         />
                         <p className={cn("text-[10px] leading-tight", errors.validityEnd ? "text-destructive" : "text-muted-foreground")}>
-                          {errors.validityEnd || "Par defaut: +10 ans."}
+                          {errors.validityEnd || tr.modal.validityEndHelp}
                         </p>
                       </div>
                     </div>
@@ -1304,12 +1307,12 @@ export function AddEmployeeModal({
               <section className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-5">
                 <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Carte physique</p>
-                    <h3 className="text-base font-bold text-foreground">Numero de carte</h3>
-                    <p className="text-sm text-muted-foreground/80">Saisie manuelle ou lecture depuis un lecteur.</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.physicalCard}</p>
+                    <h3 className="text-base font-bold text-foreground">{tr.modal.cardNumberTitle}</h3>
+                    <p className="text-sm text-muted-foreground/80">{tr.modal.cardNumberSubtitle}</p>
                   </div>
                   <Badge variant="secondary" className="w-fit bg-primary/8 text-primary">
-                    {formData.cardNumber.trim() ? "Carte OK" : "Optionnelle"}
+                    {formData.cardNumber.trim() ? tr.modal.cardOk : tr.modal.cardOptional}
                   </Badge>
                 </div>
 
@@ -1317,26 +1320,26 @@ export function AddEmployeeModal({
                   <div className="space-y-2">
                     <Label htmlFor="cardNumber" className="flex items-center gap-2">
                       <CreditCard className="h-4 w-4 text-muted-foreground" />
-                      Numéro de carte
+                      {tr.modal.cardNumberLabel}
                     </Label>
                     <Input
                       id="cardNumber"
                       aria-invalid={Boolean(errors.cardNumber)}
-                      placeholder="Ex: 4A:3B:2C:1D (optionnel)"
+                      placeholder={tr.modal.cardNumberPlaceholder}
                       value={formData.cardNumber}
                       maxLength={32}
                       onChange={(e) => handleInputChange("cardNumber", e.target.value)}
                       className={cn("h-11 rounded-2xl font-mono tabular-nums", errors.cardNumber && "border-destructive")}
                     />
                     <p className={cn("text-xs", errors.cardNumber ? "text-destructive" : "text-muted-foreground")}>
-                      {errors.cardNumber || "Attribuable ulteurement."}
+                      {errors.cardNumber || tr.modal.cardNumberHelp}
                     </p>
                   </div>
 
                   <div className="rounded-xl border border-border/60 bg-background/30 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Lecture assistee</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.assistedRead}</p>
                     <p className="mt-1.5 text-xs text-muted-foreground/80">
-                      Selectionnez un lecteur pour capturer le badge.
+                      {tr.modal.assistedReadDesc}
                     </p>
                   </div>
                 </div>
@@ -1348,7 +1351,7 @@ export function AddEmployeeModal({
                     disabled={isLoadingReaders || isReadingCard || onlineReaders.length === 0}
                   >
                     <SelectTrigger className="h-11 rounded-2xl">
-                      <SelectValue placeholder={isLoadingReaders ? "Chargement des lecteurs..." : "Choisir un lecteur en ligne"} />
+                      <SelectValue placeholder={isLoadingReaders ? tr.modal.loadingReaders : tr.modal.pickOnlineReader} />
                     </SelectTrigger>
                     <SelectContent>
                       {onlineReaders.map((reader) => (
@@ -1365,7 +1368,7 @@ export function AddEmployeeModal({
                     onClick={() => void loadOnlineReaders()}
                     disabled={isLoadingReaders || isReadingCard}
                   >
-                    Actualiser
+                    {tr.modal.refresh}
                   </Button>
                   <Button
                     type="button"
@@ -1377,12 +1380,12 @@ export function AddEmployeeModal({
                     {isReadingCard ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Lecture...
+                        {tr.modal.reading}
                       </>
                     ) : (
                       <>
                         <Radio className="mr-2 h-4 w-4" />
-                        Lire la carte
+                        {tr.modal.readCard}
                       </>
                     )}
                   </Button>
@@ -1402,7 +1405,7 @@ export function AddEmployeeModal({
                     )}
                     {!isLoadingReaders && onlineReaders.length === 0 && !cardReadError && (
                       <p className="rounded-xl border border-border/60 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
-                        Aucun lecteur en ligne detecte.
+                        {tr.modal.noOnlineReader}
                       </p>
                     )}
                   </div>
@@ -1413,11 +1416,11 @@ export function AddEmployeeModal({
                 <section className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-5">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div className="space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Habilitations</p>
-                      <h3 className="text-base font-bold text-foreground">Groupes d&apos;acces</h3>
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.modal.permissions}</p>
+                      <h3 className="text-base font-bold text-foreground">{tr.modal.accessGroupsTitle}</h3>
                     </div>
                     <Badge variant="secondary" className="bg-primary/8 text-primary tabular-nums">
-                      {selectedAccessGroupsCount} selectionne(s)
+                      {tr.modal.selectedCount(selectedAccessGroupsCount)}
                     </Badge>
                   </div>
 
@@ -1436,7 +1439,7 @@ export function AddEmployeeModal({
                               type="button"
                               onClick={() => handleAccessGroupToggle(groupId)}
                               className="ml-1 rounded-full p-0.5 transition-colors hover:bg-muted-foreground/20"
-                              aria-label={`Retirer le groupe ${groupName}`}
+                              aria-label={tr.modal.removeGroup(groupName)}
                             >
                               <X className="h-3 w-3" />
                             </button>
@@ -1467,7 +1470,7 @@ export function AddEmployeeModal({
                       )
                     })}
                     {accessGroups.length === 0 && (
-                      <p className="text-sm text-muted-foreground">Aucun groupe disponible pour ce tenant.</p>
+                      <p className="text-sm text-muted-foreground">{tr.modal.noGroupsForTenant}</p>
                     )}
                   </div>
                 </section>
@@ -1477,11 +1480,11 @@ export function AddEmployeeModal({
                 <div className="flex items-center justify-between">
                   <Label className="flex items-center gap-2">
                     <Radio className="h-4 w-4 text-muted-foreground" />
-                    Lecteurs autorises
+                    {tr.modal.allowedReadersLabel}
                   </Label>
                   {formData.selectedDeviceIds.length > 0 && (
                     <Badge variant="secondary" className="bg-primary/8 text-primary tabular-nums">
-                      {formData.selectedDeviceIds.length} selectionne(s)
+                      {tr.modal.selectedCount(formData.selectedDeviceIds.length)}
                     </Badge>
                   )}
                 </div>
@@ -1505,12 +1508,12 @@ export function AddEmployeeModal({
                   ))}
                   {devices.length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      Aucun lecteur disponible pour ce tenant.
+                      {tr.modal.noDevicesForTenant}
                     </p>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Liez au moins un lecteur pour activer le badge.
+                  {tr.modal.linkReaderHint}
                 </p>
               </div>
             </div>
@@ -1522,7 +1525,7 @@ export function AddEmployeeModal({
               <div className="space-y-4">
                 <Label className="flex items-center gap-2">
                   <Camera className="h-4 w-4 text-muted-foreground" />
-                  Photo faciale
+                  {tr.modal.facePhotoLabel}
                 </Label>
 
                 {formData.photoPreview ? (
@@ -1552,10 +1555,10 @@ export function AddEmployeeModal({
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-bold text-foreground">
-                        Photo prete
+                        {tr.modal.photoReadyTitle}
                       </p>
                       <p className="text-xs text-muted-foreground/80">
-                        Disponible pour l&apos;enrolement visage.
+                        {tr.modal.photoReadyDesc}
                       </p>
                     </div>
                     <Button
@@ -1570,7 +1573,7 @@ export function AddEmployeeModal({
                         }))
                       }
                     >
-                      Supprimer
+                      {tr.modal.deletePhoto}
                     </Button>
                   </div>
                 ) : (
@@ -1583,10 +1586,10 @@ export function AddEmployeeModal({
                     </div>
                     <div className="text-center">
                       <p className="text-sm font-medium text-foreground">
-                        Uploader une photo
+                        {tr.modal.uploadPhotoTitle}
                       </p>
                       <p className="text-xs text-muted-foreground/80">
-                        JPG, PNG — max 5 MB
+                        {tr.modal.uploadPhotoHint}
                       </p>
                     </div>
                     <input
@@ -1611,8 +1614,8 @@ export function AddEmployeeModal({
                           <SelectValue
                             placeholder={
                               isLoadingReaders
-                                ? "Chargement des lecteurs..."
-                                : "Choisir un lecteur pour l'enrolement visage"
+                                ? tr.modal.loadingReaders
+                                : tr.modal.pickFaceReader
                             }
                           />
                         </SelectTrigger>
@@ -1633,7 +1636,7 @@ export function AddEmployeeModal({
                         onClick={() => void loadOnlineReaders()}
                         disabled={isLoadingReaders || isEnrollingFace}
                       >
-                        Actualiser
+                        {tr.modal.refresh}
                       </Button>
                       <Button
                         type="button"
@@ -1651,10 +1654,10 @@ export function AddEmployeeModal({
                         {isEnrollingFace ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Enrolement...
+                            {tr.modal.enrolling}
                           </>
                         ) : (
-                          "Enroler lecteur"
+                          tr.modal.enrollOnReader
                         )}
                       </Button>
                     </div>
@@ -1667,12 +1670,12 @@ export function AddEmployeeModal({
                   )}
                   {!isEditing && (
                     <p className="text-xs text-muted-foreground">
-                      Enrolement lecteur disponible apres creation initiale de l&apos;employe.
+                      {tr.modal.enrollAfterCreation}
                     </p>
                   )}
                   {!normalizeFaceData(formData.faceData || formData.photoPreview) && (
                     <p className="text-xs text-muted-foreground">
-                      Importez une photo visage avant l&apos;enrolement sur terminal.
+                      {tr.modal.importPhotoFirst}
                     </p>
                   )}
                 </div>
@@ -1683,7 +1686,7 @@ export function AddEmployeeModal({
                 <div className="flex items-center justify-between">
                   <Label className="flex items-center gap-2">
                     <Fingerprint className="h-4 w-4 text-muted-foreground" />
-                    Empreintes digitales
+                    {tr.modal.fingerprintsTitle}
                   </Label>
                   <Badge variant="secondary" className="bg-primary/8 text-primary tabular-nums">
                     {formData.fingerprints.length}/10
@@ -1703,14 +1706,14 @@ export function AddEmployeeModal({
                         }
                       >
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Doigt" />
+                          <SelectValue placeholder={tr.modal.fingerPlaceholder} />
                         </SelectTrigger>
                         <SelectContent>
                           {Array.from({ length: 10 }, (_, index) => {
                             const slot = index + 1
                             return (
                               <SelectItem key={slot} value={String(slot)}>
-                                Doigt {slot}
+                                {tr.modal.fingerOption(slot)}
                               </SelectItem>
                             )
                           })}
@@ -1719,7 +1722,7 @@ export function AddEmployeeModal({
                     </div>
                     <div className="min-w-0 flex-1">
                       <Input
-                        placeholder="Template d'empreinte (capture appareil)"
+                        placeholder={tr.modal.fingerprintTemplatePlaceholder}
                         value={fingerprintDraft.template}
                         onChange={(event) =>
                           setFingerprintDraft((prev) => ({
@@ -1737,7 +1740,7 @@ export function AddEmployeeModal({
                         onClick={handleAddFingerprint}
                         disabled={formData.fingerprints.length >= 10}
                       >
-                        Ajouter
+                        {tr.modal.addFingerprint}
                       </Button>
                       <Button
                         type="button"
@@ -1757,10 +1760,10 @@ export function AddEmployeeModal({
                         {isCapturingFingerprint ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Capture...
+                            {tr.modal.capturing}
                           </>
                         ) : (
-                          "Capturer lecteur"
+                          tr.modal.captureOnReader
                         )}
                       </Button>
                     </div>
@@ -1777,8 +1780,8 @@ export function AddEmployeeModal({
                           <SelectValue
                             placeholder={
                               isLoadingReaders
-                                ? "Chargement des lecteurs..."
-                                : "Choisir un lecteur pour l'enrolement"
+                                ? tr.modal.loadingReaders
+                                : tr.modal.pickEnrollReader
                             }
                           />
                         </SelectTrigger>
@@ -1798,7 +1801,7 @@ export function AddEmployeeModal({
                       onClick={() => void loadOnlineReaders()}
                       disabled={isLoadingReaders || isCapturingFingerprint || isEnrollingFace}
                     >
-                      Actualiser lecteurs
+                      {tr.modal.refreshReaders}
                     </Button>
                   </div>
 
@@ -1810,7 +1813,7 @@ export function AddEmployeeModal({
                   )}
                   {!isEditing && (
                     <p className="text-xs text-muted-foreground">
-                      Capture lecteur disponible apres creation initiale de l&apos;employe.
+                      {tr.modal.captureAfterCreation}
                     </p>
                   )}
 
@@ -1823,7 +1826,7 @@ export function AddEmployeeModal({
                         >
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-foreground">
-                              Doigt {fingerprint.fingerIndex}
+                              {tr.modal.fingerLine(fingerprint.fingerIndex)}
                             </p>
                             <p className="truncate text-xs text-muted-foreground">
                               {fingerprint.template}
@@ -1842,7 +1845,7 @@ export function AddEmployeeModal({
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Aucune empreinte enregistree. Ajoutez jusqu&apos;a 10 templates (doigts 1 a 10).
+                      {tr.modal.noFingerprints}
                     </p>
                   )}
 
@@ -1855,8 +1858,8 @@ export function AddEmployeeModal({
               {/* Info Note */}
               <div className="rounded-xl border border-border/60 bg-card/80 p-4">
                 <p className="text-xs leading-relaxed text-muted-foreground/80">
-                  <strong className="font-semibold text-foreground">Note :</strong> Les templates sont synchronises
-                  avec HikCentral a l&apos;enregistrement.
+                  <strong className="font-semibold text-foreground">{tr.modal.templatesNote}</strong>{" "}
+                  {tr.modal.templatesNoteBody}
                 </p>
               </div>
             </TabsContent>
@@ -1871,16 +1874,16 @@ export function AddEmployeeModal({
 
         <DialogFooter className="gap-2 border-t border-border/60 px-5 py-2.5 sm:px-6 lg:px-8">
           <Button variant="outline" size="sm" className="rounded-xl" onClick={handleClose} disabled={isSubmitting}>
-            Annuler
+            {t.common.cancel}
           </Button>
           <Button size="sm" className="rounded-xl" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {isEditing ? "Enregistrement..." : "Creation en cours..."}
+                {isEditing ? tr.modal.saving : tr.modal.creating}
               </>
             ) : (
-              isEditing ? "Enregistrer les modifications" : "Creer l'Employe"
+              isEditing ? tr.modal.saveChanges : tr.modal.createEmployee
             )}
           </Button>
         </DialogFooter>

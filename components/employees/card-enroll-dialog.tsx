@@ -34,6 +34,7 @@ import {
   Zap,
 } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
+import { employeesDict } from "@/lib/i18n/pages/employees-page"
 import { toast } from "sonner"
 import type { GatewayReaderItem } from "@/lib/api/employees"
 
@@ -47,13 +48,7 @@ type CardEnrollDialogProps = {
   onSave: (cardNo: string, cardType: string) => Promise<void>
 }
 
-const CARD_TYPES = [
-  { value: "normal", label: "Normal" },
-  { value: "vip", label: "VIP" },
-  { value: "guest", label: "Invité / Guest" },
-  { value: "patrol", label: "Ronde / Patrol" },
-  { value: "super", label: "Super card" },
-]
+const CARD_TYPE_VALUES = ["normal", "vip", "guest", "patrol", "super"] as const
 
 type ScanState = "idle" | "scanning" | "success" | "error"
 
@@ -66,7 +61,15 @@ export function CardEnrollDialog({
   onScan,
   onSave,
 }: CardEnrollDialogProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const tr = employeesDict[locale]
+  const cardTypeLabels: Record<(typeof CARD_TYPE_VALUES)[number], string> = {
+    normal: tr.cardDialog.typeNormal,
+    vip: tr.cardDialog.typeVip,
+    guest: tr.cardDialog.typeGuest,
+    patrol: tr.cardDialog.typePatrol,
+    super: tr.cardDialog.typeSuper,
+  }
   const [tab, setTab] = useState<"physical" | "manual">("physical")
   const [selectedReader, setSelectedReader] = useState<string>(readers[0]?.dev_index ?? "")
   const [scanState, setScanState] = useState<ScanState>("idle")
@@ -103,7 +106,7 @@ export function CardEnrollDialog({
     setIsSaving(true)
     try {
       await onSave(cardNo, cardType)
-      toast.success(t.common.success, { description: `Carte ${cardNo} enregistrée` })
+      toast.success(t.common.success, { description: tr.cardDialog.cardSaved(cardNo) })
       onOpenChange(false)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -111,7 +114,7 @@ export function CardEnrollDialog({
     } finally {
       setIsSaving(false)
     }
-  }, [tab, scannedCard, manualCard, cardType, onSave, onOpenChange, t])
+  }, [tab, scannedCard, manualCard, cardType, onSave, onOpenChange, t, tr])
 
   const activeCard = tab === "physical" ? scannedCard : manualCard.trim()
 
@@ -133,7 +136,7 @@ export function CardEnrollDialog({
         {existingCards.length > 0 && (
           <div className="rounded-xl border border-border/60 bg-secondary/20 px-4 py-3">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cartes existantes
+              {tr.cardDialog.existingCards}
             </p>
             <div className="flex flex-wrap gap-1.5">
               {existingCards.map((c) => (
@@ -205,7 +208,7 @@ export function CardEnrollDialog({
                     <div className="text-center text-primary">
                       <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin" />
                       <p className="text-xs font-medium">{t.biometrics.scanning}</p>
-                      <p className="text-[11px] text-muted-foreground">Approchez la carte du lecteur...</p>
+                      <p className="text-[11px] text-muted-foreground">{tr.cardDialog.approachCard}</p>
                     </div>
                   )}
                   {scanState === "success" && (
@@ -229,7 +232,7 @@ export function CardEnrollDialog({
                 {scanState === "idle" || scanState === "error" ? (
                   <Button
                     className="w-full gap-2"
-                    disabled={!selectedReader || scanState === "scanning"}
+                    disabled={!selectedReader}
                     onClick={handleScan}
                   >
                     <Zap className="h-4 w-4" />
@@ -254,7 +257,7 @@ export function CardEnrollDialog({
                 id="manualCardNo"
                 value={manualCard}
                 onChange={(e) => setManualCard(e.target.value)}
-                placeholder="Ex: 0012345678"
+                placeholder={tr.cardDialog.manualPlaceholder}
                 className="font-mono"
               />
             </div>
@@ -268,9 +271,9 @@ export function CardEnrollDialog({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CARD_TYPES.map((ct) => (
-                <SelectItem key={ct.value} value={ct.value}>
-                  {ct.label}
+              {CARD_TYPE_VALUES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {cardTypeLabels[value]}
                 </SelectItem>
               ))}
             </SelectContent>
