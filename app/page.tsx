@@ -9,16 +9,18 @@ import { fetchHomeSummary, type HomeSummaryCounts } from "@/lib/api/home"
 import { ApiError } from "@/lib/api/client"
 import { getAuthUser } from "@/lib/api/auth"
 import { useI18n } from "@/lib/i18n/context"
+import { dashboardDict } from "@/lib/i18n/pages/dashboard"
 import type { AsyncSection, DashboardSystemStatus } from "@/components/dashboard/types"
 
-function toErrorMessage(error: unknown): string {
+function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) return error.message
   if (error instanceof Error && error.message.trim()) return error.message
-  return "Impossible de contacter le serveur."
+  return fallback
 }
 
 export default function DashboardPage() {
   const { locale } = useI18n()
+  const tr = dashboardDict[locale]
   const [summaryState, setSummaryState] = useState<AsyncSection<HomeSummaryCounts>>({ status: "loading" })
   const [widgetsState, setWidgetsState] = useState<AsyncSection<DashboardPayload>>({ status: "loading" })
   const [summaryAttempt, setSummaryAttempt] = useState(0)
@@ -44,12 +46,12 @@ export default function DashboardPage() {
         if (!cancelled) setSummaryState({ status: "ready", data: result.summary })
       })
       .catch((error: unknown) => {
-        if (!cancelled) setSummaryState({ status: "error", message: toErrorMessage(error) })
+        if (!cancelled) setSummaryState({ status: "error", message: toErrorMessage(error, tr.serverUnreachable) })
       })
     return () => {
       cancelled = true
     }
-  }, [locale, summaryAttempt])
+  }, [locale, summaryAttempt, tr])
 
   // Widgets détaillés : agrégation client (flux accès, appareils, présence, congés).
   // Chargé en parallèle du résumé, avec sa propre gestion d'erreur.
@@ -61,12 +63,12 @@ export default function DashboardPage() {
         if (!cancelled) setWidgetsState({ status: "ready", data: result })
       })
       .catch((error: unknown) => {
-        if (!cancelled) setWidgetsState({ status: "error", message: toErrorMessage(error) })
+        if (!cancelled) setWidgetsState({ status: "error", message: toErrorMessage(error, tr.serverUnreachable) })
       })
     return () => {
       cancelled = true
     }
-  }, [locale, widgetsAttempt])
+  }, [locale, widgetsAttempt, tr])
 
   const systemStatus: DashboardSystemStatus =
     summaryState.status === "loading" || widgetsState.status === "loading"

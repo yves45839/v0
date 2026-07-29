@@ -27,19 +27,11 @@ import {
   Users,
   Zap,
 } from "lucide-react"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict } from "@/lib/i18n/pages/billing"
 import { cn } from "@/lib/utils"
 
-const ACCOMPANIMENT_LEVELS = [
-  "Autonome (documentation seule)",
-  "Accompagnement standard (support email)",
-  "Accompagnement renforcé (support prioritaire + formations)",
-  "Accompagnement dédié (CSM dédié + SLA personnalisé)",
-  "Partenariat stratégique (intégration approfondie)",
-]
-
-const EMPLOYEE_RANGES = ["100–200", "200–500", "500–1 000", "1 000–5 000", "5 000+"]
-const DEVICE_RANGES = ["15–30", "30–100", "100–300", "300–1 000", "1 000+"]
-const SITE_RANGES = ["2–5", "5–15", "15–50", "50–200", "200+"]
+const FEATURE_ICONS = [Users, Cpu, Globe, Zap, Headphones, Sparkles]
 
 interface FormData {
   companyName: string
@@ -67,16 +59,9 @@ const EMPTY_FORM: FormData = {
   message: "",
 }
 
-const FEATURES = [
-  { icon: Users, label: "Volume d'employés sur mesure", description: "Au-delà de 100 employés" },
-  { icon: Cpu, label: "Infrastructure étendue", description: "Appareils & portes illimités" },
-  { icon: Globe, label: "Multi-sites avancé", description: "Déploiement international" },
-  { icon: Zap, label: "API & intégrations", description: "Webhooks, SSO, ERP" },
-  { icon: Headphones, label: "Support dédié", description: "CSM + SLA personnalisé" },
-  { icon: Sparkles, label: "Personnalisation", description: "Branding & workflows" },
-]
-
 export function BillingCustomOffer() {
+  const { locale, t } = useI18n()
+  const tr = billingDict[locale]
   const [form, setForm] = useState<FormData>(EMPTY_FORM)
   const [errors, setErrors] = useState<Partial<FormData>>({})
   const [loading, setLoading] = useState(false)
@@ -89,12 +74,12 @@ export function BillingCustomOffer() {
 
   function validate(): Partial<FormData> {
     const e: Partial<FormData> = {}
-    if (!form.companyName.trim()) e.companyName = "Requis"
-    if (!form.employeeRange) e.employeeRange = "Requis"
-    if (!form.contactName.trim()) e.contactName = "Requis"
-    if (!form.email.trim()) e.email = "Requis"
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Email invalide"
-    if (!form.message.trim()) e.message = "Requis"
+    if (!form.companyName.trim()) e.companyName = t.common.required
+    if (!form.employeeRange) e.employeeRange = t.common.required
+    if (!form.contactName.trim()) e.contactName = t.common.required
+    if (!form.email.trim()) e.email = t.common.required
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = tr.custom.invalidEmail
+    if (!form.message.trim()) e.message = t.common.required
     return e
   }
 
@@ -116,15 +101,15 @@ export function BillingCustomOffer() {
           <Check className="h-8 w-8 text-success" />
         </div>
         <div className="space-y-2">
-          <h3 className="text-xl font-bold text-success">Demande envoyée avec succès !</h3>
+          <h3 className="text-xl font-bold text-success">{tr.custom.successTitle}</h3>
           <p className="text-sm text-muted-foreground max-w-md">
-            Notre équipe commerciale analysera votre demande et vous contactera sous <strong>48 heures ouvrées</strong> avec une proposition personnalisée.
+            {tr.custom.successBefore}<strong>{tr.custom.successStrong}</strong>{tr.custom.successAfter}
           </p>
         </div>
         <div className="flex flex-wrap gap-3 justify-center">
           <Button variant="outline" onClick={() => { setSuccess(false); setForm(EMPTY_FORM) }} className="gap-2">
             <Send className="h-3.5 w-3.5" />
-            Nouvelle demande
+            {tr.custom.newRequest}
           </Button>
         </div>
       </div>
@@ -142,17 +127,17 @@ export function BillingCustomOffer() {
           <div className="flex items-center gap-2">
             <Building2 className="h-5 w-5 text-amber-500" />
             <span className="text-xs font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">
-              Offre Enterprise sur mesure
+              {tr.custom.heroKicker}
             </span>
           </div>
           <h1 className="text-2xl font-extrabold md:text-3xl">
-            Des besoins au-delà du plan Enterprise ?
+            {tr.custom.heroTitle}
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Pour les organisations dépassant les capacités standard — plus de 100 employés, des dizaines d'appareils, plusieurs sites ou des exigences d'intégration avancées — nous établissons une proposition tarifaire entièrement personnalisée.
+            {tr.custom.heroDesc}
           </p>
           <div className="flex flex-wrap gap-1.5 pt-1">
-            {["Facture personnalisée", "SLA dédié", "Intégrations sur mesure", "Accompagnement premium"].map((tag) => (
+            {tr.custom.heroTags.map((tag) => (
               <span key={tag} className="flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
                 <Check className="h-3 w-3" />
                 {tag}
@@ -164,8 +149,8 @@ export function BillingCustomOffer() {
 
       {/* ── Features grid ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {FEATURES.map((f) => {
-          const FIcon = f.icon
+        {tr.custom.features.map((f, i) => {
+          const FIcon = FEATURE_ICONS[i] ?? Sparkles
           return (
             <div key={f.label} className="flex flex-col gap-2.5 overflow-hidden rounded-xl border bg-card p-4 hover:shadow-sm transition-shadow">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
@@ -182,13 +167,9 @@ export function BillingCustomOffer() {
 
       {/* ── Processus ── */}
       <div className="overflow-hidden rounded-2xl border bg-card p-5">
-        <h3 className="mb-4 font-semibold text-sm">Comment ça fonctionne ?</h3>
+        <h3 className="mb-4 font-semibold text-sm">{tr.custom.howTitle}</h3>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {[
-            { num: "01", title: "Envoi de votre demande", desc: "Remplissez le formulaire ci-dessous avec vos besoins estimés." },
-            { num: "02", title: "Analyse & proposition", desc: "Notre équipe vous contacte sous 48h avec une offre personnalisée." },
-            { num: "03", title: "Déploiement sur mesure", desc: "Nous configurons la plateforme selon vos spécifications exactes." },
-          ].map((step, i) => (
+          {tr.custom.steps.map((step, i) => (
             <div key={step.num} className="flex items-start gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-sm font-bold text-amber-600 dark:text-amber-400">
                 {step.num}
@@ -207,70 +188,70 @@ export function BillingCustomOffer() {
       <div className="overflow-hidden rounded-2xl border bg-card p-6 space-y-5">
         <div className="flex items-center gap-2 pb-1 border-b border-border/60">
           <MessageSquare className="h-4.5 w-4.5 text-primary" />
-          <h3 className="font-bold text-base">Formulaire de demande sur mesure</h3>
+          <h3 className="font-bold text-base">{tr.custom.formTitle}</h3>
         </div>
 
         {/* Section : Entreprise */}
         <div className="space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Informations de l'entreprise</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tr.custom.companySection}</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Nom de l'entreprise <span className="text-destructive">*</span></Label>
-              <Input placeholder="Entreprise SA" value={form.companyName} onChange={(e) => set("companyName", e.target.value)} className={errors.companyName ? "border-destructive" : ""} />
+              <Label>{tr.custom.companyName} <span className="text-destructive">*</span></Label>
+              <Input placeholder={tr.custom.companyPlaceholder} value={form.companyName} onChange={(e) => set("companyName", e.target.value)} className={errors.companyName ? "border-destructive" : ""} />
               {errors.companyName && <p className="text-xs text-destructive">{errors.companyName}</p>}
             </div>
             <div className="space-y-2">
-              <Label>Estimation d'employés <span className="text-destructive">*</span></Label>
+              <Label>{tr.custom.employeesEstimate} <span className="text-destructive">*</span></Label>
               <Select value={form.employeeRange} onValueChange={(v) => set("employeeRange", v)}>
                 <SelectTrigger className={errors.employeeRange ? "border-destructive" : ""}>
-                  <SelectValue placeholder="Choisir une fourchette…" />
+                  <SelectValue placeholder={tr.custom.rangePlaceholder} />
                 </SelectTrigger>
                 <SelectContent>
-                  {EMPLOYEE_RANGES.map((r) => <SelectItem key={r} value={r}>{r} employés</SelectItem>)}
+                  {tr.custom.employeeRanges.map((r) => <SelectItem key={r} value={r}>{tr.custom.employeesOption(r)}</SelectItem>)}
                 </SelectContent>
               </Select>
               {errors.employeeRange && <p className="text-xs text-destructive">{errors.employeeRange}</p>}
             </div>
             <div className="space-y-2">
-              <Label>Estimation d'appareils / portes</Label>
+              <Label>{tr.custom.devicesEstimate}</Label>
               <Select value={form.deviceRange} onValueChange={(v) => set("deviceRange", v)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choisir une fourchette…" />
+                  <SelectValue placeholder={tr.custom.rangePlaceholder} />
                 </SelectTrigger>
                 <SelectContent>
-                  {DEVICE_RANGES.map((r) => <SelectItem key={r} value={r}>{r} appareils</SelectItem>)}
+                  {tr.custom.deviceRanges.map((r) => <SelectItem key={r} value={r}>{tr.custom.devicesOption(r)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Estimation de sites</Label>
+              <Label>{tr.custom.sitesEstimate}</Label>
               <Select value={form.siteRange} onValueChange={(v) => set("siteRange", v)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choisir une fourchette…" />
+                  <SelectValue placeholder={tr.custom.rangePlaceholder} />
                 </SelectTrigger>
                 <SelectContent>
-                  {SITE_RANGES.map((r) => <SelectItem key={r} value={r}>{r} sites</SelectItem>)}
+                  {tr.custom.siteRanges.map((r) => <SelectItem key={r} value={r}>{tr.custom.sitesOption(r)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Niveau d'accompagnement souhaité</Label>
+            <Label>{tr.custom.accompanimentLabel}</Label>
             <Select value={form.accompaniment} onValueChange={(v) => set("accompaniment", v)}>
               <SelectTrigger>
-                <SelectValue placeholder="Choisir un niveau…" />
+                <SelectValue placeholder={tr.custom.levelPlaceholder} />
               </SelectTrigger>
               <SelectContent>
-                {ACCOMPANIMENT_LEVELS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                {tr.custom.accompanimentLevels.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label>Besoins spécifiques</Label>
+            <Label>{tr.custom.specificNeeds}</Label>
             <Textarea
-              placeholder="Intégrations, personnalisations, exigences réglementaires, environnement technique…"
+              placeholder={tr.custom.specificNeedsPlaceholder}
               value={form.specificNeeds}
               onChange={(e) => set("specificNeeds", e.target.value)}
               rows={3}
@@ -284,23 +265,23 @@ export function BillingCustomOffer() {
 
         {/* Section : Contact */}
         <div className="space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Informations de contact</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tr.custom.contactSection}</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Nom & prénom <span className="text-destructive">*</span></Label>
-              <Input placeholder="Jean Dupont" value={form.contactName} onChange={(e) => set("contactName", e.target.value)} className={errors.contactName ? "border-destructive" : ""} />
+              <Label>{tr.custom.contactName} <span className="text-destructive">*</span></Label>
+              <Input placeholder={tr.custom.contactPlaceholder} value={form.contactName} onChange={(e) => set("contactName", e.target.value)} className={errors.contactName ? "border-destructive" : ""} />
               {errors.contactName && <p className="text-xs text-destructive">{errors.contactName}</p>}
             </div>
             <div className="space-y-2">
-              <Label>Email professionnel <span className="text-destructive">*</span></Label>
+              <Label>{tr.custom.emailLabel} <span className="text-destructive">*</span></Label>
               <div className="relative">
                 <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input placeholder="contact@entreprise.com" className={cn("pl-9", errors.email ? "border-destructive" : "")} value={form.email} onChange={(e) => set("email", e.target.value)} type="email" />
+                <Input placeholder={tr.custom.emailPlaceholder} className={cn("pl-9", errors.email ? "border-destructive" : "")} value={form.email} onChange={(e) => set("email", e.target.value)} type="email" />
               </div>
               {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
             </div>
             <div className="space-y-2">
-              <Label>Téléphone</Label>
+              <Label>{tr.custom.phoneLabel}</Label>
               <div className="relative">
                 <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input placeholder="+221 77 000 00 00" className="pl-9" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
@@ -309,9 +290,9 @@ export function BillingCustomOffer() {
           </div>
 
           <div className="space-y-2">
-            <Label>Message complémentaire <span className="text-destructive">*</span></Label>
+            <Label>{tr.custom.messageLabel} <span className="text-destructive">*</span></Label>
             <Textarea
-              placeholder="Décrivez votre contexte, vos objectifs, votre timeline et toute information utile à notre équipe…"
+              placeholder={tr.custom.messagePlaceholder}
               value={form.message}
               onChange={(e) => set("message", e.target.value)}
               rows={4}
@@ -325,7 +306,7 @@ export function BillingCustomOffer() {
         <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/6 p-4">
           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <p className="text-xs text-muted-foreground">
-            <strong className="text-foreground">Une proposition personnalisée</strong> sera établie sur la base de vos besoins : nombre d'employés, d'appareils, de sites, fonctionnalités requises et niveau d'accompagnement souhaité. Aucun engagement à ce stade.
+            <strong className="text-foreground">{tr.custom.infoStrong}</strong>{tr.custom.infoRest}
           </p>
         </div>
 
@@ -337,9 +318,9 @@ export function BillingCustomOffer() {
             className="gap-2 bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20 min-w-50"
           >
             {loading ? (
-              <><span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Envoi en cours…</>
+              <><span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />{tr.custom.sending}</>
             ) : (
-              <><Send className="h-4 w-4" />Envoyer la demande</>
+              <><Send className="h-4 w-4" />{tr.custom.send}</>
             )}
           </Button>
         </div>

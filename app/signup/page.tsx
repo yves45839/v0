@@ -12,10 +12,14 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PasswordStrengthBar } from "@/components/ui/password-strength-bar"
 import { LRLogoMark } from "@/components/brand/lr-logo-mark"
+import { useI18n } from "@/lib/i18n/context"
+import { authDict } from "@/lib/i18n/pages/auth"
 
 type SubmitStatus = "idle" | "submitting" | "success"
 
 export default function SignupPage() {
+  const { locale, toggleLocale, formatDateTime } = useI18n()
+  const tr = authDict[locale]
   const [tenantName, setTenantName] = useState("")
   const [organizationName, setOrganizationName] = useState("")
   const [email, setEmail] = useState("")
@@ -37,19 +41,19 @@ export default function SignupPage() {
     setError(null)
 
     if (!tenantName.trim()) {
-      setError("Le nom de la société est obligatoire.")
+      setError(tr.tenantNameRequired)
       return
     }
     if (!email.trim()) {
-      setError("L'email est obligatoire.")
+      setError(tr.emailRequired)
       return
     }
     if (password.length < 8) {
-      setError("Le mot de passe doit contenir au moins 8 caractères.")
+      setError(tr.passwordTooShort)
       return
     }
     if (password !== confirmPassword) {
-      setError("Les mots de passe ne correspondent pas.")
+      setError(tr.passwordsDoNotMatch)
       return
     }
 
@@ -64,12 +68,12 @@ export default function SignupPage() {
       setVerificationExpiresAt(String(response.email_verification_expires_at ?? ""))
       setEmailSent(Boolean(response.email_sent))
       setStatus("success")
-      toast.success("Compte créé. Vérifiez votre email.")
+      toast.success(tr.signupSuccessToast)
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Inscription impossible."
+      const detail = err instanceof Error ? err.message : tr.signupError
       setError(detail)
       setStatus("idle")
-      toast.error("Échec d'inscription")
+      toast.error(tr.signupFailedToast)
     }
   }
 
@@ -96,14 +100,22 @@ export default function SignupPage() {
       <div className="auth-vector-beam auth-vector-beam-a" />
       <div className="auth-vector-beam auth-vector-beam-b" />
       <div className="auth-vector-cursor" />
+      <button
+        type="button"
+        onClick={toggleLocale}
+        aria-label={tr.localeToggleAria}
+        className="absolute right-4 top-4 z-10 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {locale === "fr" ? "EN" : "FR"}
+      </button>
       <div className="relative mx-auto flex min-h-screen max-w-md items-center px-4 py-10">
         <Card className="w-full border-orange-400/45 bg-card/88 backdrop-blur-md">
           <CardHeader className="space-y-4">
             <div className="flex items-center gap-3">
               <LRLogoMark className="h-10 w-11 text-[18px]" />
               <div>
-                <CardTitle className="text-lg">LR Time</CardTitle>
-                <CardDescription>Créer un compte et confirmer votre email</CardDescription>
+                <CardTitle className="text-lg">{tr.brand}</CardTitle>
+                <CardDescription>{tr.signupSubtitle}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -111,24 +123,22 @@ export default function SignupPage() {
             {status === "success" ? (
               <div className="space-y-3 text-sm">
                 <p>
-                  {emailSent
-                    ? "Inscription enregistrée. Un email de vérification a été envoyé."
-                    : "Inscription enregistrée. Le compte est en attente de vérification email/OTP."}
+                  {emailSent ? tr.signupRecordedEmailSent : tr.signupRecordedPending}
                 </p>
                 {verificationExpiresAt ? (
-                  <p className="text-muted-foreground">Expiration du lien: {new Date(verificationExpiresAt).toLocaleString()}</p>
+                  <p className="text-muted-foreground">{tr.linkExpires(formatDateTime(verificationExpiresAt))}</p>
                 ) : null}
                 <Button asChild variant="outline" className="w-full">
-                  <Link href="/auth/verify-email">Vérifier avec OTP ou lien</Link>
+                  <Link href="/auth/verify-email">{tr.verifyWithOtpOrLink}</Link>
                 </Button>
                 <Button asChild className="w-full">
-                  <Link href="/login">Aller a la connexion</Link>
+                  <Link href="/login">{tr.goToLogin}</Link>
                 </Button>
               </div>
             ) : (
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="space-y-2">
-                  <Label htmlFor="tenantName">Nom de la société</Label>
+                  <Label htmlFor="tenantName">{tr.tenantNameLabel}</Label>
                   <div className="relative">
                     <Building2 className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -136,12 +146,12 @@ export default function SignupPage() {
                       value={tenantName}
                       onChange={(event) => setTenantName(event.target.value)}
                       className="pl-9"
-                      placeholder="ACME Security"
+                      placeholder={tr.tenantNamePlaceholder}
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="organizationName">Organisation (optionnel)</Label>
+                  <Label htmlFor="organizationName">{tr.organizationLabel}</Label>
                   <div className="relative">
                     <UserRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -149,12 +159,12 @@ export default function SignupPage() {
                       value={organizationName}
                       onChange={(event) => setOrganizationName(event.target.value)}
                       className="pl-9"
-                      placeholder="Siege"
+                      placeholder={tr.organizationPlaceholder}
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">{tr.emailLabel}</Label>
                   <div className="relative">
                     <Mail className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -162,41 +172,41 @@ export default function SignupPage() {
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       className="pl-9"
-                      placeholder="prenom.nom@société.com"
+                      placeholder={tr.identifierPlaceholder}
                       autoComplete="email"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Mot de passe</Label>
+                  <Label htmlFor="password">{tr.passwordLabel}</Label>
                   <PasswordInput
                     id="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Au moins 8 caractères"
+                    placeholder={tr.passwordMinPlaceholder}
                     autoComplete="new-password"
                   />
                   <PasswordStrengthBar password={password} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
+                  <Label htmlFor="confirmPassword">{tr.confirmPasswordLabel}</Label>
                   <PasswordInput
                     id="confirmPassword"
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
-                    placeholder="Retapez votre mot de passe"
+                    placeholder={tr.confirmPasswordPlaceholder}
                     autoComplete="new-password"
                   />
                 </div>
                 {error ? <p className="text-xs text-red-400">{error}</p> : null}
                 <Button type="submit" disabled={!canSubmit} className="w-full">
                   {status === "submitting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Créer mon compte
+                  {tr.createMyAccount}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
-                  Déjà inscrit ?{" "}
+                  {tr.alreadyRegistered}{" "}
                   <Link href="/login" className="text-primary hover:underline">
-                    Se connecter
+                    {tr.signIn}
                   </Link>
                 </p>
               </form>

@@ -12,26 +12,14 @@ import {
 import { cn } from "@/lib/utils"
 import { StripeCheckoutButton } from "@/components/billing/stripe-checkout-button"
 import { hasAuthSession } from "@/lib/api/auth"
-
-const INTERVAL_LABELS: Record<Plan["interval"], string> = {
-  month: "/mois",
-  year: "/an",
-  one_time: "",
-}
-
-/** Display label for ISO 4217 / Stripe currency codes. */
-const CURRENCY_LABELS: Record<string, string> = {
-  eur: "EUR — Euro",
-  usd: "USD — Dollar US",
-  gbp: "GBP — Livre",
-  xof: "XOF — Franc CFA",
-  mad: "MAD — Dirham",
-  cad: "CAD — Dollar CA",
-}
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict, formatMoney, type BillingDict } from "@/lib/i18n/pages/billing"
 
 const DEFAULT_CURRENCIES = ["eur", "usd"]
 
 export function PricingPageClient() {
+  const { locale, localeTag, formatNumber } = useI18n()
+  const tr = billingDict[locale]
   const [currencies, setCurrencies] = useState<string[]>(DEFAULT_CURRENCIES)
   const [currency, setCurrency] = useState<string>(() => {
     if (typeof window === "undefined") return "eur"
@@ -92,17 +80,17 @@ export function PricingPageClient() {
         {/* ── Header ── */}
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            Choisissez votre plan
+            {tr.pricing.title}
           </h1>
           <p className="mt-3 text-muted-foreground">
-            Tarification transparente. Sans engagement. Annulez à tout moment.
+            {tr.pricing.subtitle}
           </p>
 
           {/* Trial highlight */}
           {subscriptionPlans.some((p) => p.trial_period_days > 0 && !p.trial_requires_card) && (
             <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
               <Sparkles className="h-4 w-4" />
-              Essai gratuit 14 jours · Sans carte bancaire
+              {tr.pricing.trialHighlight}
             </div>
           )}
         </div>
@@ -113,13 +101,14 @@ export function PricingPageClient() {
             value={currency}
             options={currencies}
             onChange={setCurrency}
+            tr={tr}
           />
         </div>
 
         {/* ── Errors ── */}
         {error && (
           <div className="mt-8 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-            Impossible de charger les plans&nbsp;: {error}
+            {tr.pricing.loadError}{error}
           </div>
         )}
 
@@ -133,12 +122,11 @@ export function PricingPageClient() {
         {/* ── Empty ── */}
         {plans && plans.length === 0 && (
           <div className="mt-12 text-center text-sm text-muted-foreground">
-            Aucun plan n&apos;est encore configuré pour cette devise.
-            Synchronisez le catalogue depuis Stripe avec&nbsp;
+            {tr.pricing.emptyBefore}
             <code className="rounded bg-muted px-1.5 py-0.5">
               python manage.py sync_stripe_plans
             </code>
-            .
+            {tr.pricing.emptyAfter}
           </div>
         )}
 
@@ -151,6 +139,9 @@ export function PricingPageClient() {
                 plan={plan}
                 highlighted={index === 1}
                 authed={authed}
+                tr={tr}
+                localeTag={localeTag}
+                formatNumber={formatNumber}
               />
             ))}
           </div>
@@ -158,9 +149,7 @@ export function PricingPageClient() {
 
         {/* ── Footnote ── */}
         <p className="mt-12 text-center text-xs text-muted-foreground">
-          Paiements sécurisés par Stripe. TVA appliquée selon votre pays. Vous
-          pourrez gérer ou annuler votre abonnement à tout moment depuis votre
-          espace Facturation.
+          {tr.pricing.footnote}
         </p>
       </div>
     </div>
@@ -173,12 +162,18 @@ function PlanCard({
   plan,
   highlighted,
   authed,
+  tr,
+  localeTag,
+  formatNumber,
 }: {
   plan: Plan
   highlighted: boolean
   authed: boolean
+  tr: BillingDict
+  localeTag: string
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string
 }) {
-  const intervalLabel = INTERVAL_LABELS[plan.interval]
+  const intervalLabel = tr.shared.intervalShort[plan.interval]
   const hasFreeTrial = plan.interval !== "one_time" && plan.trial_period_days > 0
   const trialNoCard = hasFreeTrial && !plan.trial_requires_card
 
@@ -193,7 +188,7 @@ function PlanCard({
     >
       {highlighted && (
         <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-[11px] font-semibold text-primary-foreground shadow">
-          Le plus populaire
+          {tr.pricing.popular}
         </span>
       )}
 
@@ -206,13 +201,13 @@ function PlanCard({
 
       <div className="mt-6 flex items-baseline gap-1">
         <span className="text-3xl font-bold">
-          {formatPrice(plan.amount, plan.currency)}
+          {formatMoney(plan.amount, plan.currency, localeTag)}
         </span>
         <span className="text-sm text-muted-foreground">{intervalLabel}</span>
       </div>
       {plan.is_metered && plan.metered_unit_label && (
         <p className="mt-1 text-xs text-muted-foreground">
-          Facturé à l&apos;usage&nbsp;: par {plan.metered_unit_label}
+          {tr.shared.meteredNote(plan.metered_unit_label)}
         </p>
       )}
 
@@ -227,16 +222,16 @@ function PlanCard({
         >
           <Sparkles className="h-3 w-3" />
           {trialNoCard
-            ? `Essai ${plan.trial_period_days} jours · Sans CB`
-            : `Essai ${plan.trial_period_days} jours · CB requise`}
+            ? tr.shared.trialNoCard(plan.trial_period_days)
+            : tr.shared.trialWithCard(plan.trial_period_days)}
         </div>
       )}
 
       <ul className="mt-6 space-y-2 text-sm">
-        <Feature label={`${plan.device_quota.toLocaleString("fr-FR")} dispositifs inclus`} />
-        <Feature label={`${plan.event_quota_per_month.toLocaleString("fr-FR")} évènements / mois`} />
-        {plan.has_priority_support && <Feature label="Support prioritaire" />}
-        {plan.has_advanced_analytics && <Feature label="Analytique avancée" />}
+        <Feature label={tr.shared.devicesIncluded(formatNumber(plan.device_quota))} />
+        <Feature label={tr.shared.eventsPerMonth(formatNumber(plan.event_quota_per_month))} />
+        {plan.has_priority_support && <Feature label={tr.shared.prioritySupport} />}
+        {plan.has_advanced_analytics && <Feature label={tr.shared.advancedAnalytics} />}
       </ul>
 
       <div className="mt-auto pt-6">
@@ -250,11 +245,11 @@ function PlanCard({
               variant={highlighted ? "default" : "outline"}
               className="w-full"
             >
-              Acheter
+              {tr.shared.buy}
             </StripeCheckoutButton>
           ) : (
             <Button asChild variant={highlighted ? "default" : "outline"} className="w-full">
-              <a href={`/login?next=/pricing`}>Connectez-vous pour acheter</a>
+              <a href={`/login?next=/pricing`}>{tr.pricing.loginToBuy}</a>
             </Button>
           )
         ) : authed ? (
@@ -265,12 +260,12 @@ function PlanCard({
             variant={highlighted ? "default" : "outline"}
             className="w-full"
           >
-            {hasFreeTrial ? "Démarrer l'essai gratuit" : "Choisir ce plan"}
+            {hasFreeTrial ? tr.shared.startFreeTrial : tr.pricing.chooseThisPlan}
           </StripeCheckoutButton>
         ) : (
           <Button asChild variant={highlighted ? "default" : "outline"} className="w-full">
             <a href={`/signup?plan=${encodeURIComponent(plan.code)}`}>
-              {hasFreeTrial ? "Démarrer l'essai gratuit" : "S'inscrire"}
+              {hasFreeTrial ? tr.shared.startFreeTrial : tr.pricing.signUp}
             </a>
           </Button>
         )}
@@ -285,15 +280,17 @@ function CurrencySelector({
   value,
   options,
   onChange,
+  tr,
 }: {
   value: string
   options: string[]
   onChange: (v: string) => void
+  tr: BillingDict
 }) {
   if (options.length <= 1) return null
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card p-1 text-sm shadow-sm">
-      <span className="px-2 text-xs font-medium text-muted-foreground">Devise</span>
+      <span className="px-2 text-xs font-medium text-muted-foreground">{tr.pricing.currency}</span>
       {options.map((c) => (
         <button
           key={c}
@@ -305,7 +302,7 @@ function CurrencySelector({
               ? "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
           )}
-          title={CURRENCY_LABELS[c] ?? c.toUpperCase()}
+          title={tr.pricing.currencyLabels[c] ?? c.toUpperCase()}
         >
           {c.toUpperCase()}
         </button>
@@ -323,19 +320,4 @@ function Feature({ label }: { label: string }) {
       <span className="text-foreground/90">{label}</span>
     </li>
   )
-}
-
-function formatPrice(amount: string, currency: string): string {
-  const value = parseFloat(amount)
-  if (!Number.isFinite(value)) return `${amount} ${currency.toUpperCase()}`
-  // XOF is supported by Intl in most environments; fallback to manual format if not.
-  try {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-      maximumFractionDigits: currency.toLowerCase() === "xof" ? 0 : 2,
-    }).format(value)
-  } catch {
-    return `${value.toFixed(2)} ${currency.toUpperCase()}`
-  }
 }

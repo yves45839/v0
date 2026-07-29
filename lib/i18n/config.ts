@@ -2,7 +2,7 @@ export const SUPPORTED_LOCALES = ["fr", "en"] as const
 
 export type Locale = (typeof SUPPORTED_LOCALES)[number]
 
-export const DEFAULT_LOCALE: Locale = "fr"
+export const DEFAULT_LOCALE: Locale = "en"
 export const LOCALE_STORAGE_KEY = "securepoint-locale"
 export const LOCALE_COOKIE_NAME = "securepoint_language"
 

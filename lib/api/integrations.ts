@@ -106,11 +106,25 @@ export async function fetchSyncedDevices(): Promise<SyncedDevice[]> {
   }))
 }
 
+/**
+ * Erreur typée levée quand /api/beta/info/ répond en échec : l'appelant
+ * (composant) traduit le message via son dictionnaire à partir du `status`.
+ */
+export class BetaInfoError extends Error {
+  status: number
+
+  constructor(status: number) {
+    super(`Failed to fetch platform information (${status})`)
+    this.name = "BetaInfoError"
+    this.status = status
+  }
+}
+
 /** GET /api/beta/info/ — endpoint public, appelé sans authentification. */
 export async function fetchBetaInfo(): Promise<BetaInfo> {
   const response = await fetch(`${API_BASE_URL}/api/beta/info/`, { cache: "no-store" })
   if (!response.ok) {
-    throw new Error(`Impossible de récupérer les informations plateforme (${response.status})`)
+    throw new BetaInfoError(response.status)
   }
   const payload = (await response.json()) as Partial<BetaInfo>
   return {

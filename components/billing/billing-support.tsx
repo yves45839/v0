@@ -13,6 +13,8 @@ import {
   Headphones,
   Mail,
 } from "lucide-react"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict } from "@/lib/i18n/pages/billing"
 import type { BillingTab } from "./billing-tabs"
 
 const SUPPORT_EMAIL = "support@label-ci.com"
@@ -22,13 +24,15 @@ interface BillingSupportProps {
 }
 
 export function BillingSupport({ onTabChange }: BillingSupportProps) {
+  const { locale } = useI18n()
+  const tr = billingDict[locale]
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
       <div>
-        <h2 className="text-xl font-bold">Support facturation</h2>
+        <h2 className="text-xl font-bold">{tr.support.title}</h2>
         <p className="text-sm text-muted-foreground">
-          Une question sur une facture, un paiement ou votre abonnement ? Notre équipe vous répond.
+          {tr.support.subtitle}
         </p>
       </div>
 
@@ -44,25 +48,22 @@ export function BillingSupport({ onTabChange }: BillingSupportProps) {
                 <Mail className="h-4.5 w-4.5 text-primary" />
               </div>
               <span className="text-sm font-semibold uppercase tracking-wider text-primary">
-                Contact direct
+                {tr.support.kicker}
               </span>
             </div>
-            <h3 className="text-xl font-bold">Écrivez-nous, nous répondons rapidement</h3>
+            <h3 className="text-xl font-bold">{tr.support.heading}</h3>
             <p className="text-sm text-muted-foreground">
-              Pour toute question liée à la facturation (facture manquante,
-              paiement refusé, changement de plan, mentions spécifiques sur vos
-              factures…), contactez-nous par e-mail en précisant le numéro de
-              facture concerné si possible.
+              {tr.support.desc}
             </p>
           </div>
           <div className="shrink-0 space-y-3">
             <Button size="lg" className="w-full gap-2 shadow-md" asChild>
-              <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Support facturation LR Time")}`}>
+              <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(tr.support.mailSubject)}`}>
                 <Mail className="h-4 w-4" />
                 {SUPPORT_EMAIL}
               </a>
             </Button>
-            <p className="text-center text-xs text-muted-foreground">Réponse sous 24h ouvrées.</p>
+            <p className="text-center text-xs text-muted-foreground">{tr.support.responseTime}</p>
           </div>
         </div>
       </div>
@@ -77,9 +78,9 @@ export function BillingSupport({ onTabChange }: BillingSupportProps) {
             <FileText className="h-4 w-4 text-amber-500" />
           </div>
           <div className="space-y-0.5">
-            <p className="text-sm font-semibold">Vos factures</p>
+            <p className="text-sm font-semibold">{tr.support.invoicesCardTitle}</p>
             <p className="text-xs text-muted-foreground">
-              Téléchargez vos factures PDF et réglez les factures en attente.
+              {tr.support.invoicesCardDesc}
             </p>
           </div>
           <ExternalLink className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
@@ -93,9 +94,9 @@ export function BillingSupport({ onTabChange }: BillingSupportProps) {
             <Building2 className="h-4 w-4 text-violet-500" />
           </div>
           <div className="space-y-0.5">
-            <p className="text-sm font-semibold">Offre sur mesure</p>
+            <p className="text-sm font-semibold">{tr.support.customCardTitle}</p>
             <p className="text-xs text-muted-foreground">
-              Besoins avancés, multi-sites, gros volumes : demandez une proposition personnalisée.
+              {tr.support.customCardDesc}
             </p>
           </div>
           <ExternalLink className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />

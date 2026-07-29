@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { useI18n } from "@/lib/i18n/context"
+import { tenantUsersDict } from "@/lib/i18n/pages/tenant-users"
 import {
   assignOrganizationRole,
   createOrganizationRole,
@@ -35,20 +37,14 @@ type OrganizationOption = {
   tenantRole: string
 }
 
-const TENANT_ROLES = [
-  { value: "viewer", label: "viewer" },
-  { value: "operator", label: "operator" },
-  { value: "org_admin", label: "org_admin" },
-  { value: "tenant_admin", label: "tenant_admin" },
-]
+const TENANT_ROLE_VALUES = ["viewer", "operator", "org_admin", "tenant_admin"]
 
-const ORGANIZATION_ROLES = [
-  { value: "viewer", label: "viewer" },
-  { value: "operator", label: "operator" },
-  { value: "org_admin", label: "org_admin" },
-]
+const ORGANIZATION_ROLE_VALUES = ["viewer", "operator", "org_admin"]
 
 export default function TenantUsersPage() {
+  const { locale } = useI18n()
+  const tr = tenantUsersDict[locale]
+  const roleLabel = (value: string) => tr.roleLabels[value] ?? value
   const [organizationGroups, setOrganizationGroups] = useState<MyOrganizationGroup[]>([])
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<number | null>(null)
   const [users, setUsers] = useState<OrganizationUserItem[]>([])
@@ -118,7 +114,7 @@ export default function TenantUsersPage() {
         await loadOrganizationCatalog()
       } catch (error) {
         if (cancelled) return
-        toast.error(error instanceof Error ? error.message : "Impossible de charger les organisations.")
+        toast.error(error instanceof Error ? error.message : tr.loadOrganizationsError)
       } finally {
         if (!cancelled) {
           setInitialLoading(false)
@@ -129,6 +125,7 @@ export default function TenantUsersPage() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -140,7 +137,7 @@ export default function TenantUsersPage() {
         await loadCurrentOrganizationData(selectedOrganizationId)
       } catch (error) {
         if (cancelled) return
-        toast.error(error instanceof Error ? error.message : "Erreur de chargement utilisateurs/rôles.")
+        toast.error(error instanceof Error ? error.message : tr.loadUsersRolesError)
       } finally {
         if (!cancelled) {
           setRefreshing(false)
@@ -151,6 +148,7 @@ export default function TenantUsersPage() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrganizationId])
 
   useEffect(() => {
@@ -164,7 +162,7 @@ export default function TenantUsersPage() {
     try {
       await loadCurrentOrganizationData(selectedOrganizationId)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Échec d'actualisation.")
+      toast.error(error instanceof Error ? error.message : tr.refreshError)
     } finally {
       setRefreshing(false)
     }
@@ -183,7 +181,7 @@ export default function TenantUsersPage() {
     event.preventDefault()
     if (!selectedOrganizationId) return
     if (!newRoleName.trim()) {
-      toast.error("Le nom du rôle est obligatoire.")
+      toast.error(tr.roleNameRequired)
       return
     }
     setSavingRole(true)
@@ -197,9 +195,9 @@ export default function TenantUsersPage() {
       setNewRoleDescription("")
       setNewRoleActive(true)
       await refreshSelectedOrganization()
-      toast.success("Rôle créé.")
+      toast.success(tr.roleCreated)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible de créer le rôle.")
+      toast.error(error instanceof Error ? error.message : tr.roleCreateError)
     } finally {
       setSavingRole(false)
     }
@@ -209,7 +207,7 @@ export default function TenantUsersPage() {
     event.preventDefault()
     if (!selectedOrganizationId) return
     if (!userEmail.trim() || userPassword.length < 8) {
-      toast.error("Email valide et mot de passe (8 caractères min) sont obligatoires.")
+      toast.error(tr.userFieldsRequired)
       return
     }
     setSavingUser(true)
@@ -233,9 +231,9 @@ export default function TenantUsersPage() {
       setOrganizationRole("viewer")
       setSelectedRoleIds([])
       await refreshSelectedOrganization()
-      toast.success("Utilisateur créé et email envoyé.")
+      toast.success(tr.userCreated)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible de créer l'utilisateur.")
+      toast.error(error instanceof Error ? error.message : tr.userCreateError)
     } finally {
       setSavingUser(false)
     }
@@ -257,9 +255,9 @@ export default function TenantUsersPage() {
             : user
         )
       )
-      toast.success(assigned ? "Rôle attribué." : "Rôle retiré.")
+      toast.success(assigned ? tr.roleAssigned : tr.roleRemoved)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible de modifier l'attribution.")
+      toast.error(error instanceof Error ? error.message : tr.assignError)
     } finally {
       setAssigningKey("")
     }
@@ -275,21 +273,21 @@ export default function TenantUsersPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users2 className="h-5 w-5 text-primary" />
-                Comptes utilisateurs & rôles
+                {tr.title}
               </CardTitle>
-              <CardDescription>Création de comptes tenant, rôles personnalisés et attribution par organisation.</CardDescription>
+              <CardDescription>{tr.subtitle}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-[1fr_auto]">
                 <div className="space-y-2">
-                  <Label>Organisation</Label>
+                  <Label>{tr.organizationLabel}</Label>
                   <Select
                     value={selectedOrganizationId ? String(selectedOrganizationId) : ""}
                     onValueChange={(value) => setSelectedOrganizationId(Number(value))}
                     disabled={initialLoading || organizations.length === 0}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={initialLoading ? "Chargement..." : "Sélectionner une organisation"} />
+                      <SelectValue placeholder={initialLoading ? tr.loadingPlaceholder : tr.selectOrganizationPlaceholder} />
                     </SelectTrigger>
                     <SelectContent>
                       {organizations.map((organization) => (
@@ -301,15 +299,15 @@ export default function TenantUsersPage() {
                   </Select>
                   {selectedOrganization ? (
                     <p className="text-xs text-muted-foreground">
-                      Tenant: {selectedOrganization.tenantName} ({selectedOrganization.tenantCode}) • Votre rôle tenant:{" "}
-                      <span className="font-medium">{selectedOrganization.tenantRole}</span>
+                      {tr.tenantLine(selectedOrganization.tenantName, selectedOrganization.tenantCode)}{" "}
+                      <span className="font-medium">{roleLabel(selectedOrganization.tenantRole)}</span>
                     </p>
                   ) : null}
                 </div>
                 <div className="flex items-end">
                   <Button variant="outline" onClick={() => void refreshSelectedOrganization()} disabled={!selectedOrganizationId || refreshing}>
                     {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Actualiser
+                    {tr.refresh}
                   </Button>
                 </div>
               </div>
@@ -321,17 +319,17 @@ export default function TenantUsersPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Plus className="h-4 w-4 text-primary" />
-                  Créer un rôle personnalisé
+                  {tr.createRoleTitle}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <form className="space-y-3" onSubmit={handleCreateRole}>
                   <div className="space-y-2">
-                    <Label htmlFor="role-name">Nom du rôle</Label>
+                    <Label htmlFor="role-name">{tr.roleNameLabel}</Label>
                     <Input id="role-name" value={newRoleName} onChange={(event) => setNewRoleName(event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="role-description">Description</Label>
+                    <Label htmlFor="role-description">{tr.roleDescriptionLabel}</Label>
                     <Textarea
                       id="role-description"
                       value={newRoleDescription}
@@ -344,11 +342,11 @@ export default function TenantUsersPage() {
                       checked={newRoleActive}
                       onCheckedChange={(checked) => setNewRoleActive(Boolean(checked))}
                     />
-                    <Label htmlFor="role-active">Rôle actif</Label>
+                    <Label htmlFor="role-active">{tr.roleActiveLabel}</Label>
                   </div>
                   <Button type="submit" disabled={!selectedOrganizationId || savingRole}>
                     {savingRole ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                    Créer le rôle
+                    {tr.createRole}
                   </Button>
                 </form>
               </CardContent>
@@ -358,57 +356,57 @@ export default function TenantUsersPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <UserPlus className="h-4 w-4 text-primary" />
-                  Créer un utilisateur
+                  {tr.createUserTitle}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <form className="space-y-3" onSubmit={handleCreateUser}>
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label>Email</Label>
+                      <Label>{tr.emailLabel}</Label>
                       <Input value={userEmail} onChange={(event) => setUserEmail(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Mot de passe</Label>
+                      <Label>{tr.passwordLabel}</Label>
                       <Input type="password" value={userPassword} onChange={(event) => setUserPassword(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Nom d'utilisateur (optionnel)</Label>
+                      <Label>{tr.usernameOptionalLabel}</Label>
                       <Input value={userUsername} onChange={(event) => setUserUsername(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Prénom</Label>
+                      <Label>{tr.firstNameLabel}</Label>
                       <Input value={userFirstName} onChange={(event) => setUserFirstName(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Nom</Label>
+                      <Label>{tr.lastNameLabel}</Label>
                       <Input value={userLastName} onChange={(event) => setUserLastName(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Rôle tenant</Label>
+                      <Label>{tr.tenantRoleLabel}</Label>
                       <Select value={tenantRole} onValueChange={setTenantRole}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {TENANT_ROLES.map((role) => (
-                            <SelectItem key={role.value} value={role.value}>
-                              {role.label}
+                          {TENANT_ROLE_VALUES.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {roleLabel(value)}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2 md:col-span-2">
-                      <Label>Rôle organisation</Label>
+                      <Label>{tr.organizationRoleLabel}</Label>
                       <Select value={organizationRole} onValueChange={setOrganizationRole}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {ORGANIZATION_ROLES.map((role) => (
-                            <SelectItem key={role.value} value={role.value}>
-                              {role.label}
+                          {ORGANIZATION_ROLE_VALUES.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {roleLabel(value)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -416,10 +414,10 @@ export default function TenantUsersPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Rôles personnalisés à attribuer</Label>
+                    <Label>{tr.customRolesToAssignLabel}</Label>
                     <div className="grid gap-2 rounded-lg border border-border/70 p-3 md:grid-cols-2">
                       {roles.length === 0 ? (
-                        <p className="text-xs text-muted-foreground md:col-span-2">Aucun rôle personnalisé disponible.</p>
+                        <p className="text-xs text-muted-foreground md:col-span-2">{tr.noCustomRolesAvailable}</p>
                       ) : (
                         roles.map((role) => (
                           <label key={role.id} className="flex items-center gap-2 text-sm">
@@ -435,7 +433,7 @@ export default function TenantUsersPage() {
                   </div>
                   <Button type="submit" disabled={!selectedOrganizationId || savingUser}>
                     {savingUser ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
-                    Créer l'utilisateur
+                    {tr.createUser}
                   </Button>
                 </form>
               </CardContent>
@@ -444,12 +442,12 @@ export default function TenantUsersPage() {
 
           <Card className="border-border/60 bg-card/85">
             <CardHeader>
-              <CardTitle>Rôles personnalisés</CardTitle>
-              <CardDescription>{roles.length} rôle(s) disponible(s) dans l'organisation sélectionnée.</CardDescription>
+              <CardTitle>{tr.customRolesTitle}</CardTitle>
+              <CardDescription>{tr.customRolesCount(roles.length)}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
-                {roles.length === 0 ? <p className="text-sm text-muted-foreground">Aucun rôle personnalisé.</p> : null}
+                {roles.length === 0 ? <p className="text-sm text-muted-foreground">{tr.noCustomRoles}</p> : null}
                 {roles.map((role) => (
                   <Badge key={role.id} variant={role.is_active ? "default" : "secondary"}>
                     {role.name}
@@ -461,21 +459,21 @@ export default function TenantUsersPage() {
 
           <Card className="border-border/60 bg-card/85">
             <CardHeader>
-              <CardTitle>Utilisateurs de l'organisation</CardTitle>
-              <CardDescription>{users.length} utilisateur(s) trouvé(s).</CardDescription>
+              <CardTitle>{tr.usersTitle}</CardTitle>
+              <CardDescription>{tr.usersCount(users.length)}</CardDescription>
             </CardHeader>
             <CardContent>
               {users.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Aucun utilisateur pour cette organisation.</p>
+                <p className="text-sm text-muted-foreground">{tr.noUsers}</p>
               ) : (
                 <div className="space-y-3">
                   {users.map((user) => (
                     <div key={user.id} className="rounded-lg border border-border/70 p-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold">{user.first_name || user.last_name ? `${user.first_name} ${user.last_name}`.trim() : user.username}</p>
-                        <Badge variant="outline">{user.tenant_role}</Badge>
-                        <Badge variant="outline">{user.organization_role}</Badge>
-                        {!user.is_active ? <Badge variant="secondary">inactif</Badge> : null}
+                        <Badge variant="outline">{roleLabel(user.tenant_role)}</Badge>
+                        <Badge variant="outline">{roleLabel(user.organization_role)}</Badge>
+                        {!user.is_active ? <Badge variant="secondary">{tr.inactiveBadge}</Badge> : null}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {user.email} • @{user.username}

@@ -10,8 +10,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { changePassword, fetchProfile, updateProfile, type AuthUser } from "@/lib/api/auth"
+import { useI18n } from "@/lib/i18n/context"
+import { profileDict } from "@/lib/i18n/pages/profile"
 
 export default function ProfilePage() {
+  const { locale } = useI18n()
+  const tr = profileDict[locale]
   const [profile, setProfile] = useState<AuthUser | null>(null)
   const [loadingProfile, setLoadingProfile] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -40,7 +44,7 @@ export default function ProfilePage() {
         setLastName(user.last_name || "")
       } catch (error) {
         if (cancelled) return
-        toast.error(error instanceof Error ? error.message : "Impossible de charger le profil.")
+        toast.error(error instanceof Error ? error.message : tr.loadError)
       } finally {
         if (!cancelled) {
           setLoadingProfile(false)
@@ -51,6 +55,7 @@ export default function ProfilePage() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleProfileSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -64,9 +69,9 @@ export default function ProfilePage() {
         last_name: lastName.trim(),
       })
       setProfile(updated)
-      toast.success("Profil mis à jour.")
+      toast.success(tr.profileUpdated)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Échec de mise à jour du profil.")
+      toast.error(error instanceof Error ? error.message : tr.profileUpdateError)
     } finally {
       setSavingProfile(false)
     }
@@ -75,11 +80,11 @@ export default function ProfilePage() {
   const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (newPassword !== confirmPassword) {
-      toast.error("Le nouveau mot de passe et la confirmation ne correspondent pas.")
+      toast.error(tr.passwordConfirmMismatch)
       return
     }
     if (newPassword.length < 8) {
-      toast.error("Le nouveau mot de passe doit avoir au moins 8 caractères.")
+      toast.error(tr.passwordTooShort)
       return
     }
     setChangingPassword(true)
@@ -88,9 +93,9 @@ export default function ProfilePage() {
       setOldPassword("")
       setNewPassword("")
       setConfirmPassword("")
-      toast.success("Mot de passe modifié.")
+      toast.success(tr.passwordChanged)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible de changer le mot de passe.")
+      toast.error(error instanceof Error ? error.message : tr.passwordChangeError)
     } finally {
       setChangingPassword(false)
     }
@@ -106,43 +111,43 @@ export default function ProfilePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <UserRound className="h-5 w-5 text-primary" />
-                Mon profil
+                {tr.title}
               </CardTitle>
-              <CardDescription>Informations personnelles du compte connecté.</CardDescription>
+              <CardDescription>{tr.subtitle}</CardDescription>
             </CardHeader>
             <CardContent>
               {loadingProfile ? (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Chargement...
+                  {tr.loading}
                 </p>
               ) : (
                 <form className="space-y-4" onSubmit={handleProfileSubmit}>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="profile-username">Nom d'utilisateur</Label>
+                      <Label htmlFor="profile-username">{tr.usernameLabel}</Label>
                       <Input id="profile-username" value={username} onChange={(event) => setUsername(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="profile-email">Email</Label>
+                      <Label htmlFor="profile-email">{tr.emailLabel}</Label>
                       <Input id="profile-email" value={email} onChange={(event) => setEmail(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="profile-firstname">Prénom</Label>
+                      <Label htmlFor="profile-firstname">{tr.firstNameLabel}</Label>
                       <Input id="profile-firstname" value={firstName} onChange={(event) => setFirstName(event.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="profile-lastname">Nom</Label>
+                      <Label htmlFor="profile-lastname">{tr.lastNameLabel}</Label>
                       <Input id="profile-lastname" value={lastName} onChange={(event) => setLastName(event.target.value)} />
                     </div>
                   </div>
                   <Button type="submit" disabled={savingProfile}>
                     {savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    Enregistrer le profil
+                    {tr.saveProfile}
                   </Button>
                   {profile ? (
                     <p className="text-xs text-muted-foreground">
-                      Compte #{profile.id} • {profile.is_active ? "Actif" : "Inactif"}
+                      {tr.accountLine(profile.id, Boolean(profile.is_active))}
                     </p>
                   ) : null}
                 </form>
@@ -154,14 +159,14 @@ export default function ProfilePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-primary" />
-                Changer le mot de passe
+                {tr.securityTitle}
               </CardTitle>
-              <CardDescription>Le nouveau mot de passe doit être fort et unique.</CardDescription>
+              <CardDescription>{tr.securitySubtitle}</CardDescription>
             </CardHeader>
             <CardContent>
               <form className="space-y-4" onSubmit={handlePasswordSubmit}>
                 <div className="space-y-2">
-                  <Label htmlFor="old-password">Mot de passe actuel</Label>
+                  <Label htmlFor="old-password">{tr.currentPasswordLabel}</Label>
                   <Input
                     id="old-password"
                     type="password"
@@ -171,7 +176,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-password">Nouveau mot de passe</Label>
+                  <Label htmlFor="new-password">{tr.newPasswordLabel}</Label>
                   <Input
                     id="new-password"
                     type="password"
@@ -181,7 +186,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirmer le mot de passe</Label>
+                  <Label htmlFor="confirm-password">{tr.confirmPasswordLabel}</Label>
                   <Input
                     id="confirm-password"
                     type="password"
@@ -192,7 +197,7 @@ export default function ProfilePage() {
                 </div>
                 <Button type="submit" disabled={changingPassword}>
                   {changingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                  Mettre à jour le mot de passe
+                  {tr.updatePassword}
                 </Button>
               </form>
             </CardContent>

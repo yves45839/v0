@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { formatDistanceToNow } from "date-fns"
+import { enUS, fr as frLocale } from "date-fns/locale"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +19,13 @@ import {
   type SurveillanceCoreDevice,
   type SurveillanceGatewayDevice,
 } from "@/lib/api/surveillance"
+import { useI18n } from "@/lib/i18n/context"
+import type { Locale } from "@/lib/i18n/config"
+import {
+  surveillanceDict,
+  type SurveillanceDict,
+  type SurveillanceToneKey,
+} from "@/lib/i18n/pages/surveillance"
 import {
   Activity,
   AlertTriangle,
@@ -46,23 +55,18 @@ const MAX_FEED_EVENTS = 200
 const NEW_EVENT_PULSE_MS = 5_000
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function formatTime(iso: string): string {
+const DATE_FNS_LOCALES = { fr: frLocale, en: enUS } as const
+
+function formatClockTime(iso: string, localeTag: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return "—"
-  return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date)
+  return new Intl.DateTimeFormat(localeTag, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date)
 }
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, locale: Locale): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return "—"
-  const diff = Date.now() - date.getTime()
-  if (diff < 0) return "à l'instant"
-  const min = Math.floor(diff / 60_000)
-  if (min < 1) return "à l'instant"
-  if (min < 60) return `il y a ${min} min`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `il y a ${h} h`
-  return `il y a ${Math.floor(h / 24)} j`
+  return formatDistanceToNow(date, { addSuffix: true, locale: DATE_FNS_LOCALES[locale] })
 }
 
 function isToday(iso: string): boolean {
@@ -80,16 +84,16 @@ function eventTimestamp(event: HikEvent): string {
   return event.timestamp || event.raw_event?.event_datetime || ""
 }
 
-type EventTone = { label: string; color: string; bg: string; dot: string }
+type EventTone = { labelKey: SurveillanceToneKey; color: string; bg: string; dot: string }
 
 const EVENT_TONES: Record<string, EventTone> = {
-  CHECK_IN: { label: "Entrée", color: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" },
-  CHECK_OUT: { label: "Sortie", color: "text-blue-400", bg: "bg-blue-500/10", dot: "bg-blue-500" },
-  BREAK_OUT: { label: "Départ pause", color: "text-amber-400", bg: "bg-amber-500/10", dot: "bg-amber-500" },
-  BREAK_IN: { label: "Retour pause", color: "text-amber-400", bg: "bg-amber-500/10", dot: "bg-amber-500" },
-  OVERTIME_IN: { label: "Heures supp. — entrée", color: "text-purple-400", bg: "bg-purple-500/10", dot: "bg-purple-500" },
-  OVERTIME_OUT: { label: "Heures supp. — sortie", color: "text-purple-400", bg: "bg-purple-500/10", dot: "bg-purple-500" },
-  ACCESS_DENIED: { label: "Accès refusé", color: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" },
+  CHECK_IN: { labelKey: "checkIn", color: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" },
+  CHECK_OUT: { labelKey: "checkOut", color: "text-blue-400", bg: "bg-blue-500/10", dot: "bg-blue-500" },
+  BREAK_OUT: { labelKey: "breakOut", color: "text-amber-400", bg: "bg-amber-500/10", dot: "bg-amber-500" },
+  BREAK_IN: { labelKey: "breakIn", color: "text-amber-400", bg: "bg-amber-500/10", dot: "bg-amber-500" },
+  OVERTIME_IN: { labelKey: "overtimeIn", color: "text-purple-400", bg: "bg-purple-500/10", dot: "bg-purple-500" },
+  OVERTIME_OUT: { labelKey: "overtimeOut", color: "text-purple-400", bg: "bg-purple-500/10", dot: "bg-purple-500" },
+  ACCESS_DENIED: { labelKey: "accessDenied", color: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" },
 }
 
 function eventTone(event: HikEvent): EventTone {
@@ -97,12 +101,12 @@ function eventTone(event: HikEvent): EventTone {
   if (EVENT_TONES[action]) return EVENT_TONES[action]
   const status = (event.access_status ?? "").trim().toLowerCase()
   if (status === "granted") {
-    return { label: "Accès accordé", color: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" }
+    return { labelKey: "accessGranted", color: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" }
   }
   if (status === "denied") {
-    return { label: "Accès refusé", color: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" }
+    return { labelKey: "accessDenied", color: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" }
   }
-  return { label: "Événement", color: "text-muted-foreground", bg: "bg-muted/40", dot: "bg-slate-500" }
+  return { labelKey: "event", color: "text-muted-foreground", bg: "bg-muted/40", dot: "bg-slate-500" }
 }
 
 function toEventId(event: HikEvent): number {
@@ -162,6 +166,8 @@ function mergeDevices(
   gateway: SurveillanceGatewayDevice[],
   gatewayReachable: boolean,
   events: HikEvent[],
+  tr: SurveillanceDict,
+  localeTag: string,
 ): MergedDevice[] {
   const findGatewayMatch = (device: SurveillanceCoreDevice): SurveillanceGatewayDevice | undefined =>
     gateway.find((entry) => {
@@ -189,7 +195,7 @@ function mergeDevices(
         String(device.name ?? "").trim() ||
         (gwMatch ? readString(gwMatch, ["name", "device_name", "dev_name"]) : "") ||
         base.serialNumber ||
-        `Appareil #${device.id}`,
+        tr.deviceFallbackName(device.id),
       model: String(device.model ?? "").trim() || (gwMatch ? readString(gwMatch, ["model", "device_type", "dev_type"]) : ""),
       ipAddress: String(device.ip_address ?? "").trim() || (gwMatch ? readString(gwMatch, ["ip_address", "ip"]) : ""),
       online: isDeviceOnline(status),
@@ -213,7 +219,7 @@ function mergeDevices(
       merged.push({
         key: `gw-${devIndex || serial || merged.length}`,
         ...base,
-        name: readString(entry, ["name", "device_name", "dev_name"]) || serial || devIndex || "Appareil passerelle",
+        name: readString(entry, ["name", "device_name", "dev_name"]) || serial || devIndex || tr.gatewayDeviceFallback,
         model: readString(entry, ["model", "device_type", "dev_type"]),
         ipAddress: readString(entry, ["ip_address", "ip"]),
         online: isDeviceOnline(readString(entry, ["status", "device_status", "online_status"])),
@@ -227,12 +233,14 @@ function mergeDevices(
   // En ligne d'abord, puis par nom.
   return merged.sort((a, b) => {
     if (a.online !== b.online) return a.online ? -1 : 1
-    return a.name.localeCompare(b.name, "fr")
+    return a.name.localeCompare(b.name, localeTag)
   })
 }
 
 // ── Carte appareil ────────────────────────────────────────────────────────────
 function DeviceCard({ device }: { device: MergedDevice }) {
+  const { locale } = useI18n()
+  const tr = surveillanceDict[locale]
   const StatusIcon = device.online ? Wifi : WifiOff
   return (
     <div
@@ -266,7 +274,7 @@ function DeviceCard({ device }: { device: MergedDevice }) {
           )}
         >
           <StatusIcon className="h-3 w-3" />
-          {device.online ? "En ligne" : "Hors ligne"}
+          {device.online ? tr.online : tr.offline}
         </Badge>
       </div>
 
@@ -278,10 +286,10 @@ function DeviceCard({ device }: { device: MergedDevice }) {
             device.liveStatus ? "bg-green-500/10 text-green-400" : "bg-muted/50 text-muted-foreground",
           )}
         >
-          {device.liveStatus ? "Statut temps réel" : "Inventaire local"}
+          {device.liveStatus ? tr.liveStatusChip : tr.localInventoryChip}
         </span>
         {!device.registered && (
-          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">Hors inventaire</span>
+          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{tr.notRegisteredChip}</span>
         )}
       </div>
 
@@ -289,13 +297,13 @@ function DeviceCard({ device }: { device: MergedDevice }) {
         <Clock className="h-3 w-3 shrink-0" />
         {device.lastEvent ? (
           <span className="truncate">
-            {eventTone(device.lastEvent).label}
+            {tr.tones[eventTone(device.lastEvent).labelKey]}
             {device.lastEvent.employee_name ? ` — ${device.lastEvent.employee_name}` : ""}
             {" · "}
-            {formatRelative(eventTimestamp(device.lastEvent))}
+            {formatRelative(eventTimestamp(device.lastEvent), locale)}
           </span>
         ) : (
-          <span>Aucune activité récente</span>
+          <span>{tr.noRecentActivity}</span>
         )}
       </div>
     </div>
@@ -304,11 +312,13 @@ function DeviceCard({ device }: { device: MergedDevice }) {
 
 // ── Ligne du flux ─────────────────────────────────────────────────────────────
 function FeedRow({ event, isNew }: { event: HikEvent; isNew: boolean }) {
+  const { locale, localeTag } = useI18n()
+  const tr = surveillanceDict[locale]
   const tone = eventTone(event)
   const direction = (event.direction ?? "").trim().toLowerCase()
   const DirectionIcon = direction === "out" || direction === "sortie" ? ArrowUpRight : ArrowDownLeft
   const showDirection = direction === "in" || direction === "out" || direction === "entrée" || direction === "sortie"
-  const deviceName = event.device?.device_name || event.device?.dev_index || event.device?.serial_number || "Appareil inconnu"
+  const deviceName = event.device?.device_name || event.device?.dev_index || event.device?.serial_number || tr.unknownDevice
 
   return (
     <div
@@ -320,9 +330,9 @@ function FeedRow({ event, isNew }: { event: HikEvent; isNew: boolean }) {
       <span className={cn("h-2 w-2 shrink-0 rounded-full", tone.dot, isNew && "animate-pulse")} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge className={cn("text-[10px]", tone.bg, tone.color)}>{tone.label}</Badge>
+          <Badge className={cn("text-[10px]", tone.bg, tone.color)}>{tr.tones[tone.labelKey]}</Badge>
           <span className="truncate text-xs text-foreground">
-            {event.employee_name || (event.person_id ? `ID ${event.person_id}` : "Personne inconnue")}
+            {event.employee_name || (event.person_id ? tr.personId(event.person_id) : tr.unknownPerson)}
           </span>
           {showDirection && <DirectionIcon className="h-3 w-3 shrink-0 text-muted-foreground" />}
         </div>
@@ -331,13 +341,17 @@ function FeedRow({ event, isNew }: { event: HikEvent; isNew: boolean }) {
           {event.department_name && <span className="truncate rounded bg-muted/50 px-1 text-[9px]">{event.department_name}</span>}
         </div>
       </div>
-      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTime(eventTimestamp(event))}</span>
+      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+        {formatClockTime(eventTimestamp(event), localeTag)}
+      </span>
     </div>
   )
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function SurveillancePage() {
+  const { locale, localeTag } = useI18n()
+  const tr = surveillanceDict[locale]
   const [coreDevices, setCoreDevices] = useState<SurveillanceCoreDevice[]>([])
   const [gatewayDevices, setGatewayDevices] = useState<SurveillanceGatewayDevice[]>([])
   const [gatewayErrors, setGatewayErrors] = useState<unknown[]>([])
@@ -365,7 +379,7 @@ export default function SurveillancePage() {
       // On garde les données précédentes si un rafraîchissement échoue :
       // l'erreur devient bloquante uniquement si aucun appareil n'est connu.
       setCoreError(
-        coreResult.reason instanceof Error ? coreResult.reason.message : "Impossible de charger les appareils.",
+        coreResult.reason instanceof Error ? coreResult.reason.message : tr.coreLoadError,
       )
     }
 
@@ -376,12 +390,12 @@ export default function SurveillancePage() {
       // Passerelle injoignable = état de premier ordre, pas un crash.
       setGatewayDevices([])
       setGatewayErrors([
-        gatewayResult.reason instanceof Error ? gatewayResult.reason.message : "Passerelle injoignable.",
+        gatewayResult.reason instanceof Error ? gatewayResult.reason.message : tr.gatewayUnreachableFallback,
       ])
     }
     setGatewayChecked(true)
     setLastUpdatedAt(new Date().toISOString())
-  }, [])
+  }, [tr])
 
   // ── Flux d'événements : chargement initial puis curseur since_id ──
   const loadInitialEvents = useCallback(async () => {
@@ -453,8 +467,8 @@ export default function SurveillancePage() {
 
   // ── Dérivés ──
   const mergedDevices = useMemo(
-    () => mergeDevices(coreDevices, gatewayDevices, gatewayReachable, events),
-    [coreDevices, gatewayDevices, gatewayReachable, events],
+    () => mergeDevices(coreDevices, gatewayDevices, gatewayReachable, events, tr, localeTag),
+    [coreDevices, gatewayDevices, gatewayReachable, events, tr, localeTag],
   )
   const onlineCount = mergedDevices.filter((device) => device.online).length
   const offlineCount = mergedDevices.length - onlineCount
@@ -462,13 +476,13 @@ export default function SurveillancePage() {
   const gatewayErrorDetail = gatewayErrors.length > 0 ? formatGatewayErrorEntry(gatewayErrors[0]) : ""
 
   const kpis = [
-    { label: "Appareils", value: String(mergedDevices.length), color: "text-foreground", bg: "bg-blue-500/10", iconColor: "text-blue-400", icon: Cpu },
-    { label: "En ligne", value: String(onlineCount), color: "text-green-400", bg: "bg-green-500/10", iconColor: "text-green-400", icon: Wifi },
-    { label: "Hors ligne", value: String(offlineCount), color: offlineCount > 0 ? "text-red-400" : "text-foreground", bg: "bg-red-500/10", iconColor: "text-red-400", icon: WifiOff },
-    { label: "Événements aujourd'hui", value: String(eventsToday), color: "text-foreground", bg: "bg-purple-500/10", iconColor: "text-purple-400", icon: Activity },
+    { label: tr.kpiDevices, value: String(mergedDevices.length), color: "text-foreground", bg: "bg-blue-500/10", iconColor: "text-blue-400", icon: Cpu },
+    { label: tr.kpiOnline, value: String(onlineCount), color: "text-green-400", bg: "bg-green-500/10", iconColor: "text-green-400", icon: Wifi },
+    { label: tr.kpiOffline, value: String(offlineCount), color: offlineCount > 0 ? "text-red-400" : "text-foreground", bg: "bg-red-500/10", iconColor: "text-red-400", icon: WifiOff },
+    { label: tr.kpiEventsToday, value: String(eventsToday), color: "text-foreground", bg: "bg-purple-500/10", iconColor: "text-purple-400", icon: Activity },
     {
-      label: "Passerelle Hikvision",
-      value: !gatewayChecked ? "…" : gatewayReachable ? "OK" : "Injoignable",
+      label: tr.kpiGateway,
+      value: !gatewayChecked ? "…" : gatewayReachable ? tr.gatewayOk : tr.gatewayUnreachable,
       color: !gatewayChecked ? "text-muted-foreground" : gatewayReachable ? "text-green-400" : "text-red-400",
       bg: gatewayReachable ? "bg-green-500/10" : "bg-red-500/10",
       iconColor: gatewayReachable ? "text-green-400" : "text-red-400",
@@ -491,19 +505,17 @@ export default function SurveillancePage() {
                 <MonitorCheck className="h-5 w-5 text-blue-500" />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground">Supervision temps réel</h1>
-                <p className="text-sm text-muted-foreground">
-                  État des appareils d&apos;accès et flux d&apos;événements en direct
-                </p>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">{tr.title}</h1>
+                <p className="text-sm text-muted-foreground">{tr.subtitle}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex h-7 items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/10 px-2.5 text-xs text-green-400">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                Actualisation toutes les 15 s
+                {tr.autoRefresh}
               </div>
               <Button variant="outline" size="sm" onClick={() => void handleManualRefresh()} disabled={refreshing || loading}>
-                <RefreshCw className={cn("mr-2 h-3.5 w-3.5", refreshing && "animate-spin")} /> Actualiser
+                <RefreshCw className={cn("mr-2 h-3.5 w-3.5", refreshing && "animate-spin")} /> {tr.refresh}
               </Button>
             </div>
           </div>
@@ -512,14 +524,14 @@ export default function SurveillancePage() {
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border/60 bg-card py-24">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Chargement de la supervision…</p>
+              <p className="text-sm text-muted-foreground">{tr.loading}</p>
             </div>
           ) : showFatalError ? (
             <EmptyState
               icon={ServerCrash}
-              title="Impossible de charger la supervision"
-              description={coreError ?? "Une erreur est survenue lors du chargement des appareils."}
-              action={{ label: "Réessayer", icon: RefreshCw, onClick: () => void handleManualRefresh() }}
+              title={tr.fatalErrorTitle}
+              description={coreError ?? tr.fatalErrorFallback}
+              action={{ label: tr.retry, icon: RefreshCw, onClick: () => void handleManualRefresh() }}
             />
           ) : (
             <>
@@ -528,11 +540,10 @@ export default function SurveillancePage() {
                 <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-red-400">Passerelle Hikvision injoignable</p>
+                    <p className="text-sm font-semibold text-red-400">{tr.gatewayBannerTitle}</p>
                     <p className="mt-0.5 text-xs text-red-400/80">
-                      Les statuts affichés proviennent de l&apos;inventaire local et peuvent ne pas refléter l&apos;état réel des
-                      appareils.
-                      {gatewayErrorDetail ? ` Détail : ${gatewayErrorDetail}` : ""}
+                      {tr.gatewayBannerBody}
+                      {gatewayErrorDetail ? tr.gatewayBannerDetail(gatewayErrorDetail) : ""}
                     </p>
                   </div>
                 </div>
@@ -542,9 +553,7 @@ export default function SurveillancePage() {
               {coreError && coreDevices.length > 0 && (
                 <div className="mb-5 flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5">
                   <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-                  <p className="text-xs text-amber-400">
-                    Le dernier rafraîchissement des appareils a échoué — affichage des dernières données connues.
-                  </p>
+                  <p className="text-xs text-amber-400">{tr.refreshFailedBanner}</p>
                 </div>
               )}
 
@@ -570,20 +579,22 @@ export default function SurveillancePage() {
                   <div className="mb-3 flex items-center justify-between">
                     <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
                       <Cpu className="h-4 w-4 text-primary" />
-                      Appareils d&apos;accès
+                      {tr.accessDevices}
                       <Badge className="bg-muted px-1.5 text-[10px] text-muted-foreground">{mergedDevices.length}</Badge>
                     </h2>
                     {lastUpdatedAt && (
-                      <span className="text-[11px] text-muted-foreground">Mis à jour à {formatTime(lastUpdatedAt)}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {tr.updatedAt(formatClockTime(lastUpdatedAt, localeTag))}
+                      </span>
                     )}
                   </div>
 
                   {mergedDevices.length === 0 ? (
                     <EmptyState
                       icon={Cpu}
-                      title="Aucun appareil"
-                      description="Aucun appareil d'accès n'est enregistré sur ce tenant. Ajoutez un lecteur pour démarrer la supervision."
-                      action={{ label: "Gérer les appareils", href: "/devices" }}
+                      title={tr.noDevicesTitle}
+                      description={tr.noDevicesDescription}
+                      action={{ label: tr.manageDevices, href: "/devices" }}
                     />
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -600,21 +611,19 @@ export default function SurveillancePage() {
                     <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
                       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                         <Activity className="h-4 w-4 text-primary" />
-                        Flux d&apos;événements
+                        {tr.eventFeed}
                       </div>
                       <div className="flex items-center gap-1.5 text-[11px] text-green-400">
                         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                        En direct
+                        {tr.live}
                       </div>
                     </div>
 
                     {events.length === 0 ? (
                       <div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
                         <Inbox className="h-8 w-8 text-muted-foreground/40" />
-                        <p className="text-sm text-muted-foreground">Aucun événement reçu pour le moment</p>
-                        <p className="text-xs text-muted-foreground/70">
-                          Le flux se met à jour automatiquement toutes les 15 secondes.
-                        </p>
+                        <p className="text-sm text-muted-foreground">{tr.noEventsTitle}</p>
+                        <p className="text-xs text-muted-foreground/70">{tr.noEventsHint}</p>
                       </div>
                     ) : (
                       <div className="max-h-[38rem] divide-y divide-border/40 overflow-y-auto">
@@ -628,13 +637,13 @@ export default function SurveillancePage() {
                       <div className="flex items-center justify-between border-t border-border/60 px-4 py-2 text-[11px] text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <CheckCircle2 className="h-3 w-3 text-green-400" />
-                          {events.filter((event) => eventTone(event).label !== "Accès refusé").length} accordés
+                          {tr.grantedCount(events.filter((event) => eventTone(event).labelKey !== "accessDenied").length)}
                         </span>
                         <span className="flex items-center gap-1">
                           <XCircle className="h-3 w-3 text-red-400" />
-                          {events.filter((event) => eventTone(event).label === "Accès refusé").length} refusés
+                          {tr.deniedCount(events.filter((event) => eventTone(event).labelKey === "accessDenied").length)}
                         </span>
-                        <span>{events.length} affichés</span>
+                        <span>{tr.shownCount(events.length)}</span>
                       </div>
                     )}
                   </div>

@@ -1,13 +1,14 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { addMonths, format, getDay, getDaysInMonth, isSameMonth, startOfMonth } from "date-fns"
+import { addDays, addMonths, format, getDay, getDaysInMonth, isSameMonth, startOfMonth } from "date-fns"
 import { enUS, fr } from "date-fns/locale"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
+import { absencesDict } from "@/lib/i18n/pages/absences"
 import type { LeaveRequestApiItem, LeaveRequestType } from "@/lib/api/employees"
 
 interface TeamAvailabilityProps {
@@ -33,19 +34,18 @@ function daysInYear(request: LeaveRequestApiItem, year: number): number {
   return Math.floor((to.getTime() - from.getTime()) / 86_400_000) + 1
 }
 
-const TYPE_LABELS: Record<LeaveRequestType, { fr: string; en: string }> = {
-  paid: { fr: "Congés payés", en: "Paid leave" },
-  sick: { fr: "Maladie", en: "Sick leave" },
-  unpaid: { fr: "Sans solde", en: "Unpaid" },
-  special: { fr: "Exceptionnel", en: "Special" },
-}
+const LEAVE_TYPE_KEYS: LeaveRequestType[] = ["paid", "sick", "unpaid", "special"]
 
 export function TeamAvailability({ requests, loading = false }: TeamAvailabilityProps) {
   const { locale } = useI18n()
+  const tr = absencesDict[locale]
   const dateLocale = locale === "en" ? enUS : fr
   const [month, setMonth] = useState<Date>(() => startOfMonth(new Date()))
 
-  const headers = locale === "en" ? ["M", "T", "W", "T", "F", "S", "S"] : ["L", "M", "M", "J", "V", "S", "D"]
+  // Initiales des jours (semaine commençant lundi) via date-fns — le 2024-01-01 est un lundi.
+  const headers = Array.from({ length: 7 }, (_, i) =>
+    format(addDays(new Date(2024, 0, 1), i), "EEEEE", { locale: dateLocale }).toUpperCase()
+  )
 
   const approved = useMemo(
     () => requests.filter((request) => request.status === "approved"),
@@ -81,7 +81,7 @@ export function TeamAvailability({ requests, loading = false }: TeamAvailability
       if (days <= 0) continue
       totals.set(request.leave_type, (totals.get(request.leave_type) ?? 0) + days)
     }
-    return (Object.keys(TYPE_LABELS) as LeaveRequestType[])
+    return LEAVE_TYPE_KEYS
       .map((type) => ({ type, days: totals.get(type) ?? 0 }))
       .filter((entry) => entry.days > 0)
   }, [approved])
@@ -94,7 +94,7 @@ export function TeamAvailability({ requests, loading = false }: TeamAvailability
       <CardHeader className="space-y-0 pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold tracking-tight">
-            {locale === "en" ? "Team availability" : "Disponibilité équipe"}
+            {tr.teamAvailability}
           </CardTitle>
           <div className="flex items-center gap-1">
             <Button
@@ -102,7 +102,7 @@ export function TeamAvailability({ requests, loading = false }: TeamAvailability
               size="icon"
               className="h-6 w-6"
               onClick={() => setMonth((m) => addMonths(m, -1))}
-              aria-label={locale === "en" ? "Previous month" : "Mois précédent"}
+              aria-label={tr.prevMonth}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
@@ -111,7 +111,7 @@ export function TeamAvailability({ requests, loading = false }: TeamAvailability
               size="icon"
               className="h-6 w-6"
               onClick={() => setMonth((m) => addMonths(m, 1))}
-              aria-label={locale === "en" ? "Next month" : "Mois suivant"}
+              aria-label={tr.nextMonth}
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
@@ -122,7 +122,7 @@ export function TeamAvailability({ requests, loading = false }: TeamAvailability
       <CardContent>
         {loading ? (
           <p className="py-6 text-center text-xs text-muted-foreground">
-            {locale === "en" ? "Loading availability…" : "Chargement des disponibilités…"}
+            {tr.loadingAvailability}
           </p>
         ) : (
           <>
@@ -142,13 +142,7 @@ export function TeamAvailability({ requests, loading = false }: TeamAvailability
                 return (
                   <div
                     key={i}
-                    title={
-                      inMonth && isLeave
-                        ? locale === "en"
-                          ? `${count} person(s) on leave`
-                          : `${count} personne(s) en congé`
-                        : undefined
-                    }
+                    title={inMonth && isLeave ? tr.personsOnLeave(count) : undefined}
                     className={cn(
                       "grid aspect-square place-items-center rounded-md font-medium tabular-nums",
                       isConflict
@@ -169,40 +163,32 @@ export function TeamAvailability({ requests, loading = false }: TeamAvailability
             <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-sm bg-destructive/8 outline outline-1 outline-destructive/30" />
-                {locale === "en" ? "Approved leave" : "Congé validé"}
+                {tr.approvedLeave}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-sm border border-destructive bg-destructive/12" />
-                {locale === "en" ? "Overlap (2+)" : "Chevauchement (2+)"}
+                {tr.overlap}
               </span>
             </div>
 
             <div className="mt-4 border-t border-border/70 pt-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {locale === "en"
-                  ? `Approved days in ${today.getFullYear()}`
-                  : `Jours validés en ${today.getFullYear()}`}
+                {tr.approvedDaysIn(today.getFullYear())}
               </p>
               {yearTotals.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  {locale === "en"
-                    ? "No approved leave this year."
-                    : "Aucun congé validé cette année."}
+                  {tr.noApprovedThisYear}
                 </p>
               ) : (
                 <ul className="space-y-1 text-xs">
                   {yearTotals.map((entry) => (
                     <li key={entry.type} className="flex items-center justify-between py-1">
-                      <span className="text-foreground">
-                        {TYPE_LABELS[entry.type][locale === "en" ? "en" : "fr"]}
-                      </span>
+                      <span className="text-foreground">{tr.leaveTypes[entry.type]}</span>
                       <span>
                         <strong className="font-mono tabular-nums text-foreground">
                           {entry.days}
                         </strong>{" "}
-                        <span className="text-muted-foreground">
-                          {locale === "en" ? "days" : "jours"}
-                        </span>
+                        <span className="text-muted-foreground">{tr.days}</span>
                       </span>
                     </li>
                   ))}

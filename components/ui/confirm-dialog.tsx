@@ -12,6 +12,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { useI18n } from "@/lib/i18n/context"
+import { shellDict } from "@/lib/i18n/pages/shell"
 
 export type ConfirmDialogProps = {
   open: boolean
@@ -30,11 +32,15 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Confirmer",
-  cancelLabel = "Annuler",
+  confirmLabel,
+  cancelLabel,
   destructive = true,
   onConfirm,
 }: ConfirmDialogProps) {
+  const { locale } = useI18n()
+  const tr = shellDict[locale]
+  const resolvedConfirmLabel = confirmLabel ?? tr.confirm
+  const resolvedCancelLabel = cancelLabel ?? tr.cancel
   const [pending, setPending] = useState(false)
 
   const handleConfirm = useCallback(async () => {
@@ -55,7 +61,7 @@ export function ConfirmDialog({
           {description ? <AlertDialogDescription>{description}</AlertDialogDescription> : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogCancel disabled={pending}>{resolvedCancelLabel}</AlertDialogCancel>
           <AlertDialogAction
             disabled={pending}
             className={destructive ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
@@ -64,7 +70,7 @@ export function ConfirmDialog({
               void handleConfirm()
             }}
           >
-            {pending ? "En cours…" : confirmLabel}
+            {pending ? tr.inProgress : resolvedConfirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

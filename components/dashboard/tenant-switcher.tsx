@@ -14,6 +14,7 @@ import {
 import { useActiveTenant } from "@/hooks/use-active-tenant"
 import { setActiveTenantCode } from "@/lib/api/auth"
 import { useI18n } from "@/lib/i18n/context"
+import { shellDict } from "@/lib/i18n/pages/shell"
 
 export function TenantSwitcher() {
   const { tenants, activeTenantCode, activeTenant } = useActiveTenant()
@@ -53,7 +54,7 @@ export function TenantSwitcher() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          {locale === "en" ? "Organization" : "Organisation"}
+          {shellDict[locale].organization}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {tenants.map((tenant) => (

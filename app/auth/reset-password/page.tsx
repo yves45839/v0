@@ -13,18 +13,22 @@ import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { PasswordStrengthBar } from "@/components/ui/password-strength-bar"
 import { LRLogoMark } from "@/components/brand/lr-logo-mark"
+import { useI18n } from "@/lib/i18n/context"
+import { authDict } from "@/lib/i18n/pages/auth"
 
 /**
- * Wizard conditionnel :
- *  - Si ?token= présent dans l'URL  →  flux "lien email" : token + nouveau mdp
- *  - Sinon                           →  flux "OTP"       : email + code + nouveau mdp
- * Les deux flux ne sont jamais affichés simultanément.
+ * Conditional wizard:
+ *  - If ?token= is present in the URL  →  "email link" flow: token + new password
+ *  - Otherwise                          →  "OTP" flow: email + code + new password
+ * The two flows are never shown at the same time.
  */
 export default function ResetPasswordPage() {
   const searchParams = useSearchParams()
+  const { locale } = useI18n()
+  const tr = authDict[locale]
   const tokenFromQuery = useMemo(() => String(searchParams.get("token") ?? "").trim(), [searchParams])
 
-  // Détecter le flux au montage — si un token est dans l'URL, on utilise le flux lien
+  // Detect the flow on mount — if a token is in the URL, use the link flow
   const [flow] = useState<"token" | "otp">(() => tokenFromQuery.length > 0 ? "token" : "otp")
 
   const [token, setToken] = useState(tokenFromQuery)
@@ -45,21 +49,21 @@ export default function ResetPasswordPage() {
     setError(null)
 
     if (newPassword.length < 8) {
-      setError("Le nouveau mot de passe doit contenir au moins 8 caractères.")
+      setError(tr.newPasswordTooShort)
       return
     }
     if (newPassword !== confirmPassword) {
-      setError("Les mots de passe ne correspondent pas.")
+      setError(tr.passwordsDoNotMatch)
       return
     }
 
     if (flow === "token" && !token.trim()) {
-      setError("Le token est requis. Vérifiez que vous avez bien utilisé le lien reçu par email.")
+      setError(tr.tokenRequired)
       return
     }
     if (flow === "otp") {
-      if (!email.trim()) { setError("L'adresse email est requise."); return }
-      if (otp.trim().length < 4) { setError("Le code OTP est incomplet."); return }
+      if (!email.trim()) { setError(tr.emailAddressRequired); return }
+      if (otp.trim().length < 4) { setError(tr.otpIncomplete); return }
     }
 
     setSubmitting(true)
@@ -70,11 +74,11 @@ export default function ResetPasswordPage() {
           : { email: email.trim().toLowerCase(), otp: otp.trim(), new_password: newPassword }
       )
       setSuccess(true)
-      toast.success("Mot de passe réinitialisé")
+      toast.success(tr.passwordResetToast)
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Échec de réinitialisation."
+      const detail = err instanceof Error ? err.message : tr.resetError
       setError(detail)
-      toast.error("Échec de réinitialisation")
+      toast.error(tr.resetFailedToast)
     } finally {
       setSubmitting(false)
     }
@@ -109,9 +113,9 @@ export default function ResetPasswordPage() {
             <div className="flex items-center gap-3">
               <LRLogoMark className="h-10 w-11 text-[18px]" />
               <div>
-                <CardTitle className="text-lg">LR Time</CardTitle>
+                <CardTitle className="text-lg">{tr.brand}</CardTitle>
                 <CardDescription>
-                  {flow === "token" ? "Réinitialisation par lien email" : "Réinitialisation par code OTP"}
+                  {flow === "token" ? tr.resetByLinkTitle : tr.resetByOtpTitle}
                 </CardDescription>
               </div>
             </div>
@@ -119,43 +123,43 @@ export default function ResetPasswordPage() {
           <CardContent className="space-y-4">
             {success ? (
               <div className="space-y-3 text-sm">
-                <p>Votre mot de passe a été mis à jour avec succès.</p>
+                <p>{tr.passwordUpdated}</p>
                 <Button asChild className="w-full">
-                  <Link href="/login">Se connecter</Link>
+                  <Link href="/login">{tr.signIn}</Link>
                 </Button>
               </div>
             ) : (
               <form className="space-y-4" onSubmit={onSubmit}>
-                {/* ── Flux lien email ── */}
+                {/* ── Email link flow ── */}
                 {flow === "token" && (
                   <div className="space-y-2">
-                    <Label htmlFor="token">Token (extrait du lien reçu par email)</Label>
+                    <Label htmlFor="token">{tr.tokenLabel}</Label>
                     <Input
                       id="token"
                       value={token}
                       onChange={(event) => setToken(event.target.value)}
-                      placeholder="UUID reçu dans le lien email"
+                      placeholder={tr.tokenPlaceholder}
                       autoComplete="off"
                     />
                   </div>
                 )}
 
-                {/* ── Flux OTP ── */}
+                {/* ── OTP flow ── */}
                 {flow === "otp" && (
                   <>
                     <div className="space-y-2">
-                      <Label htmlFor="email">Adresse email</Label>
+                      <Label htmlFor="email">{tr.emailAddressLabel}</Label>
                       <Input
                         id="email"
                         type="email"
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
-                        placeholder="prenom.nom@societe.com"
+                        placeholder={tr.emailPlaceholder}
                         autoComplete="email"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="otp">Code OTP reçu par email</Label>
+                      <Label htmlFor="otp">{tr.otpReceivedLabel}</Label>
                       <Input
                         id="otp"
                         value={otp}
@@ -170,46 +174,46 @@ export default function ResetPasswordPage() {
                   </>
                 )}
 
-                {/* ── Champs communs aux deux flux ── */}
+                {/* ── Fields common to both flows ── */}
                 <div className="space-y-2">
-                  <Label htmlFor="newPassword">Nouveau mot de passe</Label>
+                  <Label htmlFor="newPassword">{tr.newPasswordLabel}</Label>
                   <PasswordInput
                     id="newPassword"
                     value={newPassword}
                     onChange={(event) => setNewPassword(event.target.value)}
-                    placeholder="Au moins 8 caractères"
+                    placeholder={tr.passwordMinPlaceholder}
                     autoComplete="new-password"
                   />
                   <PasswordStrengthBar password={newPassword} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
+                  <Label htmlFor="confirmPassword">{tr.confirmPasswordLabel}</Label>
                   <PasswordInput
                     id="confirmPassword"
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
                     onBlur={() => setConfirmTouched(true)}
-                    placeholder="Retapez votre mot de passe"
+                    placeholder={tr.confirmPasswordPlaceholder}
                     autoComplete="new-password"
                     aria-invalid={passwordMismatch}
                   />
                   {passwordMismatch && (
-                    <p className="text-xs text-red-400">Les mots de passe ne correspondent pas.</p>
+                    <p className="text-xs text-red-400">{tr.passwordsDoNotMatch}</p>
                   )}
                 </div>
 
-                {/* Lien pour passer d'un flux à l'autre */}
+                {/* Link to switch between flows */}
                 <p className="text-center text-xs text-muted-foreground">
                   {flow === "token" ? (
-                    <>Pas de lien ?{" "}
+                    <>{tr.noLink}{" "}
                       <Link href="/auth/forgot-password" className="text-primary hover:underline">
-                        Demander un code OTP
+                        {tr.requestOtpCode}
                       </Link>
                     </>
                   ) : (
-                    <>Vous avez un lien email ?{" "}
+                    <>{tr.haveEmailLink}{" "}
                       <Link href="/auth/reset-password" className="text-primary hover:underline">
-                        Utiliser le lien
+                        {tr.useTheLink}
                       </Link>
                     </>
                   )}
@@ -218,11 +222,11 @@ export default function ResetPasswordPage() {
                 {error ? <p role="alert" className="text-xs text-red-400">{error}</p> : null}
                 <Button type="submit" disabled={submitting} className="w-full">
                   {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Valider la réinitialisation
+                  {tr.confirmReset}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
                   <Link href="/login" className="text-primary hover:underline">
-                    Retour à la connexion
+                    {tr.backToLogin}
                   </Link>
                 </p>
               </form>

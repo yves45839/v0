@@ -15,6 +15,8 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useI18n } from "@/lib/i18n/context"
+import { dashboardDict } from "@/lib/i18n/pages/dashboard"
 import type {
   AccessEvent,
   AsyncSection,
@@ -64,7 +66,7 @@ const toneClass: Record<IndustrialTone, { text: string; bg: string; bar: string;
   },
 }
 
-const dayLabels = ["L", "M", "M", "J", "V", "S", "D"]
+type DashTr = (typeof dashboardDict)["en"]
 
 type RangeKey = "7j" | "30j" | "90j"
 
@@ -84,14 +86,14 @@ function buildSeries(baseBars: number[], totalDays: number): number[] {
   return series
 }
 
-function buildLabels(totalDays: number): string[] {
-  if (totalDays === 7) return dayLabels
+function buildLabels(totalDays: number, tr: DashTr): string[] {
+  if (totalDays === 7) return tr.dayLabels
   if (totalDays === 30) {
     // 30 jours → on regroupe en semaines pour rester lisible
-    return ["S-4", "S-3", "S-2", "S-1", "Cette sem."]
+    return tr.weekBucketLabels
   }
   // 90 jours → on regroupe par mois
-  return ["M-2", "M-1", "Ce mois"]
+  return tr.monthBucketLabels
 }
 
 function aggregateForRange(bars: number[], range: RangeKey): number[] {
@@ -128,15 +130,17 @@ function IndustrialHeader({
   managerName: string | null
 }) {
   const router = useRouter()
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
   const [searchValue, setSearchValue] = useState("")
   const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const statusCopy =
     systemStatus === "connected"
-      ? "LIVE"
+      ? tr.statusLive
       : systemStatus === "syncing"
-        ? "SYNC"
-        : "OFFLINE"
+        ? tr.statusSync
+        : tr.statusOffline
 
   // Raccourci ⌘K / Ctrl+K → focus de l'input de recherche
   useEffect(() => {
@@ -167,17 +171,17 @@ function IndustrialHeader({
           <button
             type="button"
             onClick={dispatchSidebarToggle}
-            aria-label="Ouvrir la navigation"
+            aria-label={tr.openNavigation}
             className="flex size-8 shrink-0 items-center justify-center border border-[#1c2133] bg-[#1a1f2e] text-[#e2e8f0] transition hover:border-[#f97316]/60 hover:text-[#f97316]"
           >
             <PanelLeft className="size-4" />
           </button>
           <div className="min-w-0">
             <h1 className="font-display text-[20px] font-bold uppercase leading-5 tracking-[0.08em] text-[#e2e8f0]">
-              Dashboard
+              {tr.title}
             </h1>
             <p className="mt-0.5 truncate font-mono text-[9px] uppercase tracking-[0.16em] text-[#4a5568]">
-              Supervision Hikvision · {statusCopy} · MAJ recente
+              {tr.tagline(statusCopy)}
             </p>
           </div>
         </div>
@@ -194,15 +198,15 @@ function IndustrialHeader({
               type="search"
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
-              placeholder="Rechercher..."
-              aria-label="Rechercher dans les pointages"
+              placeholder={tr.searchPlaceholder}
+              aria-label={tr.searchAria}
               className="min-w-0 flex-1 truncate border-0 bg-transparent text-xs text-[#e2e8f0] placeholder:text-[#4a5568] focus:outline-none"
             />
             <kbd className="font-mono text-[9px] uppercase text-[#4a5568]">⌘K</kbd>
           </form>
           <button
             type="button"
-            aria-label="Notifications"
+            aria-label={tr.notifications}
             className="flex size-8 items-center justify-center border border-[#1c2133] bg-[#1a1f2e] text-[#7a8599] transition hover:border-[#60a5fa]/60 hover:text-[#60a5fa]"
           >
             <Bell className="size-3.5" />
@@ -212,12 +216,12 @@ function IndustrialHeader({
             className="inline-flex h-8 items-center gap-2 bg-[#f97316] px-4 font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] transition hover:bg-[#fb923c]"
           >
             <Download className="size-3" />
-            Exporter le rapport
+            {tr.exportReport}
           </Link>
           <Link
             href="/profile"
             className="flex size-8 items-center justify-center bg-[#1e2a3a] font-display text-[11px] font-semibold uppercase text-[#60a5fa]"
-            title={managerName ?? "Profil"}
+            title={managerName ?? tr.profileFallback}
           >
             {(managerName ?? "YO").slice(0, 2).toUpperCase()}
           </Link>
@@ -255,6 +259,8 @@ function KpiBlock({
 }
 
 function PresenceChart({ data }: { data: PresenceWeekData }) {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
   const [range, setRange] = useState<RangeKey>("7j")
 
   const hasLiveValues = data.days.some(
@@ -272,20 +278,20 @@ function PresenceChart({ data }: { data: PresenceWeekData }) {
       : Array.from({ length: totalDays }, () => 0)
     return {
       bars: aggregateForRange(fullSeries, range),
-      labels: buildLabels(totalDays),
+      labels: buildLabels(totalDays, tr),
       title:
         range === "7j"
-          ? "Presence - 7 derniers jours"
+          ? tr.presenceTitle7
           : range === "30j"
-            ? "Presence - 30 derniers jours"
-            : "Presence - 90 derniers jours",
+            ? tr.presenceTitle30
+            : tr.presenceTitle90,
     }
-  }, [hasLiveValues, liveSeven, range])
+  }, [hasLiveValues, liveSeven, range, tr])
 
   const rangeOptions: { key: RangeKey; label: string }[] = [
-    { key: "7j", label: "7j" },
-    { key: "30j", label: "30j" },
-    { key: "90j", label: "90j" },
+    { key: "7j", label: tr.range7 },
+    { key: "30j", label: tr.range30 },
+    { key: "90j", label: tr.range90 },
   ]
 
   return (
@@ -296,10 +302,10 @@ function PresenceChart({ data }: { data: PresenceWeekData }) {
             {title}
           </h2>
           <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-[#4a5568]">
-            Tous departements · pointages d'entree
+            {tr.presenceSubtitle}
           </p>
         </div>
-        <div className="flex items-center gap-1 font-mono text-[10px]" role="tablist" aria-label="Plage de temps">
+        <div className="flex items-center gap-1 font-mono text-[10px]" role="tablist" aria-label={tr.timeRangeAria}>
           {rangeOptions.map((option) => {
             const isActive = range === option.key
             return (
@@ -355,10 +361,10 @@ function PresenceChart({ data }: { data: PresenceWeekData }) {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
               <Activity className="size-8 text-[#4a5568]" />
               <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#4a5568]">
-                Aucune donnee de presence sur la periode
+                {tr.noPresenceData}
               </p>
               <p className="font-mono text-[9px] tracking-[0.08em] text-[#4a5568]">
-                Les pointages apparaitront ici des reception des premiers evenements
+                {tr.noPresenceHint}
               </p>
             </div>
           )}
@@ -369,6 +375,8 @@ function PresenceChart({ data }: { data: PresenceWeekData }) {
 }
 
 function DevicePanel({ devices }: { devices: Device[] }) {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
   const online = devices.filter((device) => device.status === "online")
   const offline = devices.filter((device) => device.status === "offline")
   const warning = devices.filter((device) => device.status === "warning")
@@ -378,17 +386,17 @@ function DevicePanel({ devices }: { devices: Device[] }) {
     <aside className="border border-[#1c2133] bg-[#111318]">
       <div className="flex min-h-18 items-center justify-between border-b border-[#1c2133] px-5 py-4">
         <h2 className="font-display text-[15px] font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
-          Appareils Hikvision
+          {tr.devicesTitle}
         </h2>
         <Link href="/devices" className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#f97316]">
-          Voir tout +
+          {tr.viewAll}
         </Link>
       </div>
       <div className="space-y-5 p-5">
         <div>
           <p className="font-display text-5xl font-bold leading-none text-[#e2e8f0] tabular-nums">
             {online.length}
-            <span className="ml-1 font-mono text-[10px] font-normal text-[#4a5568]">/{devices.length || 0} en ligne</span>
+            <span className="ml-1 font-mono text-[10px] font-normal text-[#4a5568]">{tr.onlineRatio(devices.length || 0)}</span>
           </p>
         </div>
 
@@ -398,9 +406,9 @@ function DevicePanel({ devices }: { devices: Device[] }) {
               <Wifi className="size-3" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-[#e2e8f0]">{online.length} en ligne</p>
+              <p className="text-xs font-semibold text-[#e2e8f0]">{tr.onlineCount(online.length)}</p>
               <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.08em] text-[#4a5568]">
-                Latence moy. surveillee
+                {tr.avgLatency}
               </p>
             </div>
           </div>
@@ -411,9 +419,9 @@ function DevicePanel({ devices }: { devices: Device[] }) {
                 <WifiOff className="size-3" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-[#e2e8f0]">{offline.length + warning.length} a traiter</p>
+                <p className="text-xs font-semibold text-[#e2e8f0]">{tr.toHandle(offline.length + warning.length)}</p>
                 <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[#ef4444]">
-                  {issueList.length > 0 ? issueList.map((item) => item.name).join(" · ") : "Aucun incident actif"}
+                  {issueList.length > 0 ? issueList.map((item) => item.name).join(" · ") : tr.noActiveIncident}
                 </p>
               </div>
             </div>
@@ -425,6 +433,8 @@ function DevicePanel({ devices }: { devices: Device[] }) {
 }
 
 function PriorityStrip({ actions }: { actions: PriorityAction[] }) {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
   const activeActions = actions.filter((action) => (action.count ?? 1) > 0).slice(0, 3)
 
   if (activeActions.length === 0) {
@@ -453,7 +463,7 @@ function PriorityStrip({ actions }: { actions: PriorityAction[] }) {
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-[#e2e8f0]">{action.title}</p>
               <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[#4a5568]">
-                {action.count ?? 1} alerte(s) · {action.ctaLabel ?? "Ouvrir"}
+                {tr.alertsCount(action.count ?? 1)} · {action.ctaLabel ?? tr.open}
               </p>
             </div>
           </Link>
@@ -467,11 +477,13 @@ function eventTone(event: AccessEvent): IndustrialTone {
   return event.status === "denied" ? "red" : "green"
 }
 
-function activityStatusLabel(event: AccessEvent) {
-  return event.status === "denied" ? "REFUSE" : "PRESENT"
+function activityStatusLabel(event: AccessEvent, tr: DashTr) {
+  return event.status === "denied" ? tr.statusDenied : tr.statusPresent
 }
 
 function RecentActivity({ events }: { events: AccessEvent[] }) {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
   const rows = events.slice(0, 4)
 
   return (
@@ -479,15 +491,15 @@ function RecentActivity({ events }: { events: AccessEvent[] }) {
       <div className="flex min-h-14 items-center justify-between border-b border-[#1c2133] px-5 py-4">
         <div className="flex items-center gap-3">
           <h2 className="font-display text-[15px] font-semibold uppercase tracking-[0.06em] text-[#e2e8f0]">
-            Activite recente
+            {tr.recentActivity}
           </h2>
           <span className="inline-flex items-center gap-2 bg-[#0d2a1a] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-[#22c55e]">
             <span className="size-1.5 rounded-full bg-[#22c55e]" />
-            Live
+            {tr.live}
           </span>
         </div>
         <Link href="/access-logs" className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#f97316]">
-          Tout l'historique +
+          {tr.fullHistory}
         </Link>
       </div>
 
@@ -496,7 +508,7 @@ function RecentActivity({ events }: { events: AccessEvent[] }) {
           <div className="flex min-h-42 flex-col items-center justify-center gap-3 px-5 text-center">
             <Activity className="size-8 text-[#4a5568]" />
             <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-              Aucun evenement recu aujourd'hui
+              {tr.noEventsToday}
             </p>
           </div>
         ) : (
@@ -521,7 +533,7 @@ function RecentActivity({ events }: { events: AccessEvent[] }) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-semibold text-[#e2e8f0]">
-                    {event.name} · {event.status === "denied" ? "Acces refuse" : "Pointage d'entree"}
+                    {event.name} · {event.status === "denied" ? tr.accessDenied : tr.entryPunch}
                   </p>
                   <p className="mt-1 truncate font-mono text-[9px] tracking-[0.08em] text-[#4a5568]">
                     {event.deviceName} · {event.timestamp}
@@ -529,7 +541,7 @@ function RecentActivity({ events }: { events: AccessEvent[] }) {
                 </div>
                 <span className={cn("hidden shrink-0 items-center gap-1.5 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] sm:inline-flex", tone.mutedBg, tone.text)}>
                   <span className={cn("size-1.5 rounded-full", tone.bg)} />
-                  {activityStatusLabel(event)}
+                  {activityStatusLabel(event, tr)}
                 </span>
               </Link>
             )
@@ -549,6 +561,9 @@ function ErrorPanel({
   message: string
   onRetry: () => void
 }) {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
+
   return (
     <section role="alert" className="border border-[#ef4444]/40 bg-[#111318] p-5">
       <div className="flex flex-wrap items-start gap-3">
@@ -566,7 +581,7 @@ function ErrorPanel({
           onClick={onRetry}
           className="inline-flex h-8 shrink-0 items-center bg-[#f97316] px-4 font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] transition hover:bg-[#fb923c]"
         >
-          Réessayer
+          {tr.retry}
         </button>
       </div>
     </section>
@@ -580,9 +595,12 @@ function KpiSection({
   summary: AsyncSection<HomeSummaryCounts>
   onRetry: () => void
 }) {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
+
   if (summary.status === "loading") {
     return (
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Chargement des indicateurs">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label={tr.loadingKpisAria}>
         {Array.from({ length: 4 }).map((_, index) => (
           <Skeleton key={index} className="min-h-38 rounded-none" />
         ))}
@@ -593,7 +611,7 @@ function KpiSection({
   if (summary.status === "error") {
     return (
       <ErrorPanel
-        title="Indicateurs indisponibles"
+        title={tr.kpisUnavailable}
         message={summary.message}
         onRetry={onRetry}
       />
@@ -604,27 +622,27 @@ function KpiSection({
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <KpiBlock
-        label="Pointages aujourd'hui"
+        label={tr.kpiAttendanceToday}
         value={counts.attendance_logs_today}
-        note={counts.attendance_logs_today > 0 ? "Entrees et sorties du jour" : "Aucun pointage recu"}
+        note={counts.attendance_logs_today > 0 ? tr.kpiAttendanceNote : tr.kpiAttendanceEmpty}
         tone="green"
       />
       <KpiBlock
-        label="Acces refuses"
+        label={tr.kpiDenied}
         value={counts.denied_today}
-        note={counts.denied_today > 0 ? `${counts.denied_today} a verifier` : "Aucun refus aujourd'hui"}
+        note={counts.denied_today > 0 ? tr.kpiDeniedNote(counts.denied_today) : tr.kpiDeniedEmpty}
         tone="red"
       />
       <KpiBlock
-        label="Employes actifs"
+        label={tr.kpiEmployees}
         value={counts.employees_active}
-        note={counts.employees_total > 0 ? `${counts.employees_active}/${counts.employees_total} inscrits` : "Aucun employe inscrit"}
+        note={counts.employees_total > 0 ? tr.kpiEmployeesNote(counts.employees_active, counts.employees_total) : tr.kpiEmployeesEmpty}
         tone="blue"
       />
       <KpiBlock
-        label="Appareils en ligne"
+        label={tr.kpiDevices}
         value={counts.devices_online}
-        note={counts.devices_total > 0 ? `${counts.devices_online}/${counts.devices_total} en ligne` : "Aucun appareil"}
+        note={counts.devices_total > 0 ? tr.kpiDevicesNote(counts.devices_online, counts.devices_total) : tr.kpiDevicesEmpty}
         tone="amber"
       />
     </section>
@@ -632,8 +650,11 @@ function KpiSection({
 }
 
 function WidgetsSkeleton() {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
+
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Chargement des donnees temps reel">
+    <div className="space-y-5" aria-busy="true" aria-label={tr.loadingRealtimeAria}>
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_12rem] 2xl:grid-cols-[minmax(0,1fr)_16rem]">
         <Skeleton className="h-80 rounded-none" />
         <Skeleton className="h-80 rounded-none" />
@@ -651,6 +672,9 @@ export function DashboardOverview({
   onRetrySummary,
   onRetryWidgets,
 }: DashboardOverviewProps) {
+  const { locale } = useI18n()
+  const tr = dashboardDict[locale]
+
   return (
     <main className="min-h-screen bg-[#0b0d13] text-[#e2e8f0]">
       <IndustrialHeader systemStatus={systemStatus} managerName={managerName} />
@@ -662,7 +686,7 @@ export function DashboardOverview({
           <WidgetsSkeleton />
         ) : widgets.status === "error" ? (
           <ErrorPanel
-            title="Donnees temps reel indisponibles"
+            title={tr.realtimeUnavailable}
             message={widgets.message}
             onRetry={onRetryWidgets}
           />

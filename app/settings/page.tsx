@@ -6,6 +6,7 @@ import { useTheme } from "next-themes"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { useI18n } from "@/lib/i18n/context"
+import { settingsPageDict } from "@/lib/i18n/pages/settings-page"
 import { getActiveTenantCode } from "@/lib/api/auth"
 import { API_BASE_URL } from "@/lib/api/client"
 import { Badge } from "@/components/ui/badge"
@@ -126,6 +127,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams()
   const { locale, setLocale, t } = useI18n()
   const tt = t.settingsPage
+  const tr = settingsPageDict[locale]
   const { theme, resolvedTheme, setTheme } = useTheme()
   const [groups, setGroups] = useState<AccessGroup[]>([])
   const [tenantId, setTenantId] = useState<number | null>(null)
@@ -356,7 +358,7 @@ export default function SettingsPage() {
 
   const submitDepartment = async () => {
     if (!tenantId || !depForm.name.trim() || !depForm.organizationId) {
-      const message = "Nom et organisation sont obligatoires pour le département."
+      const message = tr.deptRequired
       setDepartmentError(message)
       toast.error(message)
       return
@@ -384,10 +386,10 @@ export default function SettingsPage() {
       setDepDialogOpen(false)
       setEditingDepartment(null)
       resetDepartmentForm()
-      toast.success(editingDepartment ? "Département modifié" : "Département créé")
+      toast.success(editingDepartment ? tr.deptUpdated : tr.deptCreated)
     } catch (error) {
-      setDepartmentError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du departement.")
-      toast.error("Erreur lors de l'enregistrement du département")
+      setDepartmentError(error instanceof Error ? error.message : tr.deptSaveError)
+      toast.error(tr.deptSaveError)
     } finally {
       setIsSavingDepartment(false)
     }
@@ -395,7 +397,7 @@ export default function SettingsPage() {
 
   const submitGroup = async () => {
     if (!tenantId || !groupForm.name.trim()) {
-      const message = "Le nom du groupe est obligatoire."
+      const message = tr.groupNameRequired
       setGroupError(message)
       toast.error(message)
       return
@@ -437,10 +439,10 @@ export default function SettingsPage() {
       setGroupDialogOpen(false)
       setEditingGroup(null)
       resetGroupForm()
-      toast.success(editingGroup?.backendId ? "Groupe d'accès modifié" : "Groupe d'accès créé")
+      toast.success(editingGroup?.backendId ? tr.groupUpdated : tr.groupCreated)
     } catch (error) {
-      setGroupError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du groupe.")
-      toast.error("Erreur lors de l'enregistrement du groupe")
+      setGroupError(error instanceof Error ? error.message : tr.groupSaveError)
+      toast.error(tr.groupSaveError)
     } finally {
       setIsSavingGroup(false)
     }
@@ -448,7 +450,7 @@ export default function SettingsPage() {
 
   const submitSchedule = async () => {
     if (!tenantId || !scheduleForm.name.trim()) {
-      const message = "Le nom du planning est obligatoire."
+      const message = tr.planningNameRequired
       setPlanningError(message)
       toast.error(message)
       return
@@ -476,10 +478,10 @@ export default function SettingsPage() {
       setScheduleDialogOpen(false)
       setEditingSchedule(null)
       resetScheduleForm()
-      toast.success(editingSchedule ? "Planning modifié" : "Planning créé")
+      toast.success(editingSchedule ? tr.planningUpdated : tr.planningCreated)
     } catch (error) {
-      setPlanningError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du planning.")
-      toast.error("Erreur lors de l'enregistrement du planning")
+      setPlanningError(error instanceof Error ? error.message : tr.planningSaveError)
+      toast.error(tr.planningSaveError)
     } finally {
       setIsSavingSchedule(false)
     }
@@ -487,7 +489,7 @@ export default function SettingsPage() {
 
   const submitWorkShift = async () => {
     if (!tenantId || !workShiftForm.name.trim()) {
-      const message = "Le nom du quart de travail est obligatoire."
+      const message = tr.shiftNameRequired
       setWorkShiftError(message)
       toast.error(message)
       return
@@ -497,17 +499,17 @@ export default function SettingsPage() {
     try {
       const overtimeMinutesRaw = workShiftForm.overtime_minutes.trim()
       if (overtimeMinutesRaw && Number.isNaN(Number(overtimeMinutesRaw))) {
-        setWorkShiftError("Les heures supplementaires doivent etre un nombre valide.")
+        setWorkShiftError(tr.overtimeInvalid)
         return
       }
       const lateAllowableRaw = workShiftForm.late_allowable_minutes.trim()
       if (lateAllowableRaw && Number.isNaN(Number(lateAllowableRaw))) {
-        setWorkShiftError("Le retard tolere doit etre un nombre valide.")
+        setWorkShiftError(tr.lateInvalid)
         return
       }
       const earlyLeaveAllowableRaw = workShiftForm.early_leave_allowable_minutes.trim()
       if (earlyLeaveAllowableRaw && Number.isNaN(Number(earlyLeaveAllowableRaw))) {
-        setWorkShiftError("La marge de depart anticipe doit etre un nombre valide.")
+        setWorkShiftError(tr.earlyLeaveInvalid)
         return
       }
 
@@ -545,10 +547,10 @@ export default function SettingsPage() {
       setWorkShiftDialogOpen(false)
       setEditingWorkShift(null)
       resetWorkShiftForm()
-      toast.success(editingWorkShift ? "Quart de travail modifié" : "Quart de travail créé")
+      toast.success(editingWorkShift ? tr.shiftUpdated : tr.shiftCreated)
     } catch (error) {
-      setWorkShiftError(error instanceof Error ? error.message : "Erreur lors de l'enregistrement du quart.")
-      toast.error("Erreur lors de l'enregistrement du quart de travail")
+      setWorkShiftError(error instanceof Error ? error.message : tr.shiftSaveError)
+      toast.error(tr.shiftSaveError)
     } finally {
       setIsSavingWorkShift(false)
     }
@@ -559,10 +561,10 @@ export default function SettingsPage() {
     try {
       await deleteDepartmentApi(id)
       setApiDepartments((prev) => prev.filter((department) => department.id !== id))
-      toast.success("Département supprimé")
+      toast.success(tr.deptDeleted)
     } catch (error) {
-      setDepartmentError(error instanceof Error ? error.message : "Erreur lors de la suppression du departement.")
-      toast.error("Erreur lors de la suppression du département")
+      setDepartmentError(error instanceof Error ? error.message : tr.deptDeleteError)
+      toast.error(tr.deptDeleteError)
     }
   }
 
@@ -576,10 +578,10 @@ export default function SettingsPage() {
     try {
       await deleteAccessGroup(target.backendId)
       setGroups((prev) => prev.filter((group) => group.id !== id))
-      toast.success("Groupe d'accès supprimé")
+      toast.success(tr.groupDeleted)
     } catch (error) {
-      setGroupError(error instanceof Error ? error.message : "Erreur lors de la suppression du groupe.")
-      toast.error("Erreur lors de la suppression du groupe")
+      setGroupError(error instanceof Error ? error.message : tr.groupDeleteError)
+      toast.error(tr.groupDeleteError)
     }
   }
 
@@ -596,16 +598,16 @@ export default function SettingsPage() {
       setApiDepartments((prev) =>
         prev.map((department) => (department.planning === id ? { ...department, planning: null } : department)),
       )
-      toast.success("Planning supprimé")
+      toast.success(tr.planningDeleted)
     } catch (error) {
-      setPlanningError(error instanceof Error ? error.message : "Erreur lors de la suppression du planning.")
-      toast.error("Erreur lors de la suppression du planning")
+      setPlanningError(error instanceof Error ? error.message : tr.planningDeleteError)
+      toast.error(tr.planningDeleteError)
     }
   }
 
   const addAssignment = async () => {
     if (!assignmentForm.planningId || !assignmentForm.targetId) {
-      const message = "Sélectionnez un planning et une cible avant attribution."
+      const message = tr.assignmentSelectRequired
       setPlanningError(message)
       toast.error(message)
       return
@@ -619,7 +621,7 @@ export default function SettingsPage() {
           Number(assignmentForm.planningId),
         )
         setApiDepartments((prev) => prev.map((department) => (department.id === updated.id ? updated : department)))
-        toast.success("Planning attribué avec succès")
+        toast.success(tr.planningAssigned)
         return
       }
       const targetGroup = groups.find((group) => group.id === assignmentForm.targetId)
@@ -627,10 +629,10 @@ export default function SettingsPage() {
       const saved = await updateAccessGroup(targetGroup.backendId, { planning: Number(assignmentForm.planningId) })
       const mapped = mapAccessGroupToUi(saved)
       setGroups((prev) => prev.map((group) => (group.id === mapped.id ? mapped : group)))
-      toast.success("Planning attribué avec succès")
+      toast.success(tr.planningAssigned)
     } catch (error) {
-      setPlanningError(error instanceof Error ? error.message : "Erreur lors de l'attribution du planning.")
-      toast.error("Erreur lors de l'attribution du planning")
+      setPlanningError(error instanceof Error ? error.message : tr.planningAssignError)
+      toast.error(tr.planningAssignError)
     } finally {
       setIsAssigningPlanning(false)
     }
@@ -642,7 +644,7 @@ export default function SettingsPage() {
       if (assignment.targetType === "Departement") {
         const updated = await updateDepartment(Number(assignment.targetId), { planning: null })
         setApiDepartments((prev) => prev.map((department) => (department.id === updated.id ? updated : department)))
-        toast.success("Attribution retirée")
+        toast.success(tr.assignmentRemoved)
         return
       }
       const targetGroup = groups.find((group) => group.id === assignment.targetId)
@@ -650,10 +652,10 @@ export default function SettingsPage() {
       const saved = await updateAccessGroup(targetGroup.backendId, { planning: null })
       const mapped = mapAccessGroupToUi(saved)
       setGroups((prev) => prev.map((group) => (group.id === mapped.id ? mapped : group)))
-      toast.success("Attribution retirée")
+      toast.success(tr.assignmentRemoved)
     } catch (error) {
-      setPlanningError(error instanceof Error ? error.message : "Erreur lors de la suppression de l'attribution.")
-      toast.error("Erreur lors de la suppression de l'attribution")
+      setPlanningError(error instanceof Error ? error.message : tr.assignmentRemoveError)
+      toast.error(tr.assignmentRemoveError)
     }
   }
 
@@ -667,16 +669,16 @@ export default function SettingsPage() {
           department.work_shift === id ? { ...department, work_shift: null, effective_work_shift: null } : department
         )
       )
-      toast.success("Quart de travail supprimé")
+      toast.success(tr.shiftDeleted)
     } catch (error) {
-      setWorkShiftError(error instanceof Error ? error.message : "Erreur lors de la suppression du quart.")
-      toast.error("Erreur lors de la suppression du quart de travail")
+      setWorkShiftError(error instanceof Error ? error.message : tr.shiftDeleteError)
+      toast.error(tr.shiftDeleteError)
     }
   }
 
   const submitDepartmentShiftAssignment = async () => {
     if (!departmentShiftForm.departmentId || !departmentShiftForm.workShiftId) {
-      const message = "Sélectionnez un département et un quart pour l'attribution."
+      const message = tr.deptShiftSelectRequired
       setWorkShiftError(message)
       toast.error(message)
       return
@@ -692,10 +694,10 @@ export default function SettingsPage() {
         prev.map((item) => (item.id === updatedDepartment.id ? updatedDepartment : item))
       )
       setDepartmentShiftForm((prev) => ({ ...prev, workShiftId: "" }))
-      toast.success("Quart de travail attribué au département")
+      toast.success(tr.deptShiftAssigned)
     } catch (error) {
-      setWorkShiftError(error instanceof Error ? error.message : "Erreur d'attribution du quart au departement.")
-      toast.error("Erreur d'attribution du quart au département")
+      setWorkShiftError(error instanceof Error ? error.message : tr.deptShiftAssignError)
+      toast.error(tr.deptShiftAssignError)
     } finally {
       setIsAssigningWorkShift(false)
     }
@@ -722,7 +724,7 @@ export default function SettingsPage() {
         dailyDigest,
       }
       savePreferenceSnapshot(next)
-      toast.success("Préférences de notification enregistrées sur ce navigateur")
+      toast.success(tr.notifPrefsSaved)
     } finally {
       setIsSavingPreferences(false)
     }
@@ -738,7 +740,7 @@ export default function SettingsPage() {
         sessionTimeout,
       }
       savePreferenceSnapshot(next)
-      toast.success("Préférences de sécurité enregistrées sur ce navigateur")
+      toast.success(tr.securityPrefsSaved)
     } finally {
       setIsSavingPreferences(false)
     }
@@ -748,11 +750,11 @@ export default function SettingsPage() {
     const trimmedName = companyName.trim()
     const trimmedTimezone = timezone.trim()
     if (!trimmedName) {
-      toast.error("Le nom d'entreprise est obligatoire.")
+      toast.error(tr.companyNameRequired)
       return
     }
     if (!trimmedTimezone || !trimmedTimezone.includes("/")) {
-      toast.error("Le fuseau horaire doit suivre le format Région/Ville.")
+      toast.error(tr.timezoneFormatInvalid)
       return
     }
 
@@ -770,7 +772,7 @@ export default function SettingsPage() {
       setTimezone(trimmedTimezone)
       setLocale(language)
       setTheme(themePreference === "system" ? "dark" : themePreference)
-      toast.success("Préférences générales enregistrées sur ce navigateur")
+      toast.success(tr.generalPrefsSaved)
     } finally {
       setIsSavingPreferences(false)
     }
@@ -784,14 +786,14 @@ export default function SettingsPage() {
     setAlertOnLateArrival(savedPreferences.alertOnLateArrival)
     setAlertOnDeviceFault(savedPreferences.alertOnDeviceFault)
     setDailyDigest(savedPreferences.dailyDigest)
-    toast.info("Modifications de notifications annulées")
+    toast.info(tr.notifChangesReverted)
   }
 
   const resetSecuritySettings = () => {
     setSyncEnabled(savedPreferences.syncEnabled)
     setSecurityTimeRestrictionEnabled(savedPreferences.securityTimeRestrictionEnabled)
     setSessionTimeout(savedPreferences.sessionTimeout)
-    toast.info("Modifications de sécurité annulées")
+    toast.info(tr.securityChangesReverted)
   }
 
   const resetGeneralSettings = () => {
@@ -799,7 +801,7 @@ export default function SettingsPage() {
     setTimezone(savedPreferences.timezone)
     setLanguage(savedPreferences.language)
     setThemePreference(savedPreferences.theme)
-    toast.info("Modifications générales annulées")
+    toast.info(tr.generalChangesReverted)
   }
 
   const runSensitiveAction = async () => {
@@ -884,7 +886,7 @@ export default function SettingsPage() {
         setGroups(accessGroups.map((group) => mapAccessGroupToUi(group)))
       } catch (error) {
         if (!active) return
-        setGroupError(error instanceof Error ? error.message : "Impossible de charger les groupes d'acces.")
+        setGroupError(error instanceof Error ? error.message : tr.loadError)
       } finally {
         if (active) {
           setIsInitialLoading(false)
@@ -1081,9 +1083,9 @@ export default function SettingsPage() {
                   {/* Stats strip */}
                   <div className="grid grid-cols-3 gap-3">
                     {[
-                      { label: "Organisations", value: apiOrganizations.length, color: "text-sky-400", bg: "bg-sky-500/10", ring: "ring-sky-400/20", icon: Building2 },
-                      { label: "Départements", value: apiDepartments.length, color: "text-violet-400", bg: "bg-violet-500/10", ring: "ring-violet-400/20", icon: Building },
-                      { label: "Groupes d'accès", value: groups.length, color: "text-purple-400", bg: "bg-purple-500/10", ring: "ring-purple-400/20", icon: DoorOpen },
+                      { label: tr.statOrganizations, value: apiOrganizations.length, color: "text-sky-400", bg: "bg-sky-500/10", ring: "ring-sky-400/20", icon: Building2 },
+                      { label: tr.statDepartments, value: apiDepartments.length, color: "text-violet-400", bg: "bg-violet-500/10", ring: "ring-violet-400/20", icon: Building },
+                      { label: tr.statAccessGroups, value: groups.length, color: "text-purple-400", bg: "bg-purple-500/10", ring: "ring-purple-400/20", icon: DoorOpen },
                     ].map((s) => (
                       <div key={s.label} className="flex items-center gap-3 overflow-hidden rounded-xl border border-border/60 bg-card/80 p-4">
                         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${s.bg} ring-1 ${s.ring}`}>
@@ -1106,36 +1108,36 @@ export default function SettingsPage() {
                           <Building className="h-5 w-5 text-sky-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Départements</h3>
-                          <p className="text-sm text-muted-foreground">Ajout, modification et suppression</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.departmentsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.departmentsDesc}</p>
                         </div>
                       </div>
                       <Dialog open={depDialogOpen} onOpenChange={setDepDialogOpen}>
                         <DialogTrigger asChild>
                           <Button size="sm" onClick={() => { setEditingDepartment(null); resetDepartmentForm() }}>
                             <Plus className="mr-2 h-4 w-4" />
-                            Nouveau
+                            {tr.newButton}
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="rounded-2xl border-border/60 bg-card">
                           <DialogHeader>
-                            <DialogTitle className="text-foreground">{editingDepartment ? "Modifier" : "Créer"} un département</DialogTitle>
-                            <DialogDescription>Renseignez les informations du département.</DialogDescription>
+                            <DialogTitle className="text-foreground">{editingDepartment ? tr.editDepartmentTitle : tr.createDepartmentTitle}</DialogTitle>
+                            <DialogDescription>{tr.depDialogDesc}</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4 py-4">
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Nom</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.nameLabel}</Label>
                               <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={depForm.name} onChange={(e) => setDepForm((p) => ({ ...p, name: e.target.value }))} />
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Code</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.codeLabel}</Label>
                               <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={depForm.code} onChange={(e) => setDepForm((p) => ({ ...p, code: e.target.value }))} />
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Organisation</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.organizationLabel}</Label>
                               <Select value={depForm.organizationId} onValueChange={(value) => setDepForm((p) => ({ ...p, organizationId: value }))}>
                                 <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
-                                  <SelectValue placeholder="Sélectionner une organisation" />
+                                  <SelectValue placeholder={tr.selectOrganizationPlaceholder} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {apiOrganizations.map((organization) => (
@@ -1145,13 +1147,13 @@ export default function SettingsPage() {
                               </Select>
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Parent (optionnel)</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.parentLabel}</Label>
                               <Select value={depForm.parentId} onValueChange={(value) => setDepForm((p) => ({ ...p, parentId: value === "__none__" ? "" : value }))}>
                                 <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
-                                  <SelectValue placeholder="Aucun parent" />
+                                  <SelectValue placeholder={tr.noParent} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="__none__">Aucun parent</SelectItem>
+                                  <SelectItem value="__none__">{tr.noParent}</SelectItem>
                                   {apiDepartments.filter((d) => d.id !== editingDepartment?.id).map((d) => (
                                     <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
                                   ))}
@@ -1160,10 +1162,10 @@ export default function SettingsPage() {
                             </div>
                           </div>
                           <DialogFooter>
-                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setDepDialogOpen(false)}>Annuler</Button>
+                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setDepDialogOpen(false)}>{tr.cancel}</Button>
                             <Button className="h-10 rounded-xl" onClick={submitDepartment} disabled={isSavingDepartment}>
                               {isSavingDepartment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                              Enregistrer
+                              {tr.save}
                             </Button>
                           </DialogFooter>
                         </DialogContent>
@@ -1220,7 +1222,7 @@ export default function SettingsPage() {
                                 setDepForm({ name: dep.name, code: dep.code || "", organizationId: String(dep.organization), parentId: dep.parent ? String(dep.parent) : "" })
                                 setDepDialogOpen(true)
                               }}><Edit className="h-3.5 w-3.5" /></Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "department", id: dep.id, label: `Supprimer le département ${dep.name}` })}>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "department", id: dep.id, label: tr.deleteDeptLabel(dep.name) })}>
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </div>
@@ -1230,9 +1232,9 @@ export default function SettingsPage() {
                       {apiDepartments.length === 0 && (
                         <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-10 text-center">
                           <Building className="mb-3 h-8 w-8 text-muted-foreground/30" />
-                          <p className="text-sm text-muted-foreground">Aucun département configuré.</p>
+                          <p className="text-sm text-muted-foreground">{tr.noDepartments}</p>
                           <Button size="sm" variant="outline" className="mt-3" onClick={() => { setEditingDepartment(null); resetDepartmentForm(); setDepDialogOpen(true) }}>
-                            <Plus className="mr-2 h-3.5 w-3.5" />Créer un département
+                            <Plus className="mr-2 h-3.5 w-3.5" />{tr.createDepartmentCta}
                           </Button>
                         </div>
                       )}
@@ -1248,47 +1250,47 @@ export default function SettingsPage() {
                           <DoorOpen className="h-5 w-5 text-violet-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Groupes d&apos;accès</h3>
-                          <p className="text-sm text-muted-foreground">Planning + lecteurs autorisés</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.groupsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.groupsDesc}</p>
                         </div>
                       </div>
                       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
                         <DialogTrigger asChild>
                           <Button size="sm" onClick={() => { setEditingGroup(null); resetGroupForm() }}>
                             <DoorOpen className="mr-2 h-4 w-4" />
-                            Nouveau groupe
+                            {tr.newGroupButton}
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="rounded-2xl border-border/60 bg-card">
                           <DialogHeader>
-                            <DialogTitle className="text-foreground">{editingGroup ? "Modifier" : "Créer"} un groupe</DialogTitle>
-                            <DialogDescription>Définissez le groupe : planning + lecteurs.</DialogDescription>
+                            <DialogTitle className="text-foreground">{editingGroup ? tr.editGroupTitle : tr.createGroupTitle}</DialogTitle>
+                            <DialogDescription>{tr.groupDialogDesc}</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4 py-4">
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Nom</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.nameLabel}</Label>
                               <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={groupForm.name} onChange={(e) => setGroupForm((p) => ({ ...p, name: e.target.value }))} />
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Description</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.descriptionLabel}</Label>
                               <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={groupForm.description} onChange={(e) => setGroupForm((p) => ({ ...p, description: e.target.value }))} />
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Emploi de temps</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.scheduleLabel}</Label>
                               <Select value={groupForm.planningId} onValueChange={(value) => setGroupForm((p) => ({ ...p, planningId: value === "__none__" ? "" : value }))}>
                                 <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
-                                  <SelectValue placeholder="Sélectionner un planning" />
+                                  <SelectValue placeholder={tr.selectPlanningPlaceholder} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="__none__">Aucun planning</SelectItem>
+                                  <SelectItem value="__none__">{tr.noPlanningOption}</SelectItem>
                                   {apiPlannings.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
                                 </SelectContent>
                               </Select>
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Lecteurs autorisés</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.readersLabel}</Label>
                               <div className="max-h-44 space-y-2 overflow-auto rounded-xl border border-border/60 bg-background/40 p-3">
-                                {apiReaders.length === 0 && <p className="text-xs text-muted-foreground">Aucun lecteur disponible.</p>}
+                                {apiReaders.length === 0 && <p className="text-xs text-muted-foreground">{tr.noReadersAvailable}</p>}
                                 {apiReaders.map((reader) => {
                                   const readerId = String(reader.id)
                                   return (
@@ -1303,10 +1305,10 @@ export default function SettingsPage() {
                             </div>
                           </div>
                           <DialogFooter>
-                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setGroupDialogOpen(false)}>Annuler</Button>
+                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setGroupDialogOpen(false)}>{tr.cancel}</Button>
                             <Button className="h-10 rounded-xl" onClick={submitGroup} disabled={isSavingGroup}>
                               {isSavingGroup && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                              Enregistrer
+                              {tr.save}
                             </Button>
                           </DialogFooter>
                         </DialogContent>
@@ -1315,7 +1317,7 @@ export default function SettingsPage() {
                     <div className="space-y-2 px-6 pb-6">
                       {activeTenantName && (
                         <p className="rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground/70">Tenant actif :</span> {activeTenantName}
+                          <span className="font-medium text-foreground/70">{tr.activeTenantLabel}</span> {activeTenantName}
                         </p>
                       )}
                       {groupError && (
@@ -1335,7 +1337,7 @@ export default function SettingsPage() {
                                 </span>
                               )}
                               <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                <Cpu className="h-2.5 w-2.5" />{group.deviceCount} lecteur{group.deviceCount !== 1 ? "s" : ""}
+                                <Cpu className="h-2.5 w-2.5" />{tr.readerCount(group.deviceCount)}
                               </span>
                               {group.description && (
                                 <span className="truncate text-[11px] text-muted-foreground">{group.description}</span>
@@ -1348,7 +1350,7 @@ export default function SettingsPage() {
                               setGroupForm({ name: group.name, description: group.description, planningId: group.planningId || "", readerIds: group.readerIds })
                               setGroupDialogOpen(true)
                             }}><Edit className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "group", id: group.id, label: `Supprimer le groupe ${group.name}` })}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "group", id: group.id, label: tr.deleteGroupLabel(group.name) })}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -1357,9 +1359,9 @@ export default function SettingsPage() {
                       {groups.length === 0 && (
                         <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-10 text-center">
                           <DoorOpen className="mb-3 h-8 w-8 text-muted-foreground/30" />
-                          <p className="text-sm text-muted-foreground">Aucun groupe d&apos;accès configuré.</p>
+                          <p className="text-sm text-muted-foreground">{tr.noGroups}</p>
                           <Button size="sm" variant="outline" className="mt-3" onClick={() => { setEditingGroup(null); resetGroupForm(); setGroupDialogOpen(true) }}>
-                            <Plus className="mr-2 h-3.5 w-3.5" />Créer un groupe
+                            <Plus className="mr-2 h-3.5 w-3.5" />{tr.createGroupCta}
                           </Button>
                         </div>
                       )}
@@ -1374,9 +1376,9 @@ export default function SettingsPage() {
                   {/* Stats strip */}
                   <div className="grid grid-cols-3 gap-3">
                     {[
-                      { label: "Plannings", value: apiPlannings.length, color: "text-violet-400", bg: "bg-violet-500/10", ring: "ring-violet-400/20", icon: CalendarDays },
-                      { label: "Quarts", value: apiWorkShifts.length, color: "text-emerald-400", bg: "bg-emerald-500/10", ring: "ring-emerald-400/20", icon: Clock },
-                      { label: "Attributions", value: assignments.length, color: "text-amber-400", bg: "bg-amber-500/10", ring: "ring-amber-400/20", icon: CheckCircle2 },
+                      { label: tr.statPlannings, value: apiPlannings.length, color: "text-violet-400", bg: "bg-violet-500/10", ring: "ring-violet-400/20", icon: CalendarDays },
+                      { label: tr.statShifts, value: apiWorkShifts.length, color: "text-emerald-400", bg: "bg-emerald-500/10", ring: "ring-emerald-400/20", icon: Clock },
+                      { label: tr.statAssignments, value: assignments.length, color: "text-amber-400", bg: "bg-amber-500/10", ring: "ring-amber-400/20", icon: CheckCircle2 },
                     ].map((s) => (
                       <div key={s.label} className="flex items-center gap-3 overflow-hidden rounded-xl border border-border/60 bg-card/80 p-4">
                         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${s.bg} ring-1 ${s.ring}`}>
@@ -1399,45 +1401,45 @@ export default function SettingsPage() {
                           <CalendarDays className="h-5 w-5 text-violet-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Plannings</h3>
-                          <p className="text-sm text-muted-foreground">Modèles de calendriers de présence</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.planningsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.planningsDesc}</p>
                         </div>
                       </div>
                       <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
                         <DialogTrigger asChild>
                           <Button size="sm" onClick={() => { setEditingSchedule(null); resetScheduleForm() }}>
-                            <Plus className="mr-2 h-4 w-4" />Nouveau
+                            <Plus className="mr-2 h-4 w-4" />{tr.newButton}
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="rounded-2xl border-border/60 bg-card">
                           <DialogHeader>
-                            <DialogTitle className="text-foreground">{editingSchedule ? "Modifier" : "Créer"} un planning</DialogTitle>
-                            <DialogDescription>Configurez les métadonnées du planning.</DialogDescription>
+                            <DialogTitle className="text-foreground">{editingSchedule ? tr.editPlanningTitle : tr.createPlanningTitle}</DialogTitle>
+                            <DialogDescription>{tr.planningDialogDesc}</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4 py-4">
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Nom</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.nameLabel}</Label>
                               <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.name} onChange={(e) => setScheduleForm((p) => ({ ...p, name: e.target.value }))} />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-2">
-                                <Label className="text-xs font-medium text-muted-foreground">Code</Label>
-                                <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.code} onChange={(e) => setScheduleForm((p) => ({ ...p, code: e.target.value }))} placeholder="Optionnel" />
+                                <Label className="text-xs font-medium text-muted-foreground">{tr.codeLabel}</Label>
+                                <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.code} onChange={(e) => setScheduleForm((p) => ({ ...p, code: e.target.value }))} placeholder={tr.optionalPlaceholder} />
                               </div>
                               <div className="space-y-2">
-                                <Label className="text-xs font-medium text-muted-foreground">Timezone</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">{tr.timezoneLabel}</Label>
                                 <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.timezone} onChange={(e) => setScheduleForm((p) => ({ ...p, timezone: e.target.value }))} placeholder="Africa/Abidjan" />
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Description</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.descriptionLabel}</Label>
                               <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={scheduleForm.description} onChange={(e) => setScheduleForm((p) => ({ ...p, description: e.target.value }))} />
                             </div>
                           </div>
                           <DialogFooter>
-                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setScheduleDialogOpen(false)}>Annuler</Button>
+                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setScheduleDialogOpen(false)}>{tr.cancel}</Button>
                             <Button className="h-10 rounded-xl" onClick={submitSchedule} disabled={isSavingSchedule}>
-                              {isSavingSchedule && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Enregistrer
+                              {isSavingSchedule && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{tr.save}
                             </Button>
                           </DialogFooter>
                         </DialogContent>
@@ -1472,7 +1474,7 @@ export default function SettingsPage() {
                               setScheduleForm({ name: schedule.name, code: schedule.code || "", description: schedule.description || "", timezone: schedule.timezone || "UTC" })
                               setScheduleDialogOpen(true)
                             }}><Edit className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "planning", id: schedule.id, label: `Supprimer le planning ${schedule.name}` })}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "planning", id: schedule.id, label: tr.deletePlanningLabel(schedule.name) })}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -1481,7 +1483,7 @@ export default function SettingsPage() {
                       {apiPlannings.length === 0 && (
                         <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
                           <CalendarDays className="mb-3 h-8 w-8 text-muted-foreground/30" />
-                          <p className="text-sm text-muted-foreground">Aucun planning configuré.</p>
+                          <p className="text-sm text-muted-foreground">{tr.noPlannings}</p>
                         </div>
                       )}
                     </div>
@@ -1496,84 +1498,84 @@ export default function SettingsPage() {
                           <Clock className="h-5 w-5 text-emerald-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Quarts de travail</h3>
-                          <p className="text-sm text-muted-foreground">Horaires, pauses et tolérances</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.shiftsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.shiftsDesc}</p>
                         </div>
                       </div>
                       <Dialog open={workShiftDialogOpen} onOpenChange={setWorkShiftDialogOpen}>
                         <DialogTrigger asChild>
                           <Button size="sm" onClick={() => { setEditingWorkShift(null); resetWorkShiftForm() }}>
-                            <Plus className="mr-2 h-4 w-4" />Nouveau quart
+                            <Plus className="mr-2 h-4 w-4" />{tr.newShiftButton}
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl border-border/60 bg-card">
                           <DialogHeader>
-                            <DialogTitle className="text-foreground">{editingWorkShift ? "Modifier" : "Créer"} un quart de travail</DialogTitle>
-                            <DialogDescription>Définissez les horaires et tolérances du quart.</DialogDescription>
+                            <DialogTitle className="text-foreground">{editingWorkShift ? tr.editShiftTitle : tr.createShiftTitle}</DialogTitle>
+                            <DialogDescription>{tr.shiftDialogDesc}</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4 py-4">
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-2">
-                                <Label className="text-xs font-medium text-muted-foreground">Nom</Label>
+                                <Label className="text-xs font-medium text-muted-foreground">{tr.nameLabel}</Label>
                                 <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.name} onChange={(e) => setWorkShiftForm((p) => ({ ...p, name: e.target.value }))} />
                               </div>
                               <div className="space-y-2">
-                                <Label className="text-xs font-medium text-muted-foreground">Code</Label>
-                                <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.code} onChange={(e) => setWorkShiftForm((p) => ({ ...p, code: e.target.value }))} placeholder="Optionnel" />
+                                <Label className="text-xs font-medium text-muted-foreground">{tr.codeLabel}</Label>
+                                <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.code} onChange={(e) => setWorkShiftForm((p) => ({ ...p, code: e.target.value }))} placeholder={tr.optionalPlaceholder} />
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Prise de service</p>
+                              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.serviceSection}</p>
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground">Début</Label>
+                                  <Label className="text-xs text-muted-foreground">{tr.startLabel}</Label>
                                   <Input type="time" className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.start_time} onChange={(e) => setWorkShiftForm((p) => ({ ...p, start_time: e.target.value }))} />
                                 </div>
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground">Fin</Label>
+                                  <Label className="text-xs text-muted-foreground">{tr.endLabel}</Label>
                                   <Input type="time" className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.end_time} onChange={(e) => setWorkShiftForm((p) => ({ ...p, end_time: e.target.value }))} />
                                 </div>
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Pause</p>
+                              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.breakSection}</p>
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground">Début pause</Label>
+                                  <Label className="text-xs text-muted-foreground">{tr.breakStartLabel}</Label>
                                   <Input type="time" className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.break_start_time} onChange={(e) => setWorkShiftForm((p) => ({ ...p, break_start_time: e.target.value }))} />
                                 </div>
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground">Fin pause</Label>
+                                  <Label className="text-xs text-muted-foreground">{tr.breakEndLabel}</Label>
                                   <Input type="time" className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.break_end_time} onChange={(e) => setWorkShiftForm((p) => ({ ...p, break_end_time: e.target.value }))} />
                                 </div>
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Tolérances & Heures sup.</p>
+                              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tr.tolerancesSection}</p>
                               <div className="grid grid-cols-3 gap-3">
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground">HS (min)</Label>
+                                  <Label className="text-xs text-muted-foreground">{tr.overtimeLabel}</Label>
                                   <Input type="number" min="0" className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.overtime_minutes} onChange={(e) => setWorkShiftForm((p) => ({ ...p, overtime_minutes: e.target.value }))} placeholder="0" />
                                 </div>
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground">Retard (min)</Label>
+                                  <Label className="text-xs text-muted-foreground">{tr.lateLabel}</Label>
                                   <Input type="number" min="0" className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.late_allowable_minutes} onChange={(e) => setWorkShiftForm((p) => ({ ...p, late_allowable_minutes: e.target.value }))} />
                                 </div>
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground">Départ tôt (min)</Label>
+                                  <Label className="text-xs text-muted-foreground">{tr.earlyLeaveLabel}</Label>
                                   <Input type="number" min="0" className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.early_leave_allowable_minutes} onChange={(e) => setWorkShiftForm((p) => ({ ...p, early_leave_allowable_minutes: e.target.value }))} />
                                 </div>
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs font-medium text-muted-foreground">Description</Label>
+                              <Label className="text-xs font-medium text-muted-foreground">{tr.descriptionLabel}</Label>
                               <Input className="h-10 rounded-xl border-border/60 bg-background/60" value={workShiftForm.description} onChange={(e) => setWorkShiftForm((p) => ({ ...p, description: e.target.value }))} />
                             </div>
                           </div>
                           <DialogFooter>
-                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setWorkShiftDialogOpen(false)}>Annuler</Button>
+                            <Button variant="outline" className="h-10 rounded-xl" onClick={() => setWorkShiftDialogOpen(false)}>{tr.cancel}</Button>
                             <Button className="h-10 rounded-xl" onClick={() => void submitWorkShift()} disabled={isSavingWorkShift}>
-                              {isSavingWorkShift && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Enregistrer
+                              {isSavingWorkShift && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{tr.save}
                             </Button>
                           </DialogFooter>
                         </DialogContent>
@@ -1615,7 +1617,7 @@ export default function SettingsPage() {
                                   ) : null}
                                   {shift.break_start_time && (
                                     <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                      Pause {shift.break_start_time}–{shift.break_end_time}
+                                      {tr.breakBadge(shift.break_start_time, shift.break_end_time)}
                                     </span>
                                   )}
                                 </div>
@@ -1633,7 +1635,7 @@ export default function SettingsPage() {
                                   })
                                   setWorkShiftDialogOpen(true)
                                 }}><Edit className="h-3.5 w-3.5" /></Button>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "work-shift", id: shift.id, label: `Supprimer le quart ${shift.name}` })}>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "work-shift", id: shift.id, label: tr.deleteShiftLabel(shift.name) })}>
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
@@ -1654,7 +1656,7 @@ export default function SettingsPage() {
                       {apiWorkShifts.length === 0 && (
                         <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-10 text-center">
                           <Clock className="mb-3 h-8 w-8 text-muted-foreground/30" />
-                          <p className="text-sm text-muted-foreground">Aucun quart configuré pour ce tenant.</p>
+                          <p className="text-sm text-muted-foreground">{tr.noShifts}</p>
                         </div>
                       )}
                     </div>
@@ -1669,30 +1671,30 @@ export default function SettingsPage() {
                           <CheckCircle2 className="h-5 w-5 text-amber-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Attribution des plannings</h3>
-                          <p className="text-sm text-muted-foreground">Affectez un planning à un département ou un groupe</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.assignPlanningsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.assignPlanningsDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="space-y-4 px-6 pb-6">
                       <div className="grid gap-3 sm:grid-cols-4">
                         <Select value={assignmentForm.planningId} onValueChange={(v) => setAssignmentForm((p) => ({ ...p, planningId: v }))}>
-                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder="Planning" /></SelectTrigger>
+                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder={tr.planningPlaceholder} /></SelectTrigger>
                           <SelectContent>{apiPlannings.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
                         </Select>
                         <Select value={assignmentForm.targetType} onValueChange={(v: Assignment["targetType"]) => setAssignmentForm((p) => ({ ...p, targetType: v, targetId: "" }))}>
                           <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Departement">Département</SelectItem>
-                            <SelectItem value="Groupe">Groupe</SelectItem>
+                            <SelectItem value="Departement">{tr.targetDepartment}</SelectItem>
+                            <SelectItem value="Groupe">{tr.targetGroup}</SelectItem>
                           </SelectContent>
                         </Select>
                         <Select value={assignmentForm.targetId} onValueChange={(v) => setAssignmentForm((p) => ({ ...p, targetId: v }))}>
-                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder={tr.selectPlaceholder} /></SelectTrigger>
                           <SelectContent>{availableTargets.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
                         </Select>
                         <Button onClick={() => void addAssignment()} disabled={isAssigningPlanning}>
-                          {isAssigningPlanning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Attribuer
+                          {isAssigningPlanning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{tr.assignButton}
                         </Button>
                       </div>
                       <div className="space-y-2">
@@ -1704,13 +1706,13 @@ export default function SettingsPage() {
                           return (
                             <div key={asgn.id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/40 p-3 text-sm transition-colors hover:border-border">
                               <CalendarDays className="h-4 w-4 shrink-0 text-amber-400" />
-                              <span className="font-medium text-foreground">{schedule?.name ?? "Planning supprimé"}</span>
+                              <span className="font-medium text-foreground">{schedule?.name ?? tr.deletedPlanning}</span>
                               <span className="text-muted-foreground">→</span>
                               <span className={`rounded-md px-2 py-0.5 text-xs ${asgn.targetType === "Departement" ? "bg-sky-500/10 text-sky-400" : "bg-violet-500/10 text-violet-400"}`}>
-                                {asgn.targetType}
+                                {asgn.targetType === "Departement" ? tr.targetDepartment : tr.targetGroup}
                               </span>
-                              <span className="truncate text-muted-foreground">{target?.name ?? "Cible supprimée"}</span>
-                              <Button variant="ghost" size="icon" className="ml-auto h-7 w-7 shrink-0 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "assignment", assignment: asgn, label: `Retirer l'attribution ${schedule?.name ?? "planning"}` })}>
+                              <span className="truncate text-muted-foreground">{target?.name ?? tr.deletedTarget}</span>
+                              <Button variant="ghost" size="icon" className="ml-auto h-7 w-7 shrink-0 text-destructive" onClick={() => setPendingSensitiveAction({ kind: "assignment", assignment: asgn, label: tr.removeAssignmentLabel(schedule?.name) })}>
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </div>
@@ -1719,7 +1721,7 @@ export default function SettingsPage() {
                         {assignments.length === 0 && (
                           <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
                             <CheckCircle2 className="mb-3 h-7 w-7 text-muted-foreground/30" />
-                            <p className="text-sm text-muted-foreground">Aucune attribution de planning.</p>
+                            <p className="text-sm text-muted-foreground">{tr.noAssignments}</p>
                           </div>
                         )}
                       </div>
@@ -1735,23 +1737,23 @@ export default function SettingsPage() {
                           <Building className="h-5 w-5 text-teal-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Quart par département</h3>
-                          <p className="text-sm text-muted-foreground">Assignez un quart de travail à chaque département</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.shiftByDeptTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.shiftByDeptDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="space-y-4 px-6 pb-6">
                       <div className="grid gap-3 sm:grid-cols-3">
                         <Select value={departmentShiftForm.departmentId} onValueChange={(v) => setDepartmentShiftForm((p) => ({ ...p, departmentId: v }))}>
-                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder="Département" /></SelectTrigger>
+                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder={tr.departmentPlaceholder} /></SelectTrigger>
                           <SelectContent>{apiDepartments.map((d) => <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>)}</SelectContent>
                         </Select>
                         <Select value={departmentShiftForm.workShiftId} onValueChange={(v) => setDepartmentShiftForm((p) => ({ ...p, workShiftId: v }))}>
-                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder="Quart de travail" /></SelectTrigger>
+                          <SelectTrigger className="rounded-xl border-border/60 bg-background/60"><SelectValue placeholder={tr.shiftPlaceholder} /></SelectTrigger>
                           <SelectContent>{apiWorkShifts.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
                         </Select>
                         <Button onClick={() => void submitDepartmentShiftAssignment()} disabled={isAssigningWorkShift}>
-                          {isAssigningWorkShift && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Attribuer
+                          {isAssigningWorkShift && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{tr.assignButton}
                         </Button>
                       </div>
                       <div className="space-y-2">
@@ -1762,7 +1764,7 @@ export default function SettingsPage() {
                               <span className="text-foreground">{dep.name}</span>
                             </div>
                             <Badge variant="secondary" className={dep.effective_work_shift ? "border border-emerald-400/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border border-border/60 bg-muted text-muted-foreground"}>
-                              {dep.effective_work_shift?.name ?? "Aucun quart"}
+                              {dep.effective_work_shift?.name ?? tr.noShiftBadge}
                             </Badge>
                           </div>
                         ))}
@@ -1785,13 +1787,13 @@ export default function SettingsPage() {
                             <Network className="h-5 w-5 text-emerald-400" />
                           </div>
                           <div>
-                            <h3 className="text-base font-semibold text-foreground">Connexion HikCentral Professional</h3>
-                            <p className="text-sm text-muted-foreground">État de la liaison avec le serveur de contrôle d&apos;accès</p>
+                            <h3 className="text-base font-semibold text-foreground">{tr.hikConnTitle}</h3>
+                            <p className="text-sm text-muted-foreground">{tr.hikConnDesc}</p>
                           </div>
                         </div>
                         <Badge className={`rounded-lg border px-3 py-1.5 ${pageSystemStatus === "connected" ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-500 dark:text-emerald-300" : pageSystemStatus === "syncing" ? "border-amber-400/25 bg-amber-500/10 text-amber-500 dark:text-amber-300" : "border-rose-400/25 bg-rose-500/10 text-rose-500 dark:text-rose-300"}`}>
                           <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${pageSystemStatus === "connected" ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" : pageSystemStatus === "syncing" ? "animate-pulse bg-amber-400" : "bg-rose-400"}`} />
-                          {pageSystemStatus === "connected" ? "Connecté" : pageSystemStatus === "syncing" ? "Synchronisation..." : "Déconnecté"}
+                          {pageSystemStatus === "connected" ? tr.statusConnected : pageSystemStatus === "syncing" ? tr.statusSyncing : tr.statusDisconnected}
                         </Badge>
                       </div>
                       <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1799,8 +1801,8 @@ export default function SettingsPage() {
                           <div className="flex items-center gap-2.5">
                             <RefreshCw className="h-4 w-4 text-emerald-400" />
                             <div>
-                              <p className="text-sm font-medium text-foreground">Synchronisation auto</p>
-                              <p className="text-xs text-muted-foreground">Toutes les 5 minutes</p>
+                              <p className="text-sm font-medium text-foreground">{tr.autoSyncTitle}</p>
+                              <p className="text-xs text-muted-foreground">{tr.autoSyncDesc}</p>
                             </div>
                           </div>
                           <Switch checked={syncEnabled} onCheckedChange={setSyncEnabled} />
@@ -1809,20 +1811,20 @@ export default function SettingsPage() {
                           <div className="flex items-center gap-2.5">
                             <Zap className="h-4 w-4 text-amber-400" />
                             <div>
-                              <p className="text-sm font-medium text-foreground">Événements temps réel</p>
-                              <p className="text-xs text-muted-foreground">Webhook HikCentral actif</p>
+                              <p className="text-sm font-medium text-foreground">{tr.realtimeTitle}</p>
+                              <p className="text-xs text-muted-foreground">{tr.realtimeDesc}</p>
                             </div>
                           </div>
-                          <Badge className="border border-amber-400/20 bg-amber-500/10 text-amber-400 text-xs">Actif</Badge>
+                          <Badge className="border border-amber-400/20 bg-amber-500/10 text-amber-400 text-xs">{tr.activeBadge}</Badge>
                         </div>
                       </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <Button size="sm" onClick={() => void saveSecuritySettings()} disabled={!hasSecurityChanges || isSavingPreferences}>
                           {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                          Sauvegarder
+                          {tr.saveShort}
                         </Button>
                         <Button size="sm" variant="outline" onClick={resetSecuritySettings} disabled={!hasSecurityChanges || isSavingPreferences}>
-                          <RotateCcw className="mr-2 h-4 w-4" />Annuler
+                          <RotateCcw className="mr-2 h-4 w-4" />{tr.cancel}
                         </Button>
                       </div>
                     </div>
@@ -1837,15 +1839,15 @@ export default function SettingsPage() {
                           <Building className="h-5 w-5 text-sky-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Tenants configurés</h3>
-                          <p className="text-sm text-muted-foreground">Organisations rattachées à HikCentral</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.tenantsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.tenantsDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="space-y-2 px-6 pb-6">
                       {tenants.length === 0 && isInitialLoading && (
                         <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-3 text-sm text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />Chargement des tenants...
+                          <Loader2 className="h-4 w-4 animate-spin" />{tr.loadingTenants}
                         </div>
                       )}
                       {tenants.map((tenant) => {
@@ -1860,7 +1862,7 @@ export default function SettingsPage() {
                               <p className="font-mono text-[10px] text-muted-foreground">{tenant.code}</p>
                             </div>
                             {active && (
-                              <Badge className="shrink-0 border border-sky-400/20 bg-sky-500/10 text-sky-400 text-xs">Actif</Badge>
+                              <Badge className="shrink-0 border border-sky-400/20 bg-sky-500/10 text-sky-400 text-xs">{tr.activeBadge}</Badge>
                             )}
                           </div>
                         )
@@ -1868,7 +1870,7 @@ export default function SettingsPage() {
                       {tenants.length === 0 && !isInitialLoading && (
                         <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
                           <Building className="mb-3 h-7 w-7 text-muted-foreground/30" />
-                          <p className="text-sm text-muted-foreground">Aucun tenant disponible.</p>
+                          <p className="text-sm text-muted-foreground">{tr.noTenants}</p>
                         </div>
                       )}
                     </div>
@@ -1884,12 +1886,12 @@ export default function SettingsPage() {
                             <Cpu className="h-5 w-5 text-purple-400" />
                           </div>
                           <div>
-                            <h3 className="text-base font-semibold text-foreground">Lecteurs enregistrés</h3>
-                            <p className="text-sm text-muted-foreground">Dispositifs de contrôle d&apos;accès actifs</p>
+                            <h3 className="text-base font-semibold text-foreground">{tr.readersTitle}</h3>
+                            <p className="text-sm text-muted-foreground">{tr.readersDesc}</p>
                           </div>
                         </div>
                         <Badge variant="secondary" className="shrink-0 tabular-nums">
-                          {apiReaders.length} lecteur{apiReaders.length !== 1 ? "s" : ""}
+                          {tr.readerCount(apiReaders.length)}
                         </Badge>
                       </div>
                     </div>
@@ -1900,16 +1902,16 @@ export default function SettingsPage() {
                             <Cpu className="h-4 w-4 text-purple-400" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-foreground">{reader.name || `Lecteur ${reader.dev_index}`}</p>
+                            <p className="truncate text-sm font-medium text-foreground">{reader.name || tr.readerFallback(reader.dev_index)}</p>
                             <p className="font-mono text-[10px] text-muted-foreground">{reader.serial_number} · DEV-{reader.dev_index}</p>
                           </div>
-                          <Badge className="shrink-0 border border-emerald-400/20 bg-emerald-500/10 text-emerald-400 text-xs">En ligne</Badge>
+                          <Badge className="shrink-0 border border-emerald-400/20 bg-emerald-500/10 text-emerald-400 text-xs">{tr.onlineBadge}</Badge>
                         </div>
                       ))}
                       {apiReaders.length === 0 && (
                         <div className="flex flex-col items-center rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
                           <Cpu className="mb-3 h-7 w-7 text-muted-foreground/30" />
-                          <p className="text-sm text-muted-foreground">Aucun lecteur détecté.</p>
+                          <p className="text-sm text-muted-foreground">{tr.noReaders}</p>
                         </div>
                       )}
                     </div>
@@ -1929,8 +1931,8 @@ export default function SettingsPage() {
                           <Shield className="h-5 w-5 text-amber-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Politique d&apos;accès</h3>
-                          <p className="text-sm text-muted-foreground">Règles de sécurité globales de l&apos;application</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.accessPolicyTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.accessPolicyDesc}</p>
                         </div>
                       </div>
                     </div>
@@ -1938,17 +1940,17 @@ export default function SettingsPage() {
                       {[
                         {
                           icon: Clock, color: "text-amber-400", bg: "bg-amber-400/10",
-                          title: "Restriction horaire", desc: "Accès bloqué en dehors de 06:00 – 22:00",
+                          title: tr.timeRestrictionTitle, desc: tr.timeRestrictionDesc,
                           checked: securityTimeRestrictionEnabled, onChange: setSecurityTimeRestrictionEnabled,
                         },
                         {
                           icon: Lock, color: "text-rose-400", bg: "bg-rose-400/10",
-                          title: "Verrou après tentatives échouées", desc: "Verrouillage du compte après 5 échecs de badgeage",
+                          title: tr.lockoutTitle, desc: tr.lockoutDesc,
                           checked: false, onChange: () => {},
                         },
                         {
                           icon: Wifi, color: "text-sky-400", bg: "bg-sky-400/10",
-                          title: "Accès hors réseau restreint", desc: "Interdire l&apos;accès si le lecteur est hors ligne",
+                          title: tr.offlineRestrictTitle, desc: tr.offlineRestrictDesc,
                           checked: true, onChange: () => {},
                         },
                       ].map((item) => (
@@ -1977,8 +1979,8 @@ export default function SettingsPage() {
                           <Timer className="h-5 w-5 text-sky-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Gestion de session</h3>
-                          <p className="text-sm text-muted-foreground">Expiration automatique des sessions inactives</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.sessionTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.sessionDesc}</p>
                         </div>
                       </div>
                     </div>
@@ -1987,8 +1989,8 @@ export default function SettingsPage() {
                         <div className="flex items-center gap-3">
                           <Clock className="h-4 w-4 text-sky-400" />
                           <div>
-                            <p className="text-sm font-medium text-foreground">Expiration de session</p>
-                            <p className="text-xs text-muted-foreground">Déconnexion après inactivité</p>
+                            <p className="text-sm font-medium text-foreground">{tr.sessionTimeoutTitle}</p>
+                            <p className="text-xs text-muted-foreground">{tr.sessionTimeoutDesc}</p>
                           </div>
                         </div>
                         <Select value={sessionTimeout} onValueChange={setSessionTimeout}>
@@ -1996,11 +1998,11 @@ export default function SettingsPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="15">15 minutes</SelectItem>
-                            <SelectItem value="30">30 minutes</SelectItem>
-                            <SelectItem value="60">1 heure</SelectItem>
-                            <SelectItem value="120">2 heures</SelectItem>
-                            <SelectItem value="480">8 heures</SelectItem>
+                            <SelectItem value="15">{tr.timeout15}</SelectItem>
+                            <SelectItem value="30">{tr.timeout30}</SelectItem>
+                            <SelectItem value="60">{tr.timeout60}</SelectItem>
+                            <SelectItem value="120">{tr.timeout120}</SelectItem>
+                            <SelectItem value="480">{tr.timeout480}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -2016,16 +2018,16 @@ export default function SettingsPage() {
                           <Key className="h-5 w-5 text-violet-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Accès API & Authentification</h3>
-                          <p className="text-sm text-muted-foreground">Clés d&apos;accès et informations d&apos;intégration</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.apiAccessTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.apiAccessDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="space-y-3 px-6 pb-6">
                       {[
-                        { label: "Tenant actif", value: activeTenantName || "—", icon: Building, mono: false },
-                        { label: "Code tenant", value: tenants.find((t) => t.id === tenantId)?.code || "—", icon: Hash, mono: true },
-                        { label: "API Base URL", value: API_BASE_URL, icon: Network, mono: true },
+                        { label: tr.activeTenantRow, value: activeTenantName || "—", icon: Building, mono: false },
+                        { label: tr.tenantCodeRow, value: tenants.find((t) => t.id === tenantId)?.code || "—", icon: Hash, mono: true },
+                        { label: tr.apiBaseUrlRow, value: API_BASE_URL, icon: Network, mono: true },
                       ].map((row) => (
                         <div key={row.label} className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/40 px-4 py-3">
                           <row.icon className="h-4 w-4 shrink-0 text-muted-foreground/60" />
@@ -2038,15 +2040,15 @@ export default function SettingsPage() {
 
                   {/* Save/Reset */}
                   <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-600 dark:text-amber-300">
-                    Préférences locales à ce navigateur — elles ne sont pas synchronisées avec le serveur ni partagées entre appareils.
+                    {tr.localPrefsNotice}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => void saveSecuritySettings()} disabled={!hasSecurityChanges || isSavingPreferences}>
                       {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                      Sauvegarder les paramètres de sécurité
+                      {tr.saveSecurityButton}
                     </Button>
                     <Button variant="outline" onClick={resetSecuritySettings} disabled={!hasSecurityChanges || isSavingPreferences}>
-                      <RotateCcw className="mr-2 h-4 w-4" />Réinitialiser
+                      <RotateCcw className="mr-2 h-4 w-4" />{tr.reset}
                     </Button>
                   </div>
                 </>
@@ -2064,15 +2066,15 @@ export default function SettingsPage() {
                           <Bell className="h-5 w-5 text-rose-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Canaux de notification</h3>
-                          <p className="text-sm text-muted-foreground">Choisissez comment recevoir les alertes</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.channelsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.channelsDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="space-y-2 px-6 pb-6">
                       {[
-                        { icon: Mail, color: "text-rose-400", bg: "bg-rose-500/10", title: "Email", desc: "Rapports et alertes par courriel", checked: emailNotifications, onChange: setEmailNotifications },
-                        { icon: Smartphone, color: "text-pink-400", bg: "bg-pink-500/10", title: "Push mobile", desc: "Notifications push sur l&apos;application mobile", checked: pushNotifications, onChange: setPushNotifications },
+                        { icon: Mail, color: "text-rose-400", bg: "bg-rose-500/10", title: tr.emailChannelTitle, desc: tr.emailChannelDesc, checked: emailNotifications, onChange: setEmailNotifications },
+                        { icon: Smartphone, color: "text-pink-400", bg: "bg-pink-500/10", title: tr.pushChannelTitle, desc: tr.pushChannelDesc, checked: pushNotifications, onChange: setPushNotifications },
                       ].map((ch) => (
                         <div key={ch.title} className="flex items-center justify-between rounded-xl border border-border/60 bg-background/40 px-4 py-3.5 transition-colors hover:border-border">
                           <div className="flex items-center gap-3">
@@ -2099,17 +2101,17 @@ export default function SettingsPage() {
                           <AlertTriangle className="h-5 w-5 text-amber-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Types d&apos;alertes</h3>
-                          <p className="text-sm text-muted-foreground">Sélectionnez les événements à notifier</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.alertTypesTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.alertTypesDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="grid gap-2 px-6 pb-6 sm:grid-cols-2">
                       {[
-                        { icon: DoorOpen, color: "text-rose-400", bg: "bg-rose-500/10", title: "Accès refusé", desc: "Badgeage rejeté ou hors groupe", checked: alertOnAccessDenied, onChange: setAlertOnAccessDenied },
-                        { icon: Shield, color: "text-amber-400", bg: "bg-amber-500/10", title: "Intrusion détectée", desc: "Déclenchement d&apos;une alarme anti-intrusion", checked: alertOnIntrusion, onChange: setAlertOnIntrusion },
-                        { icon: Clock, color: "text-sky-400", bg: "bg-sky-500/10", title: "Retard employé", desc: "Arrivée hors des plages tolérées", checked: alertOnLateArrival, onChange: setAlertOnLateArrival },
-                        { icon: Cpu, color: "text-purple-400", bg: "bg-purple-500/10", title: "Panne de lecteur", desc: "Lecteur hors ligne ou défaillant", checked: alertOnDeviceFault, onChange: setAlertOnDeviceFault },
+                        { icon: DoorOpen, color: "text-rose-400", bg: "bg-rose-500/10", title: tr.alertAccessDeniedTitle, desc: tr.alertAccessDeniedDesc, checked: alertOnAccessDenied, onChange: setAlertOnAccessDenied },
+                        { icon: Shield, color: "text-amber-400", bg: "bg-amber-500/10", title: tr.alertIntrusionTitle, desc: tr.alertIntrusionDesc, checked: alertOnIntrusion, onChange: setAlertOnIntrusion },
+                        { icon: Clock, color: "text-sky-400", bg: "bg-sky-500/10", title: tr.alertLateTitle, desc: tr.alertLateDesc, checked: alertOnLateArrival, onChange: setAlertOnLateArrival },
+                        { icon: Cpu, color: "text-purple-400", bg: "bg-purple-500/10", title: tr.alertDeviceFaultTitle, desc: tr.alertDeviceFaultDesc, checked: alertOnDeviceFault, onChange: setAlertOnDeviceFault },
                       ].map((alert) => (
                         <div key={alert.title} className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/40 px-4 py-3.5 transition-colors hover:border-border">
                           <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${alert.bg}`}>
@@ -2135,8 +2137,8 @@ export default function SettingsPage() {
                             <Bell className="h-5 w-5 text-sky-400" />
                           </div>
                           <div>
-                            <h3 className="text-base font-semibold text-foreground">Résumé quotidien</h3>
-                            <p className="text-sm text-muted-foreground">Rapport consolidé envoyé chaque matin à 08:00</p>
+                            <h3 className="text-base font-semibold text-foreground">{tr.dailyDigestTitle}</h3>
+                            <p className="text-sm text-muted-foreground">{tr.dailyDigestDesc}</p>
                           </div>
                         </div>
                         <Switch checked={dailyDigest} onCheckedChange={setDailyDigest} />
@@ -2146,15 +2148,15 @@ export default function SettingsPage() {
 
                   {/* Actions */}
                   <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-600 dark:text-amber-300">
-                    Préférences locales à ce navigateur — elles ne sont pas synchronisées avec le serveur ni partagées entre appareils.
+                    {tr.localPrefsNotice}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => void saveNotificationSettings()} disabled={!hasNotificationChanges || isSavingPreferences}>
                       {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                      Sauvegarder les notifications
+                      {tr.saveNotificationsButton}
                     </Button>
                     <Button variant="outline" onClick={resetNotificationSettings} disabled={!hasNotificationChanges || isSavingPreferences}>
-                      <RotateCcw className="mr-2 h-4 w-4" />Réinitialiser
+                      <RotateCcw className="mr-2 h-4 w-4" />{tr.reset}
                     </Button>
                   </div>
                 </>
@@ -2172,18 +2174,18 @@ export default function SettingsPage() {
                           <Building2 className="h-5 w-5 text-cyan-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Informations entreprise</h3>
-                          <p className="text-sm text-muted-foreground">Identité et localisation de votre organisation</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.companyInfoTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.companyInfoDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground">Nom de l&apos;entreprise</Label>
-                        <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="h-10 rounded-xl border-border/60 bg-background/60" placeholder="Nom de l'organisation" />
+                        <Label className="text-xs font-medium text-muted-foreground">{tr.companyNameLabel}</Label>
+                        <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="h-10 rounded-xl border-border/60 bg-background/60" placeholder={tr.companyNamePlaceholder} />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground">Fuseau horaire</Label>
+                        <Label className="text-xs font-medium text-muted-foreground">{tr.timezoneGeneralLabel}</Label>
                         <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} className="h-10 rounded-xl border-border/60 bg-background/60" placeholder="Europe/Paris" />
                       </div>
                     </div>
@@ -2198,26 +2200,26 @@ export default function SettingsPage() {
                           <Globe className="h-5 w-5 text-violet-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Langue, theme &amp; format</h3>
-                          <p className="text-sm text-muted-foreground">Localisation de l&apos;interface</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.displayPrefsTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.displayPrefsDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-3">
                       <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground">Langue de l&apos;interface</Label>
+                        <Label className="text-xs font-medium text-muted-foreground">{tr.languageLabel}</Label>
                         <Select value={language} onValueChange={(v) => setLanguage(v === "en" ? "en" : "fr")}>
                           <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="fr">Français</SelectItem>
-                            <SelectItem value="en">English</SelectItem>
+                            <SelectItem value="fr">{tr.langFrench}</SelectItem>
+                            <SelectItem value="en">{tr.langEnglish}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground">Theme de l&apos;interface</Label>
+                        <Label className="text-xs font-medium text-muted-foreground">{tr.themeLabel}</Label>
                         <Select
                           value={themePreference}
                           onValueChange={(value) => {
@@ -2231,22 +2233,22 @@ export default function SettingsPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="system">Par défaut (sombre)</SelectItem>
-                            <SelectItem value="dark">Sombre</SelectItem>
-                            <SelectItem value="light">Clair</SelectItem>
+                            <SelectItem value="system">{tr.themeSystem}</SelectItem>
+                            <SelectItem value="dark">{tr.themeDark}</SelectItem>
+                            <SelectItem value="light">{tr.themeLight}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground">Format de date</Label>
+                        <Label className="text-xs font-medium text-muted-foreground">{tr.dateFormatLabel}</Label>
                         <Select defaultValue="DD/MM/YYYY">
                           <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="DD/MM/YYYY">JJ/MM/AAAA</SelectItem>
-                            <SelectItem value="MM/DD/YYYY">MM/JJ/AAAA</SelectItem>
-                            <SelectItem value="YYYY-MM-DD">AAAA-MM-JJ (ISO)</SelectItem>
+                            <SelectItem value="DD/MM/YYYY">{tr.dateFormatDMY}</SelectItem>
+                            <SelectItem value="MM/DD/YYYY">{tr.dateFormatMDY}</SelectItem>
+                            <SelectItem value="YYYY-MM-DD">{tr.dateFormatISO}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -2262,17 +2264,17 @@ export default function SettingsPage() {
                           <Server className="h-5 w-5 text-emerald-400" />
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">Informations système</h3>
-                          <p className="text-sm text-muted-foreground">Versions et configuration de l&apos;infrastructure</p>
+                          <h3 className="text-base font-semibold text-foreground">{tr.systemInfoTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{tr.systemInfoDesc}</p>
                         </div>
                       </div>
                     </div>
                     <div className="space-y-2 px-6 pb-6">
                       {[
-                        { label: "Version app", value: "v1.0.0", icon: Zap, mono: false },
-                        { label: "API endpoint", value: `${API_BASE_URL}/api`, icon: Network, mono: true },
-                        { label: "Tenant actif", value: activeTenantName || "—", icon: Building, mono: false },
-                        { label: "Statut serveur", value: pageSystemStatus === "connected" ? "Connecté" : pageSystemStatus === "syncing" ? "Synchronisation" : "Déconnecté", icon: Wifi, mono: false },
+                        { label: tr.appVersionRow, value: "v1.0.0", icon: Zap, mono: false },
+                        { label: tr.apiEndpointRow, value: `${API_BASE_URL}/api`, icon: Network, mono: true },
+                        { label: tr.activeTenantRow, value: activeTenantName || "—", icon: Building, mono: false },
+                        { label: tr.serverStatusRow, value: pageSystemStatus === "connected" ? tr.statusConnected : pageSystemStatus === "syncing" ? tr.statusSyncingShort : tr.statusDisconnected, icon: Wifi, mono: false },
                       ].map((row) => (
                         <div key={row.label} className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/40 px-4 py-3">
                           <row.icon className="h-4 w-4 shrink-0 text-muted-foreground/60" />
@@ -2285,15 +2287,15 @@ export default function SettingsPage() {
 
                   {/* Actions */}
                   <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-600 dark:text-amber-300">
-                    Préférences locales à ce navigateur — elles ne sont pas synchronisées avec le serveur ni partagées entre appareils.
+                    {tr.localPrefsNotice}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => void saveGeneralSettings()} disabled={!hasGeneralChanges || isSavingPreferences}>
                       {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                      Sauvegarder les paramètres généraux
+                      {tr.saveGeneralButton}
                     </Button>
                     <Button variant="outline" onClick={resetGeneralSettings} disabled={!hasGeneralChanges || isSavingPreferences}>
-                      <RotateCcw className="mr-2 h-4 w-4" />Réinitialiser
+                      <RotateCcw className="mr-2 h-4 w-4" />{tr.reset}
                     </Button>
                   </div>
                 </>
@@ -2308,19 +2310,19 @@ export default function SettingsPage() {
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-foreground">
                   <AlertTriangle className="h-5 w-5 text-amber-400" />
-                  Confirmer l&apos;action sensible
+                  {tr.sensitiveTitle}
                 </DialogTitle>
                 <DialogDescription>
-                  {pendingSensitiveAction?.label}. Cette action peut impacter la configuration active.
+                  {pendingSensitiveAction ? tr.sensitiveDesc(pendingSensitiveAction.label) : null}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setPendingSensitiveAction(null)} disabled={isRunningSensitiveAction}>
-                  Annuler
+                  {tr.cancel}
                 </Button>
                 <Button variant="destructive" onClick={() => void runSensitiveAction()} disabled={!pendingSensitiveAction || isRunningSensitiveAction}>
                   {isRunningSensitiveAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Confirmer la suppression
+                  {tr.confirmDelete}
                 </Button>
               </DialogFooter>
             </DialogContent>

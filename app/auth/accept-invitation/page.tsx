@@ -9,11 +9,15 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useI18n } from "@/lib/i18n/context"
+import { authDict } from "@/lib/i18n/pages/auth"
 
 type InviteStatus = "idle" | "loading" | "success" | "error"
 
 export default function AcceptInvitationPage() {
   const searchParams = useSearchParams()
+  const { locale } = useI18n()
+  const tr = authDict[locale]
   const token = useMemo(() => String(searchParams.get("token") ?? "").trim(), [searchParams])
   const authenticated = hasAuthSession()
   const [username, setUsername] = useState("")
@@ -25,12 +29,12 @@ export default function AcceptInvitationPage() {
     event?.preventDefault()
     if (!token) {
       setStatus("error")
-      setMessage("Token d'invitation manquant.")
+      setMessage(tr.inviteTokenMissing)
       return
     }
     if (!authenticated && (!username.trim() || password.length < 8)) {
       setStatus("error")
-      setMessage("Renseigne un nom d'utilisateur et un mot de passe (8 caractères min).")
+      setMessage(tr.inviteCredentialsRequired)
       return
     }
     setStatus("loading")
@@ -40,10 +44,10 @@ export default function AcceptInvitationPage() {
         authenticated ? undefined : { username: username.trim(), password }
       )
       setStatus("success")
-      setMessage("Invitation acceptée avec succès.")
+      setMessage(tr.inviteAccepted)
     } catch (error) {
       setStatus("error")
-      setMessage(error instanceof Error ? error.message : "Impossible d'accepter l'invitation.")
+      setMessage(error instanceof Error ? error.message : tr.inviteError)
     }
   }
 
@@ -53,41 +57,41 @@ export default function AcceptInvitationPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             {status === "success" ? <CheckCircle2 className="h-5 w-5 text-green-400" /> : <MailPlus className="h-5 w-5 text-primary" />}
-            Invitation organisation
+            {tr.inviteTitle}
           </CardTitle>
-          <CardDescription>Rejoindre votre tenant avec le lien reçu par email.</CardDescription>
+          <CardDescription>{tr.inviteSubtitle}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {!authenticated ? (
             <form className="space-y-3" onSubmit={submit}>
               <div className="space-y-2">
-                <Label htmlFor="username">Nom d'utilisateur</Label>
+                <Label htmlFor="username">{tr.usernameLabel}</Label>
                 <Input
                   id="username"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  placeholder="mon-utilisateur"
+                  placeholder={tr.usernamePlaceholder}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Mot de passe</Label>
+                <Label htmlFor="password">{tr.passwordLabel}</Label>
                 <Input
                   id="password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="8 caractères minimum"
+                  placeholder={tr.invitePasswordPlaceholder}
                 />
               </div>
               <Button type="submit" disabled={status === "loading"} className="w-full">
                 {status === "loading" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Accepter l'invitation
+                {tr.acceptInvitation}
               </Button>
             </form>
           ) : (
             <Button onClick={() => void submit()} disabled={status === "loading"} className="w-full">
               {status === "loading" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Accepter avec mon compte connecté
+              {tr.acceptWithAccount}
             </Button>
           )}
 
@@ -99,10 +103,10 @@ export default function AcceptInvitationPage() {
 
           <div className="flex gap-2">
             <Button asChild variant="outline" className="flex-1">
-              <Link href="/login">Connexion</Link>
+              <Link href="/login">{tr.signIn}</Link>
             </Button>
             <Button asChild className="flex-1">
-              <Link href="/">Tableau de bord</Link>
+              <Link href="/">{tr.dashboard}</Link>
             </Button>
           </div>
         </CardContent>

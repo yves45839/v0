@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useMemo } from "react"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
+import { shellDict } from "@/lib/i18n/pages/shell"
 
 export type SectionKey = "dashboard" | "personnes" | "planning" | "appareils" | "rapports"
 
@@ -22,42 +23,43 @@ export type SectionDefinition = {
 
 export function useSectionDefinitions(): SectionDefinition[] {
   const { t, locale } = useI18n()
+  const tr = shellDict[locale]
 
   return useMemo<SectionDefinition[]>(
     () => [
       {
         key: "dashboard",
-        label: locale === "en" ? "Dashboard" : "Dashboard",
+        label: tr.sectionDashboard,
         defaultHref: "/",
         tabs: [
-          { href: "/", label: locale === "en" ? "Overview" : "Vue d'ensemble" },
+          { href: "/", label: tr.tabOverview },
           { href: "/alerts", label: t.nav.alerts },
         ],
       },
       {
         key: "personnes",
-        label: locale === "en" ? "People" : "Personnes",
+        label: tr.sectionPeople,
         defaultHref: "/employees",
         tabs: [
           { href: "/employees", label: t.nav.employees },
-          { href: "/tenant-users", label: locale === "en" ? "Accounts" : "Comptes" },
-          { href: "/profile", label: locale === "en" ? "My profile" : "Mon profil" },
+          { href: "/tenant-users", label: tr.tabAccounts },
+          { href: "/profile", label: tr.tabMyProfile },
           { href: "/visitors", label: t.nav.visitors },
         ],
       },
       {
         key: "planning",
-        label: locale === "en" ? "Planning" : "Planning",
+        label: tr.sectionPlanning,
         defaultHref: "/planning",
         tabs: [
-          { href: "/planning", label: locale === "en" ? "Schedules" : "Plannings" },
-          { href: "/timesheet", label: locale === "en" ? "Timesheets" : "Pointages" },
-          { href: "/absences", label: locale === "en" ? "Time off" : "Congés" },
+          { href: "/planning", label: tr.tabSchedules },
+          { href: "/timesheet", label: tr.tabTimesheets },
+          { href: "/absences", label: tr.tabTimeOff },
         ],
       },
       {
         key: "appareils",
-        label: locale === "en" ? "Devices" : "Appareils",
+        label: tr.sectionDevices,
         defaultHref: "/devices",
         tabs: [
           { href: "/devices", label: t.nav.devices },
@@ -68,7 +70,7 @@ export function useSectionDefinitions(): SectionDefinition[] {
       },
       {
         key: "rapports",
-        label: locale === "en" ? "Reports" : "Rapports",
+        label: tr.sectionReports,
         defaultHref: "/reports",
         tabs: [
           { href: "/reports", label: t.nav.reports },
@@ -78,7 +80,7 @@ export function useSectionDefinitions(): SectionDefinition[] {
         ],
       },
     ],
-    [t, locale]
+    [t, tr]
   )
 }
 
@@ -101,6 +103,8 @@ export function findSectionForPath(
 export function SectionTabs() {
   const pathname = usePathname()
   const sections = useSectionDefinitions()
+  const { locale } = useI18n()
+  const tr = shellDict[locale]
 
   const section = useMemo(() => findSectionForPath(sections, pathname), [sections, pathname])
 
@@ -112,7 +116,7 @@ export function SectionTabs() {
     <div className="border-b border-border/60 bg-background/72 backdrop-blur-md">
       <div className="mx-auto w-full max-w-430 px-4 md:px-5">
         <nav
-          aria-label={`${section.label} sections`}
+          aria-label={tr.sectionNavAria(section.label)}
           className="dense-scrollbar flex items-center gap-1 overflow-x-auto py-1.5"
         >
           {section.tabs.map((tab) => {

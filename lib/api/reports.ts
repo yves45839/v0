@@ -228,7 +228,7 @@ export async function fetchAttendanceCorrections(
 ): Promise<AttendanceCorrectionItem[]> {
   const tenantCode = params.tenant ?? getActiveTenantCode()
   if (!tenantCode) {
-    throw new Error("Le tenant est requis pour lire les corrections de pointage.")
+    throw new Error("A tenant is required to read attendance corrections.")
   }
 
   const search = new URLSearchParams()
@@ -253,7 +253,7 @@ export async function upsertAttendanceCorrection(
 ): Promise<AttendanceCorrectionItem> {
   const tenantCode = payload.tenant ?? getActiveTenantCode()
   if (!tenantCode) {
-    throw new Error("Le tenant est requis pour enregistrer une correction de pointage.")
+    throw new Error("A tenant is required to save an attendance correction.")
   }
 
   const resultPayload = await apiJson<{ result?: AttendanceCorrectionItem } | AttendanceCorrectionItem>(

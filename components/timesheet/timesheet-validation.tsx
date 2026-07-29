@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { useI18n } from "@/lib/i18n/context"
+import { timesheetDict } from "@/lib/i18n/pages/timesheet"
 import {
   TimesheetRow,
   type TimesheetItem,
@@ -63,7 +64,9 @@ function isoToHourMinute(isoValue: string | null | undefined): string | null {
   if (!isoValue) return null
   const date = new Date(isoValue)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false })
+  const hours = String(date.getHours()).padStart(2, "0")
+  const minutes = String(date.getMinutes()).padStart(2, "0")
+  return `${hours}:${minutes}`
 }
 
 function todayInputValue(): string {
@@ -84,7 +87,13 @@ function isAnomaly(item: ValidationItem): boolean {
   return !item.corrected && item.status !== "compliant" && item.status !== "rest"
 }
 
-function buildItems(report: AttendanceReportResponse, dateStr: string): ValidationItem[] {
+function buildItems(
+  report: AttendanceReportResponse,
+  dateStr: string,
+  dict: typeof timesheetDict
+): ValidationItem[] {
+  const trFr = dict.fr
+  const trEn = dict.en
   const correctionsByKey = new Map<string, { arrival: string | null; departure: string | null }>()
   for (const correction of report.corrections ?? []) {
     correctionsByKey.set(`${correction.person_id}|${correction.date}`, {
@@ -115,73 +124,91 @@ function buildItems(report: AttendanceReportResponse, dateStr: string): Validati
       const departureDelta = detail.departure_delta_minutes ?? null
 
       let severity: TimesheetSeverity = "info"
-      let reasonFr = "Conforme au planning"
-      let reasonEn = "Matches the schedule"
-      let delta = "OK"
+      let reasonFr = trFr.reasonCompliant
+      let reasonEn = trEn.reasonCompliant
+      let deltaFr = trFr.deltaOk
+      let deltaEn = trEn.deltaOk
+      let deltaIsOk = true
       let deltaType: TimesheetSeverity = "info"
 
       if (detail.status === "missing") {
         severity = "danger"
-        reasonFr = "Aucun pointage détecté"
-        reasonEn = "No clock events detected"
-        delta = "manquant"
+        reasonFr = trFr.reasonMissing
+        reasonEn = trEn.reasonMissing
+        deltaFr = trFr.deltaMissing
+        deltaEn = trEn.deltaMissing
+        deltaIsOk = false
         deltaType = "danger"
       } else if (detail.status === "partial") {
         if (arrival && !departure) {
           severity = "danger"
-          reasonFr = "Pas de pointage de sortie"
-          reasonEn = "No clock-out detected"
-          delta = "manquant"
+          reasonFr = trFr.reasonNoClockOut
+          reasonEn = trEn.reasonNoClockOut
+          deltaFr = trFr.deltaMissing
+          deltaEn = trEn.deltaMissing
+          deltaIsOk = false
           deltaType = "danger"
         } else if (!arrival && departure) {
           severity = "danger"
-          reasonFr = "Pas de pointage d'entrée"
-          reasonEn = "No clock-in detected"
-          delta = "manquant"
+          reasonFr = trFr.reasonNoClockIn
+          reasonEn = trEn.reasonNoClockIn
+          deltaFr = trFr.deltaMissing
+          deltaEn = trEn.deltaMissing
+          deltaIsOk = false
           deltaType = "danger"
         } else {
           severity = "warn"
-          reasonFr = "Pointage incomplet"
-          reasonEn = "Incomplete clock events"
-          delta = "partiel"
+          reasonFr = trFr.reasonIncomplete
+          reasonEn = trEn.reasonIncomplete
+          deltaFr = trFr.deltaPartial
+          deltaEn = trEn.deltaPartial
+          deltaIsOk = false
           deltaType = "warn"
         }
       } else if (detail.status === "unexpected_activity") {
         severity = "warn"
-        reasonFr = "Activité hors planning"
-        reasonEn = "Activity outside schedule"
-        delta = `${detail.observed.total_logs} evt`
+        reasonFr = trFr.reasonUnexpected
+        reasonEn = trEn.reasonUnexpected
+        deltaFr = trFr.deltaEvents(detail.observed.total_logs)
+        deltaEn = trEn.deltaEvents(detail.observed.total_logs)
+        deltaIsOk = false
         deltaType = "warn"
       }
 
       if (arrivalDelta !== null && arrivalDelta > 0) {
         if (detail.status === "compliant") {
           severity = "warn"
-          reasonFr = `Arrivée tardive · +${arrivalDelta} min`
-          reasonEn = `Late arrival · +${arrivalDelta} min`
+          reasonFr = trFr.reasonLateArrival(arrivalDelta)
+          reasonEn = trEn.reasonLateArrival(arrivalDelta)
         } else {
-          reasonFr += ` · retard +${arrivalDelta} min`
-          reasonEn += ` · late +${arrivalDelta} min`
+          reasonFr += trFr.reasonLateSuffix(arrivalDelta)
+          reasonEn += trEn.reasonLateSuffix(arrivalDelta)
         }
-        if (delta === "OK") {
-          delta = `+${arrivalDelta} min`
+        if (deltaIsOk) {
+          deltaFr = trFr.deltaPlus(arrivalDelta)
+          deltaEn = trEn.deltaPlus(arrivalDelta)
+          deltaIsOk = false
           deltaType = "warn"
         }
-      } else if (departureDelta !== null && departureDelta < 0 && delta === "OK") {
-        delta = `−${Math.abs(departureDelta)} min`
+      } else if (departureDelta !== null && departureDelta < 0 && deltaIsOk) {
+        deltaFr = trFr.deltaMinus(Math.abs(departureDelta))
+        deltaEn = trEn.deltaMinus(Math.abs(departureDelta))
+        deltaIsOk = false
         deltaType = "warn"
-        reasonFr = `Sortie anticipée · −${Math.abs(departureDelta)} min`
-        reasonEn = `Early clock-out · −${Math.abs(departureDelta)} min`
-      } else if (departureDelta !== null && departureDelta > 0 && delta === "OK") {
-        delta = `+${departureDelta} min`
+        reasonFr = trFr.reasonEarlyOut(Math.abs(departureDelta))
+        reasonEn = trEn.reasonEarlyOut(Math.abs(departureDelta))
+      } else if (departureDelta !== null && departureDelta > 0 && deltaIsOk) {
+        deltaFr = trFr.deltaPlus(departureDelta)
+        deltaEn = trEn.deltaPlus(departureDelta)
+        deltaIsOk = false
         deltaType = "info"
-        reasonFr = `Heures sup. · +${departureDelta} min`
-        reasonEn = `Overtime · +${departureDelta} min`
+        reasonFr = trFr.reasonOvertime(departureDelta)
+        reasonEn = trEn.reasonOvertime(departureDelta)
       }
 
       if (corrected) {
-        reasonFr = `Corrigé manuellement · ${reasonFr}`
-        reasonEn = `Manually corrected · ${reasonEn}`
+        reasonFr = trFr.reasonCorrectedPrefix(reasonFr)
+        reasonEn = trEn.reasonCorrectedPrefix(reasonEn)
         severity = "info"
         deltaType = "info"
       }
@@ -206,7 +233,8 @@ function buildItems(report: AttendanceReportResponse, dateStr: string): Validati
         expectEnd,
         actualStart: arrival ?? "—",
         actualEnd: departure ?? "—",
-        delta,
+        deltaFr,
+        deltaEn,
         deltaType,
         severity,
       })
@@ -236,24 +264,33 @@ function buildItems(report: AttendanceReportResponse, dateStr: string): Validati
         dateFr: formatDayLabel(dateStr, "fr"),
         dateEn: formatDayLabel(dateStr, "en"),
         reasonFr: corrected
-          ? "Corrigé manuellement"
+          ? trFr.reasonCorrected
           : missingOut
-            ? "Pas de pointage de sortie"
+            ? trFr.reasonNoClockOut
             : !arrival
-              ? "Pas de pointage d'entrée"
-              : `${employee.total_logs} pointages enregistrés`,
+              ? trFr.reasonNoClockIn
+              : trFr.reasonLogsRecorded(employee.total_logs),
         reasonEn: corrected
-          ? "Manually corrected"
+          ? trEn.reasonCorrected
           : missingOut
-            ? "No clock-out detected"
+            ? trEn.reasonNoClockOut
             : !arrival
-              ? "No clock-in detected"
-              : `${employee.total_logs} clock events recorded`,
+              ? trEn.reasonNoClockIn
+              : trEn.reasonLogsRecorded(employee.total_logs),
         expectStart: "—",
         expectEnd: "—",
         actualStart: arrival ?? "—",
         actualEnd: departure ?? "—",
-        delta: corrected ? "corrigé" : missingOut || !arrival ? "manquant" : "OK",
+        deltaFr: corrected
+          ? trFr.deltaCorrected
+          : missingOut || !arrival
+            ? trFr.deltaMissing
+            : trFr.deltaOk,
+        deltaEn: corrected
+          ? trEn.deltaCorrected
+          : missingOut || !arrival
+            ? trEn.deltaMissing
+            : trEn.deltaOk,
         deltaType: corrected ? "info" : missingOut || !arrival ? "danger" : "info",
         severity: corrected ? "info" : missingOut || !arrival ? "danger" : "info",
       })
@@ -263,7 +300,7 @@ function buildItems(report: AttendanceReportResponse, dateStr: string): Validati
   items.sort((a, b) => {
     const anomalyDiff = Number(isAnomaly(b)) - Number(isAnomaly(a))
     if (anomalyDiff !== 0) return anomalyDiff
-    return a.name.localeCompare(b.name, "fr")
+    return a.name.localeCompare(b.name)
   })
   return items
 }
@@ -277,6 +314,7 @@ type CorrectionDraft = {
 
 export function TimesheetValidation() {
   const { locale } = useI18n()
+  const tr = timesheetDict[locale]
   const [dateStr, setDateStr] = useState<string>(() => todayInputValue())
   const [items, setItems] = useState<ValidationItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -298,7 +336,7 @@ export function TimesheetValidation() {
       try {
         const report = await fetchAttendanceReport({ period: "daily", date: dateStr })
         if (!mounted) return
-        setItems(buildItems(report, dateStr))
+        setItems(buildItems(report, dateStr, timesheetDict))
       } catch (err) {
         if (!mounted) return
         setError(err instanceof Error ? err.message : String(err))
@@ -343,9 +381,10 @@ export function TimesheetValidation() {
           corrected: true,
           severity: "info" as TimesheetSeverity,
           deltaType: "info" as TimesheetSeverity,
-          delta: "corrigé",
-          reasonFr: "Corrigé manuellement",
-          reasonEn: "Manually corrected",
+          deltaFr: timesheetDict.fr.deltaCorrected,
+          deltaEn: timesheetDict.en.deltaCorrected,
+          reasonFr: timesheetDict.fr.reasonCorrected,
+          reasonEn: timesheetDict.en.reasonCorrected,
           arrivalTime: time?.arrival ?? it.arrivalTime,
           departureTime: time?.departure ?? it.departureTime,
           actualStart: time?.arrival ?? it.actualStart,
@@ -377,16 +416,13 @@ export function TimesheetValidation() {
         date: item.workDate,
         arrivalTime: item.arrivalTime,
         departureTime: item.departureTime,
-        notes:
-          locale === "en"
-            ? "Validated from the timesheet screen"
-            : "Validé depuis l'écran de validation des pointages",
+        notes: tr.validationNote,
       })
       markCorrected([item.id])
-      toast.success(locale === "en" ? "Timesheet validated" : "Pointage validé")
+      toast.success(tr.validatedToast)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      toast.error(locale === "en" ? "Validation failed" : "Échec de la validation", {
+      toast.error(tr.validationFailed, {
         description: message,
       })
     } finally {
@@ -402,11 +438,7 @@ export function TimesheetValidation() {
     const pool = selected.size > 0 ? visibleItems.filter((it) => selected.has(it.id)) : visibleItems
     const targets = pool.filter((it) => isAnomaly(it) && it.arrivalTime && it.departureTime)
     if (targets.length === 0) {
-      toast.message(
-        locale === "en"
-          ? "No validatable rows (missing times must be corrected first)"
-          : "Aucune ligne validable (les heures manquantes doivent d'abord être corrigées)"
-      )
+      toast.message(tr.noValidatable)
       return
     }
     setBusyIds(new Set(targets.map((it) => it.id)))
@@ -417,10 +449,7 @@ export function TimesheetValidation() {
           date: it.workDate,
           arrivalTime: it.arrivalTime as string,
           departureTime: it.departureTime as string,
-          notes:
-            locale === "en"
-              ? "Validated from the timesheet screen"
-              : "Validé depuis l'écran de validation des pointages",
+          notes: tr.validationNote,
         })
       )
     )
@@ -429,23 +458,17 @@ export function TimesheetValidation() {
     markCorrected(okIds)
     setBusyIds(new Set())
     if (okIds.length > 0) {
-      toast.success(
-        locale === "en" ? `${okIds.length} timesheets validated` : `${okIds.length} pointages validés`
-      )
+      toast.success(tr.validatedCount(okIds.length))
     }
     if (failed > 0) {
-      toast.error(locale === "en" ? `${failed} validations failed` : `${failed} validations en échec`)
+      toast.error(tr.failedCount(failed))
     }
   }
 
   const saveDraft = async () => {
     if (!draft) return
     if (!draft.arrival || !draft.departure) {
-      toast.error(
-        locale === "en"
-          ? "Arrival and departure times are required"
-          : "Les heures d'arrivée et de départ sont requises"
-      )
+      toast.error(tr.timesRequired)
       return
     }
     setDraftSaving(true)
@@ -461,11 +484,11 @@ export function TimesheetValidation() {
         [draft.item.id],
         new Map([[draft.item.id, { arrival: draft.arrival, departure: draft.departure }]])
       )
-      toast.success(locale === "en" ? "Correction saved" : "Correction enregistrée")
+      toast.success(tr.correctionSaved)
       setDraft(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      toast.error(locale === "en" ? "Save failed" : "Échec de l'enregistrement", {
+      toast.error(tr.saveFailed, {
         description: message,
       })
     } finally {
@@ -490,7 +513,7 @@ export function TimesheetValidation() {
       URL.revokeObjectURL(url)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      toast.error(locale === "en" ? "Export failed" : "Échec de l'export", { description: message })
+      toast.error(tr.exportFailed, { description: message })
     } finally {
       setExporting(false)
     }
@@ -505,13 +528,9 @@ export function TimesheetValidation() {
   }
 
   const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: "anomalies", label: "Anomalies", count: counts.anomalies },
-    {
-      key: "validated",
-      label: locale === "en" ? "Validated" : "Validés",
-      count: counts.validated,
-    },
-    { key: "all", label: locale === "en" ? "All" : "Tous", count: counts.all },
+    { key: "anomalies", label: tr.tabAnomalies, count: counts.anomalies },
+    { key: "validated", label: tr.tabValidated, count: counts.validated },
+    { key: "all", label: tr.tabAll, count: counts.all },
   ]
 
   return (
@@ -522,16 +541,12 @@ export function TimesheetValidation() {
             className="m-0 text-xl font-semibold tracking-tight md:text-2xl"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            {locale === "en" ? "Timesheet validation" : "Validation pointages"}
+            {tr.title}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {loading
-              ? locale === "en"
-                ? "Loading timesheets…"
-                : "Chargement des pointages…"
-              : locale === "en"
-                ? `${counts.anomalies} anomalies to validate on ${formatDayLabel(dateStr, "en")}`
-                : `${counts.anomalies} anomalies à valider le ${formatDayLabel(dateStr, "fr")}`}
+              ? tr.loadingSubtitle
+              : tr.subtitle(counts.anomalies, formatDayLabel(dateStr, locale))}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -547,7 +562,7 @@ export function TimesheetValidation() {
             ) : (
               <Download className="mr-1.5 h-3.5 w-3.5" />
             )}
-            {locale === "en" ? "Export" : "Exporter"}
+            {tr.export}
           </Button>
           <Button
             size="sm"
@@ -556,7 +571,7 @@ export function TimesheetValidation() {
             disabled={loading || anomalies.length === 0 || busyIds.size > 0}
           >
             <Check className="mr-1.5 h-3.5 w-3.5" />
-            {locale === "en" ? "Approve all" : "Tout valider"} (
+            {tr.approveAll} (
             {selected.size > 0 ? selected.size : tab === "anomalies" ? anomalies.length : visibleItems.length})
           </Button>
         </div>
@@ -583,7 +598,7 @@ export function TimesheetValidation() {
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Label htmlFor="timesheet-date" className="text-xs font-medium">
-            {locale === "en" ? "Date" : "Date"}
+            {tr.dateLabel}
           </Label>
           <Input
             id="timesheet-date"
@@ -605,22 +620,12 @@ export function TimesheetValidation() {
             onClick={toggleAll}
             className="font-medium text-foreground hover:underline"
           >
-            {allSelected
-              ? locale === "en"
-                ? "Clear selection"
-                : "Tout désélectionner"
-              : locale === "en"
-                ? "Select all"
-                : "Tout sélectionner"}
+            {allSelected ? tr.clearSelection : tr.selectAll}
           </button>
           {selected.size > 0 && (
             <>
               <span>·</span>
-              <span>
-                {locale === "en"
-                  ? `${selected.size} selected`
-                  : `${selected.size} sélectionnée(s)`}
-              </span>
+              <span>{tr.selectedCount(selected.size)}</span>
             </>
           )}
         </div>
@@ -630,13 +635,11 @@ export function TimesheetValidation() {
         {loading ? (
           <div className="flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-card px-6 py-12 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {locale === "en" ? "Loading attendance report…" : "Chargement du rapport de pointage…"}
+            {tr.loadingReport}
           </div>
         ) : error ? (
           <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-6 py-10 text-center">
-            <p className="text-sm font-semibold text-destructive">
-              {locale === "en" ? "Unable to load timesheets" : "Impossible de charger les pointages"}
-            </p>
+            <p className="text-sm font-semibold text-destructive">{tr.loadError}</p>
             <p className="mt-1 text-xs text-muted-foreground">{error}</p>
             <Button
               variant="outline"
@@ -644,29 +647,19 @@ export function TimesheetValidation() {
               className="mt-4 h-8"
               onClick={() => setReloadKey((k) => k + 1)}
             >
-              {locale === "en" ? "Retry" : "Réessayer"}
+              {tr.retry}
             </Button>
           </div>
         ) : visibleItems.length === 0 ? (
           <div className="rounded-xl border border-border/60 bg-card px-6 py-12 text-center">
             <p className="text-sm font-semibold text-foreground">
               {items.length === 0
-                ? locale === "en"
-                  ? "No timesheets to validate for this date."
-                  : "Aucun pointage à valider pour cette date."
+                ? tr.emptyNone
                 : tab === "anomalies"
-                  ? locale === "en"
-                    ? "No anomalies — everything is clean."
-                    : "Aucune anomalie — tout est propre."
-                  : locale === "en"
-                    ? "No data on this tab."
-                    : "Aucune donnée sur cet onglet."}
+                  ? tr.emptyNoAnomalies
+                  : tr.emptyTab}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {locale === "en"
-                ? "Pick another date or check the full report on the Reports page."
-                : "Choisissez une autre date ou consultez le rapport complet dans la page Rapports."}
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{tr.emptyHint}</p>
           </div>
         ) : (
           visibleItems.map((it) => (
@@ -694,9 +687,7 @@ export function TimesheetValidation() {
       <Dialog open={draft !== null} onOpenChange={(open) => !open && setDraft(null)}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle>
-              {locale === "en" ? "Correct timesheet" : "Corriger le pointage"}
-            </DialogTitle>
+            <DialogTitle>{tr.dialogTitle}</DialogTitle>
             <DialogDescription>
               {draft
                 ? `${draft.item.name} · ${locale === "en" ? draft.item.dateEn : draft.item.dateFr}`
@@ -707,9 +698,7 @@ export function TimesheetValidation() {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="correction-arrival">
-                    {locale === "en" ? "Arrival" : "Arrivée"}
-                  </Label>
+                  <Label htmlFor="correction-arrival">{tr.arrival}</Label>
                   <Input
                     id="correction-arrival"
                     type="time"
@@ -720,9 +709,7 @@ export function TimesheetValidation() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="correction-departure">
-                    {locale === "en" ? "Departure" : "Départ"}
-                  </Label>
+                  <Label htmlFor="correction-departure">{tr.departure}</Label>
                   <Input
                     id="correction-departure"
                     type="time"
@@ -734,15 +721,11 @@ export function TimesheetValidation() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="correction-notes">
-                  {locale === "en" ? "Note (optional)" : "Note (optionnelle)"}
-                </Label>
+                <Label htmlFor="correction-notes">{tr.noteOptional}</Label>
                 <Input
                   id="correction-notes"
                   type="text"
-                  placeholder={
-                    locale === "en" ? "Reason for the correction…" : "Motif de la correction…"
-                  }
+                  placeholder={tr.notePlaceholder}
                   value={draft.notes}
                   onChange={(event) =>
                     setDraft((prev) => (prev ? { ...prev, notes: event.target.value } : prev))
@@ -753,11 +736,11 @@ export function TimesheetValidation() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDraft(null)} disabled={draftSaving}>
-              {locale === "en" ? "Cancel" : "Annuler"}
+              {tr.cancel}
             </Button>
             <Button onClick={() => void saveDraft()} disabled={draftSaving}>
               {draftSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {locale === "en" ? "Save" : "Enregistrer"}
+              {tr.save}
             </Button>
           </DialogFooter>
         </DialogContent>

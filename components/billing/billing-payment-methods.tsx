@@ -17,17 +17,21 @@ import {
   ShieldCheck,
 } from "lucide-react"
 import { StripePortalButton } from "@/components/billing/stripe-portal-button"
+import { useI18n } from "@/lib/i18n/context"
+import { billingDict } from "@/lib/i18n/pages/billing"
 
 export function BillingPaymentMethods() {
+  const { locale } = useI18n()
+  const tr = billingDict[locale]
   const [portalError, setPortalError] = useState<string>("")
 
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
       <div>
-        <h2 className="text-xl font-bold">Moyens de paiement</h2>
+        <h2 className="text-xl font-bold">{tr.payment.title}</h2>
         <p className="text-sm text-muted-foreground">
-          Vos moyens de paiement sont gérés en toute sécurité par Stripe.
+          {tr.payment.subtitle}
         </p>
       </div>
 
@@ -43,23 +47,20 @@ export function BillingPaymentMethods() {
                 <Lock className="h-4.5 w-4.5 text-primary" />
               </div>
               <span className="text-sm font-semibold uppercase tracking-wider text-primary">
-                Portail sécurisé Stripe
+                {tr.payment.kicker}
               </span>
             </div>
             <h3 className="text-xl font-bold">
-              Gérez vos cartes et prélèvements depuis le portail Stripe
+              {tr.payment.heading}
             </h3>
             <p className="text-sm text-muted-foreground">
-              Pour votre sécurité, aucune donnée bancaire n&apos;est stockée sur
-              nos serveurs. L&apos;ajout, la mise à jour ou la suppression d&apos;un
-              moyen de paiement s&apos;effectue directement sur le portail client
-              Stripe, certifié PCI-DSS.
+              {tr.payment.desc}
             </p>
             <ul className="space-y-2 pt-1 text-sm">
               {[
-                { icon: CreditCard, label: "Ajouter ou remplacer une carte bancaire" },
-                { icon: RefreshCw, label: "Choisir le moyen utilisé pour le renouvellement automatique" },
-                { icon: FileText, label: "Retrouver l'historique complet de vos paiements" },
+                { icon: CreditCard, label: tr.payment.bulletAddCard },
+                { icon: RefreshCw, label: tr.payment.bulletDefault },
+                { icon: FileText, label: tr.payment.bulletHistory },
               ].map((item) => {
                 const Icon = item.icon
                 return (
@@ -76,14 +77,14 @@ export function BillingPaymentMethods() {
               size="lg"
               className="w-full gap-2 shadow-md"
               onError={(err) =>
-                setPortalError(err instanceof Error ? err.message : "Erreur inattendue")
+                setPortalError(err instanceof Error ? err.message : tr.shared.unexpectedError)
               }
             >
               <ExternalLink className="h-4 w-4" />
-              Ouvrir le portail Stripe
+              {tr.payment.openPortal}
             </StripePortalButton>
             <p className="text-center text-xs text-muted-foreground">
-              Vous serez redirigé vers une page sécurisée Stripe.
+              {tr.payment.redirectNote}
             </p>
           </div>
         </div>
@@ -93,9 +94,9 @@ export function BillingPaymentMethods() {
         <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/8 p-4 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
           <div>
-            <p className="font-semibold text-destructive">Impossible d&apos;ouvrir le portail</p>
+            <p className="font-semibold text-destructive">{tr.payment.portalErrorTitle}</p>
             <p className="mt-0.5 text-muted-foreground">
-              {portalError} — Un abonnement actif est peut-être requis pour accéder au portail.
+              {portalError} — {tr.payment.portalErrorHint}
             </p>
           </div>
         </div>
@@ -105,9 +106,7 @@ export function BillingPaymentMethods() {
       <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-4 text-sm">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" />
         <p className="text-muted-foreground">
-          Les paiements sont traités par <strong className="text-foreground">Stripe</strong>.
-          Vos informations bancaires sont chiffrées et ne transitent jamais par
-          les serveurs LR&nbsp;Time / SecurePoint.
+          {tr.payment.securityBefore}<strong className="text-foreground">Stripe</strong>{tr.payment.securityAfter}
         </p>
       </div>
     </div>

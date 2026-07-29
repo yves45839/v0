@@ -1,6 +1,13 @@
 import { getAccessToken, getActiveTenantCode, redirectToLogin } from "@/lib/api/auth"
+import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, LOCALE_TAGS, isLocale } from "@/lib/i18n/config"
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
+
+function currentLocaleTag(): string {
+  if (typeof window === "undefined") return LOCALE_TAGS[DEFAULT_LOCALE]
+  const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY)
+  return LOCALE_TAGS[isLocale(stored) ? stored : DEFAULT_LOCALE]
+}
 
 /**
  * Erreur API normalisée : conserve le statut HTTP, le payload brut et, si le
@@ -83,6 +90,7 @@ function buildHeaders(accessToken: string, init?: RequestInit): HeadersInit {
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${accessToken}`,
+    "Accept-Language": currentLocaleTag(),
     ...(tenantCode ? { "X-Tenant-Code": tenantCode } : {}),
     ...(init?.headers ?? {}),
   }

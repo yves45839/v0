@@ -50,7 +50,9 @@ function resolveInitialLocale(): Locale {
   const cookieLocale = readCookie(LOCALE_COOKIE_NAME)
   if (isLocale(cookieLocale)) return cookieLocale
 
-  return normalizeLocale(window.navigator.language, DEFAULT_LOCALE)
+  // Anglais par défaut, de façon déterministe : la langue du navigateur
+  // n'est pas inférée — l'utilisateur choisit, et son choix est persisté.
+  return DEFAULT_LOCALE
 }
 
 function parseDate(value: DateInput): Date | null {

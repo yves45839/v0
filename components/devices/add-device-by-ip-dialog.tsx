@@ -29,6 +29,7 @@ import {
   Hash,
 } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
+import { devicesPageDict } from "@/lib/i18n/pages/devices-page"
 import { toast } from "sonner"
 
 type AddDeviceByIpDialogProps = {
@@ -46,14 +47,14 @@ type AddDeviceByIpDialogProps = {
   }) => Promise<void>
 }
 
-const DEVICE_TYPES = [
-  { value: "door_controller", label: "Contrôleur de porte" },
-  { value: "reader", label: "Lecteur de carte" },
-  { value: "turnstile", label: "Tourniquet" },
-  { value: "fingerprint", label: "Lecteur biométrique" },
-  { value: "face_reader", label: "Lecteur facial" },
-  { value: "camera", label: "Caméra IP" },
-]
+const DEVICE_TYPE_VALUES = [
+  "door_controller",
+  "reader",
+  "turnstile",
+  "fingerprint",
+  "face_reader",
+  "camera",
+] as const
 
 /**
  * Onboarding manuel d'un appareil via POST /api/devices/onboard/.
@@ -67,7 +68,8 @@ export function AddDeviceByIpDialog({
   defaultTenantCode = "",
   onRegister,
 }: AddDeviceByIpDialogProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const tr = devicesPageDict[locale]
 
   const [serialNumber, setSerialNumber] = useState("")
   const [deviceName, setDeviceName] = useState("")
@@ -144,7 +146,7 @@ export function AddDeviceByIpDialog({
             <div>
               <DialogTitle>{t.devices.registerDevice}</DialogTitle>
               <DialogDescription>
-                Saisie manuelle des informations de l'appareil (onboarding passerelle).
+                {tr.manualDialogDesc}
               </DialogDescription>
             </div>
           </div>
@@ -152,13 +154,13 @@ export function AddDeviceByIpDialog({
 
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
           <AlertTriangle className="mb-0.5 mr-1 inline h-3.5 w-3.5" />
-          Saisie manuelle — Vérifiez les informations avant d'enregistrer.
+          {tr.manualWarning}
         </div>
 
         <div className="space-y-4 rounded-xl border border-border/60 bg-secondary/20 p-4">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <Server className="mb-0.5 mr-1 inline h-3 w-3" />
-            Informations d'enregistrement
+            {tr.registrationInfo}
           </p>
 
           <div className="grid grid-cols-2 gap-3">
@@ -181,7 +183,7 @@ export function AddDeviceByIpDialog({
                 id="deviceName"
                 value={deviceName}
                 onChange={(e) => setDeviceName(e.target.value)}
-                placeholder="Ex: Lecteur Entrée Hall A"
+                placeholder={tr.deviceNamePlaceholder}
               />
             </div>
             <div className="space-y-1.5">
@@ -191,9 +193,9 @@ export function AddDeviceByIpDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DEVICE_TYPES.map((dt) => (
-                    <SelectItem key={dt.value} value={dt.value}>
-                      {dt.label}
+                  {DEVICE_TYPE_VALUES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {tr.deviceTypes[value]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -228,7 +230,7 @@ export function AddDeviceByIpDialog({
                 id="ehomeKey"
                 value={ehomeKey}
                 onChange={(e) => setEhomeKey(e.target.value)}
-                placeholder="32 caractères hex"
+                placeholder={tr.ehomeKeyPlaceholder}
                 className="font-mono text-xs"
               />
             </div>
@@ -242,7 +244,7 @@ export function AddDeviceByIpDialog({
                 type="password"
                 value={registrationPassword}
                 onChange={(e) => setRegistrationPassword(e.target.value)}
-                placeholder="Mot de passe admin"
+                placeholder={tr.adminPasswordPlaceholder}
               />
             </div>
           </div>

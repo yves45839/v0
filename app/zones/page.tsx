@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Badge } from "@/components/ui/badge"
@@ -52,6 +52,10 @@ import {
   type ZonePlanning,
   type ZoneTenant,
 } from "@/lib/api/zones"
+import { useI18n } from "@/lib/i18n/context"
+import { zonesDict } from "@/lib/i18n/pages/zones"
+
+type ZonesDict = (typeof zonesDict)["en"]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -61,18 +65,18 @@ function errorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
-function deviceStatusChip(status?: string) {
+function deviceStatusChip(status: string | undefined, tr: ZonesDict) {
   const normalized = (status ?? "").toLowerCase()
   if (["online", "connected", "active", "ok"].includes(normalized)) {
-    return <StatusChip variant="success" label="En ligne" icon={Wifi} size="sm" />
+    return <StatusChip variant="success" label={tr.statusOnline} icon={Wifi} size="sm" />
   }
   if (["offline", "disconnected", "error"].includes(normalized)) {
-    return <StatusChip variant="danger" label="Hors ligne" icon={WifiOff} size="sm" />
+    return <StatusChip variant="danger" label={tr.statusOffline} icon={WifiOff} size="sm" />
   }
   if (normalized) {
     return <StatusChip variant="neutral" label={status as string} dot size="sm" />
   }
-  return <StatusChip variant="neutral" label="Statut inconnu" dot size="sm" />
+  return <StatusChip variant="neutral" label={tr.statusUnknown} dot size="sm" />
 }
 
 // ── Access Group Card ─────────────────────────────────────────────────────────
@@ -88,6 +92,9 @@ function GroupCard({
   onDelete: (g: ZoneAccessGroup) => void
   deleting: boolean
 }) {
+  const { locale } = useI18n()
+  const tr = zonesDict[locale]
+
   return (
     <div className="overflow-hidden rounded-xl border border-border/60 bg-card p-4 transition-all hover:border-border hover:shadow-md">
       <div className="flex items-start justify-between gap-2">
@@ -107,27 +114,27 @@ function GroupCard({
       <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
         <div className="rounded-lg bg-muted/40 p-1.5">
           <p className="font-bold text-foreground">{group.reader_count}</p>
-          <p className="text-[10px] text-muted-foreground">Lecteur{group.reader_count > 1 ? "s" : ""}</p>
+          <p className="text-[10px] text-muted-foreground">{tr.readersLabel(group.reader_count)}</p>
         </div>
         <div className="rounded-lg bg-muted/40 p-1.5">
           <p className="font-bold text-foreground">{group.employee_count}</p>
-          <p className="text-[10px] text-muted-foreground">Employé{group.employee_count > 1 ? "s" : ""}</p>
+          <p className="text-[10px] text-muted-foreground">{tr.employeesLabel(group.employee_count)}</p>
         </div>
       </div>
 
       <div className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <CalendarDays className="h-3 w-3 shrink-0" />
-        <span className="truncate">{group.planning_name ?? "Aucun planning associé"}</span>
+        <span className="truncate">{group.planning_name ?? tr.noLinkedSchedule}</span>
       </div>
 
       <div className="mt-3 flex gap-1.5">
         <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" onClick={() => onEdit(group)}>
-          <Edit className="mr-1 h-3 w-3" /> Modifier
+          <Edit className="mr-1 h-3 w-3" /> {tr.edit}
         </Button>
         <Button
           size="sm"
           variant="ghost"
-          aria-label={`Supprimer ${group.name}`}
+          aria-label={tr.deleteGroupAria(group.name)}
           className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
           disabled={deleting}
           onClick={() => onDelete(group)}
@@ -158,6 +165,8 @@ function GroupDialog({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { locale } = useI18n()
+  const tr = zonesDict[locale]
   const isEdit = group !== null
   const [name, setName] = useState(group?.name ?? "")
   const [description, setDescription] = useState(group?.description ?? "")
@@ -173,7 +182,7 @@ function GroupDialog({
   const handleSubmit = async () => {
     const trimmedName = name.trim()
     if (!trimmedName) {
-      setError("Le nom du groupe est obligatoire.")
+      setError(tr.nameRequired)
       return
     }
     setSaving(true)
@@ -191,7 +200,7 @@ function GroupDialog({
         const activeCode = getActiveTenantCode()
         const tenant = tenants.find((t) => t.code === activeCode)
         if (!tenant) {
-          setError("Impossible de déterminer le tenant actif. Reconnectez-vous puis réessayez.")
+          setError(tr.tenantUnresolved)
           setSaving(false)
           return
         }
@@ -206,7 +215,7 @@ function GroupDialog({
       }
       onSaved()
     } catch (err) {
-      setError(errorMessage(err, "Enregistrement du groupe d'accès impossible."))
+      setError(errorMessage(err, tr.saveFailed))
       setSaving(false)
     }
   }
@@ -215,44 +224,42 @@ function GroupDialog({
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Modifier le groupe d'accès" : "Nouveau groupe d'accès"}</DialogTitle>
+          <DialogTitle>{isEdit ? tr.editGroupTitle : tr.newGroupTitle}</DialogTitle>
           <DialogDescription>
-            {isEdit
-              ? "Mettez à jour le nom, le planning et les lecteurs autorisés."
-              : "Définissez un nom, un planning et les lecteurs accessibles au groupe."}
+            {isEdit ? tr.editGroupDescription : tr.newGroupDescription}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="group-name">Nom *</Label>
+            <Label htmlFor="group-name">{tr.nameLabel} *</Label>
             <Input
               id="group-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex : Équipe production"
+              placeholder={tr.namePlaceholder}
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="group-description">Description</Label>
+            <Label htmlFor="group-description">{tr.descriptionLabel}</Label>
             <Textarea
               id="group-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Description facultative du groupe"
+              placeholder={tr.descriptionPlaceholder}
               rows={2}
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label>Planning</Label>
+            <Label>{tr.scheduleLabel}</Label>
             <Select value={planningId} onValueChange={setPlanningId}>
               <SelectTrigger>
-                <SelectValue placeholder="Sélectionner un planning" />
+                <SelectValue placeholder={tr.schedulePlaceholder} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_PLANNING}>Aucun planning</SelectItem>
+                <SelectItem value={NO_PLANNING}>{tr.noScheduleOption}</SelectItem>
                 {plannings.map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
                     {p.name}
@@ -263,10 +270,10 @@ function GroupDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Lecteurs autorisés</Label>
+            <Label>{tr.authorizedReaders}</Label>
             {devices.length === 0 ? (
               <p className="rounded-lg border border-dashed border-border/60 p-3 text-xs text-muted-foreground">
-                Aucun lecteur disponible pour ce tenant.
+                {tr.noDevicesAvailable}
               </p>
             ) : (
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2">
@@ -286,7 +293,7 @@ function GroupDialog({
               </div>
             )}
             <p className="text-[11px] text-muted-foreground">
-              {readerIds.length} lecteur{readerIds.length > 1 ? "s" : ""} sélectionné{readerIds.length > 1 ? "s" : ""}
+              {tr.readersSelected(readerIds.length)}
             </p>
           </div>
 
@@ -300,11 +307,11 @@ function GroupDialog({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving}>
-            Annuler
+            {tr.cancel}
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>
             {saving && <Spinner className="mr-1.5 h-3.5 w-3.5" />}
-            {isEdit ? "Enregistrer" : "Créer le groupe"}
+            {isEdit ? tr.save : tr.createGroup}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -317,6 +324,11 @@ function GroupDialog({
 type PageTab = "groups" | "readers" | "schedules"
 
 export default function AccessGroupsPage() {
+  const { locale } = useI18n()
+  const tr = zonesDict[locale]
+  const trRef = useRef(tr)
+  trRef.current = tr
+
   const [tab, setTab] = useState<PageTab>("groups")
   const [search, setSearch] = useState("")
 
@@ -348,7 +360,7 @@ export default function AccessGroupsPage() {
       setPlannings(planningsData)
       setTenants(tenantsData)
     } catch (err) {
-      setLoadError(errorMessage(err, "Chargement des groupes d'accès impossible."))
+      setLoadError(errorMessage(err, trRef.current.loadFailed))
     } finally {
       setLoading(false)
     }
@@ -362,19 +374,19 @@ export default function AccessGroupsPage() {
     try {
       setGroups(await fetchAccessGroups())
     } catch (err) {
-      setActionError(errorMessage(err, "Actualisation des groupes impossible."))
+      setActionError(errorMessage(err, trRef.current.refreshFailed))
     }
   }, [])
 
   const handleDelete = async (group: ZoneAccessGroup) => {
-    if (!window.confirm(`Supprimer le groupe d'accès « ${group.name} » ?`)) return
+    if (!window.confirm(tr.deleteConfirm(group.name))) return
     setDeletingId(group.id)
     setActionError(null)
     try {
       await deleteAccessGroup(group.id)
       setGroups((prev) => prev.filter((g) => g.id !== group.id))
     } catch (err) {
-      setActionError(errorMessage(err, "Suppression du groupe impossible."))
+      setActionError(errorMessage(err, tr.deleteFailed))
     } finally {
       setDeletingId(null)
     }
@@ -455,16 +467,16 @@ export default function AccessGroupsPage() {
                 <Users className="h-5 w-5 text-indigo-500" />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground">Groupes d'accès</h1>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">{tr.title}</h1>
                 <p className="text-sm text-muted-foreground">
                   {loading
-                    ? "Chargement…"
-                    : `${groups.length} groupe${groups.length > 1 ? "s" : ""} · ${devices.length} lecteur${devices.length > 1 ? "s" : ""} · ${plannings.length} planning${plannings.length > 1 ? "s" : ""}`}
+                    ? tr.loadingShort
+                    : tr.summary(groups.length, devices.length, plannings.length)}
                 </p>
               </div>
             </div>
             <Button size="sm" onClick={openCreate} disabled={loading || Boolean(loadError)}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Nouveau groupe
+              <Plus className="mr-2 h-3.5 w-3.5" /> {tr.newGroup}
             </Button>
           </div>
 
@@ -472,7 +484,7 @@ export default function AccessGroupsPage() {
           {loading && (
             <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border/60 bg-card py-16">
               <Spinner className="h-6 w-6 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Chargement des groupes d'accès…</p>
+              <p className="text-sm text-muted-foreground">{tr.loadingGroups}</p>
             </div>
           )}
 
@@ -482,7 +494,7 @@ export default function AccessGroupsPage() {
               <AlertTriangle className="h-6 w-6 text-red-500" />
               <p className="max-w-md px-4 text-sm text-red-400">{loadError}</p>
               <Button size="sm" variant="outline" onClick={() => void loadAll()}>
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Réessayer
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> {tr.retry}
               </Button>
             </div>
           )}
@@ -497,7 +509,7 @@ export default function AccessGroupsPage() {
                     <span className="text-red-400">{actionError}</span>
                   </div>
                   <Button size="sm" variant="ghost" className="h-7 shrink-0 text-xs" onClick={() => setActionError(null)}>
-                    Fermer
+                    {tr.dismiss}
                   </Button>
                 </div>
               )}
@@ -505,10 +517,10 @@ export default function AccessGroupsPage() {
               {/* KPIs */}
               <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {[
-                  { label: "Groupes d'accès", value: groups.length, icon: Users, color: "text-violet-400", bg: "bg-violet-500/10" },
-                  { label: "Lecteurs", value: devices.length, icon: Radio, color: "text-green-400", bg: "bg-green-500/10" },
-                  { label: "Plannings", value: plannings.length, icon: CalendarDays, color: "text-blue-400", bg: "bg-blue-500/10" },
-                  { label: "Employés couverts", value: totalEmployees, icon: Users, color: "text-indigo-400", bg: "bg-indigo-500/10" },
+                  { label: tr.kpiGroups, value: groups.length, icon: Users, color: "text-violet-400", bg: "bg-violet-500/10" },
+                  { label: tr.kpiReaders, value: devices.length, icon: Radio, color: "text-green-400", bg: "bg-green-500/10" },
+                  { label: tr.kpiSchedules, value: plannings.length, icon: CalendarDays, color: "text-blue-400", bg: "bg-blue-500/10" },
+                  { label: tr.kpiEmployees, value: totalEmployees, icon: Users, color: "text-indigo-400", bg: "bg-indigo-500/10" },
                 ].map(({ label, value, icon: Icon, color, bg }) => (
                   <div key={label} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-4">
                     <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", bg)}>
@@ -527,17 +539,17 @@ export default function AccessGroupsPage() {
                 <TabsList className="mb-5 grid w-full grid-cols-3 gap-1 bg-muted/30 p-1">
                   <TabsTrigger value="groups" className="gap-1.5 text-xs sm:text-sm">
                     <Users className="h-3.5 w-3.5" />
-                    <span>Groupes</span>
+                    <span>{tr.tabGroups}</span>
                     <Badge className="ml-1 rounded bg-muted px-1 text-[9px]">{groups.length}</Badge>
                   </TabsTrigger>
                   <TabsTrigger value="readers" className="gap-1.5 text-xs sm:text-sm">
                     <Radio className="h-3.5 w-3.5" />
-                    <span>Lecteurs</span>
+                    <span>{tr.tabReaders}</span>
                     <Badge className="ml-1 rounded bg-muted px-1 text-[9px]">{devices.length}</Badge>
                   </TabsTrigger>
                   <TabsTrigger value="schedules" className="gap-1.5 text-xs sm:text-sm">
                     <CalendarDays className="h-3.5 w-3.5" />
-                    <span>Horaires</span>
+                    <span>{tr.tabSchedules}</span>
                     <Badge className="ml-1 rounded bg-muted px-1 text-[9px]">{plannings.length}</Badge>
                   </TabsTrigger>
                 </TabsList>
@@ -547,7 +559,7 @@ export default function AccessGroupsPage() {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      placeholder="Rechercher…"
+                      placeholder={tr.searchPlaceholder}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       className="pl-9"
@@ -560,14 +572,14 @@ export default function AccessGroupsPage() {
                   {groups.length === 0 ? (
                     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 py-16 text-center">
                       <Users className="h-8 w-8 text-muted-foreground/50" />
-                      <p className="text-sm text-muted-foreground">Aucun groupe d'accès — créez le premier</p>
+                      <p className="text-sm text-muted-foreground">{tr.emptyGroups}</p>
                       <Button size="sm" onClick={openCreate}>
-                        <Plus className="mr-1.5 h-3.5 w-3.5" /> Nouveau groupe
+                        <Plus className="mr-1.5 h-3.5 w-3.5" /> {tr.newGroup}
                       </Button>
                     </div>
                   ) : filteredGroups.length === 0 ? (
                     <p className="py-12 text-center text-sm text-muted-foreground">
-                      Aucun groupe ne correspond à la recherche.
+                      {tr.noGroupMatch}
                     </p>
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -589,11 +601,11 @@ export default function AccessGroupsPage() {
                   {devices.length === 0 ? (
                     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 py-16 text-center">
                       <Radio className="h-8 w-8 text-muted-foreground/50" />
-                      <p className="text-sm text-muted-foreground">Aucun lecteur enregistré pour ce tenant.</p>
+                      <p className="text-sm text-muted-foreground">{tr.emptyReaders}</p>
                     </div>
                   ) : filteredDevices.length === 0 ? (
                     <p className="py-12 text-center text-sm text-muted-foreground">
-                      Aucun lecteur ne correspond à la recherche.
+                      {tr.noReaderMatch}
                     </p>
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -612,19 +624,19 @@ export default function AccessGroupsPage() {
                                 <div className="min-w-0">
                                   <p className="text-sm font-semibold text-foreground">{device.name}</p>
                                   <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/70">
-                                    {device.serial_number} · index {device.dev_index}
+                                    {device.serial_number} · {tr.readerIndex(device.dev_index)}
                                   </p>
                                 </div>
                               </div>
-                              <div className="shrink-0">{deviceStatusChip(device.status)}</div>
+                              <div className="shrink-0">{deviceStatusChip(device.status, tr)}</div>
                             </div>
 
                             <div className="mt-3">
                               <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                Groupes d'accès associés
+                                {tr.linkedGroups}
                               </p>
                               {referencedBy.length === 0 ? (
-                                <p className="text-[11px] text-muted-foreground">Aucun groupe n'utilise ce lecteur.</p>
+                                <p className="text-[11px] text-muted-foreground">{tr.noGroupUsesReader}</p>
                               ) : (
                                 <div className="flex flex-wrap gap-1">
                                   {referencedBy.map((g) => (
@@ -648,21 +660,21 @@ export default function AccessGroupsPage() {
                   <div className="mb-3 flex items-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
                     <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                     <span>
-                      Consultation seule : la création et la modification des plannings se font dans la page{" "}
+                      {tr.schedulesReadOnlyPrefix}
                       <a href="/planning" className="font-medium text-foreground underline underline-offset-2">
-                        Planning
+                        {tr.schedulesReadOnlyLink}
                       </a>
-                      .
+                      {tr.schedulesReadOnlySuffix}
                     </span>
                   </div>
                   {plannings.length === 0 ? (
                     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 py-16 text-center">
                       <CalendarDays className="h-8 w-8 text-muted-foreground/50" />
-                      <p className="text-sm text-muted-foreground">Aucun planning défini pour ce tenant.</p>
+                      <p className="text-sm text-muted-foreground">{tr.emptySchedules}</p>
                     </div>
                   ) : filteredPlannings.length === 0 ? (
                     <p className="py-12 text-center text-sm text-muted-foreground">
-                      Aucun planning ne correspond à la recherche.
+                      {tr.noScheduleMatch}
                     </p>
                   ) : (
                     <div className="space-y-3">

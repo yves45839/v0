@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
@@ -10,11 +10,15 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useI18n } from "@/lib/i18n/context"
+import { authDict } from "@/lib/i18n/pages/auth"
 
 type VerificationStatus = "idle" | "loading" | "success" | "error"
 
 export default function VerifyEmailPage() {
   const searchParams = useSearchParams()
+  const { locale } = useI18n()
+  const tr = authDict[locale]
   const token = useMemo(() => String(searchParams.get("token") ?? "").trim(), [searchParams])
   const [email, setEmail] = useState("")
   const [otp, setOtp] = useState("")
@@ -31,17 +35,18 @@ export default function VerifyEmailPage() {
         await verifyEmail({ token })
         if (cancelled) return
         setStatus("success")
-        setMessage("Votre email a bien été vérifié.")
+        setMessage(tr.emailVerified)
       } catch (error) {
         if (cancelled) return
         setStatus("error")
-        setMessage(error instanceof Error ? error.message : "Échec de vérification.")
+        setMessage(error instanceof Error ? error.message : tr.verifyFailed)
       }
     }
     void run()
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
 
   const onOtpSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -51,31 +56,31 @@ export default function VerifyEmailPage() {
     try {
       await verifyEmail({ email: email.trim().toLowerCase(), otp: otp.trim() })
       setStatus("success")
-      setMessage("Votre email a bien été vérifié.")
-      toast.success("Email vérifié")
+      setMessage(tr.emailVerified)
+      toast.success(tr.emailVerifiedToast)
     } catch (error) {
       setStatus("error")
-      setMessage(error instanceof Error ? error.message : "Échec de vérification.")
-      toast.error("Echec de vérification")
+      setMessage(error instanceof Error ? error.message : tr.verifyFailed)
+      toast.error(tr.verifyFailedToast)
     }
   }
 
   const onResend = async () => {
     if (!email.trim()) {
       setStatus("error")
-      setMessage("Saisissez votre email pour recevoir un nouveau code OTP.")
+      setMessage(tr.enterEmailForOtp)
       return
     }
     setResending(true)
     try {
       await resendEmailVerification(email.trim().toLowerCase())
-      toast.success("Code renvoyé")
+      toast.success(tr.otpResentToast)
       setStatus("idle")
-      setMessage("Un nouveau code OTP a été envoyé.")
+      setMessage(tr.otpResent)
     } catch (error) {
       setStatus("error")
-      setMessage(error instanceof Error ? error.message : "Echec du renvoi.")
-      toast.error("Echec du renvoi")
+      setMessage(error instanceof Error ? error.message : tr.resendFailed)
+      toast.error(tr.resendFailedToast)
     } finally {
       setResending(false)
     }
@@ -87,15 +92,15 @@ export default function VerifyEmailPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             {status === "success" ? <CheckCircle2 className="h-5 w-5 text-green-400" /> : <MailWarning className="h-5 w-5 text-primary" />}
-            Vérification d'email
+            {tr.verifyTitle}
           </CardTitle>
-          <CardDescription>Activation de votre compte organisation</CardDescription>
+          <CardDescription>{tr.verifySubtitle}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {status === "loading" ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Vérification en cours...
+              {tr.verifying}
             </p>
           ) : null}
           {status !== "loading" && message ? <p className="text-sm">{message}</p> : null}
@@ -103,38 +108,38 @@ export default function VerifyEmailPage() {
           {!token && status !== "success" ? (
             <form className="space-y-3" onSubmit={onOtpSubmit}>
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{tr.emailLabel}</Label>
                 <Input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="samr45839@gmail.com"
+                  placeholder={tr.emailPlaceholder}
                   autoComplete="email"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="otp">Code OTP</Label>
+                <Label htmlFor="otp">{tr.otpLabel}</Label>
                 <Input
                   id="otp"
                   value={otp}
                   onChange={(event) => setOtp(event.target.value)}
-                  placeholder="6 chiffres"
+                  placeholder={tr.otpPlaceholder}
                   maxLength={6}
                 />
               </div>
               <Button type="submit" className="w-full" disabled={status === "loading"}>
-                Vérifier avec OTP
+                {tr.verifyWithOtp}
               </Button>
               <Button type="button" variant="outline" className="w-full" disabled={resending} onClick={onResend}>
                 {resending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Renvoyer le code OTP
+                {tr.resendOtp}
               </Button>
             </form>
           ) : null}
 
           <Button asChild className="w-full">
-            <Link href="/login">Aller à la connexion</Link>
+            <Link href="/login">{tr.goToLogin}</Link>
           </Button>
         </CardContent>
       </Card>

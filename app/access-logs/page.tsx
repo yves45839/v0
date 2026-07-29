@@ -60,6 +60,10 @@ import {
 } from "lucide-react"
 import { EmptyState } from "@/components/ui/empty-state"
 import { toast } from "sonner"
+import { useI18n } from "@/lib/i18n/context"
+import { accessLogsPageDict } from "@/lib/i18n/pages/access-logs-page"
+
+type AccessLogsTr = (typeof accessLogsPageDict)["en"]
 
 type AccessLog = {
   id: string
@@ -146,7 +150,7 @@ function inferStatus(event: HikEvent): "granted" | "denied" | "unknown" {
   return "unknown"
 }
 
-function mapEventToAccessLog(event: HikEvent): AccessLog {
+function mapEventToAccessLog(event: HikEvent, tr: AccessLogsTr, localeTag: string): AccessLog {
   const dateValue = event.timestamp || event.raw_event?.event_datetime || new Date().toISOString()
   const parsed = new Date(dateValue)
   const safeDate = Number.isNaN(parsed.getTime()) ? new Date() : parsed
@@ -155,19 +159,19 @@ function mapEventToAccessLog(event: HikEvent): AccessLog {
   const readerNo = event.raw_event?.card_reader_no
   const location =
     doorNo != null || readerNo != null
-      ? `Porte ${doorNo ?? "-"}${readerNo != null ? `, Lecteur ${readerNo}` : ""}`
-      : `Lecteur ${event.device.dev_index}`
+      ? `${tr.door(doorNo ?? "-")}${readerNo != null ? `, ${tr.reader(readerNo)}` : ""}`
+      : tr.reader(event.device.dev_index)
   const accessType =
     (event.normalized_action ?? "").toString().trim() ||
     (event.attendance_type ?? "").toString().trim() ||
     (event.access_status ?? "").toString().trim() ||
-    "Inconnu"
-  const site = `Site ${event.device.dev_index || "-"}`
+    tr.unknown
+  const site = tr.site(event.device.dev_index || "-")
 
   return {
     id: String(event.id),
     employeeId: event.person_id || "-",
-    employeeName: event.employee_name?.trim() || event.person_id || "Systeme",
+    employeeName: event.employee_name?.trim() || event.person_id || tr.system,
     department: event.department_name?.trim() || "-",
     deviceId: String(event.device.id),
     deviceName: event.device.device_name?.trim() || event.device.dev_index || event.device.serial_number || "-",
@@ -177,18 +181,20 @@ function mapEventToAccessLog(event: HikEvent): AccessLog {
     site,
     reason:
       status === "denied"
-        ? event.attendance_status || "Acces refuse"
+        ? event.attendance_status || tr.accessDeniedReason
         : status === "unknown"
-          ? event.attendance_status || "Evenement non classe"
+          ? event.attendance_status || tr.unclassifiedEvent
           : undefined,
-    timestamp: safeDate.toLocaleTimeString("fr-FR", { hour12: false }),
+    timestamp: safeDate.toLocaleTimeString(localeTag, { hour12: false }),
     date: toDateKey(safeDate),
-    dateLabel: safeDate.toLocaleDateString("fr-FR"),
+    dateLabel: safeDate.toLocaleDateString(localeTag),
   }
 }
 
 export default function AccessLogsPage() {
   const searchParams = useSearchParams()
+  const { locale, localeTag } = useI18n()
+  const tr = accessLogsPageDict[locale]
   const tenantCode = getActiveTenantCode()
   const latestLogIdRef = useRef<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -222,7 +228,9 @@ export default function AccessLogsPage() {
         tenant: tenantCode,
         personId: personFilter !== "all" ? personFilter : undefined,
       })
-      const mapped = payload.results.map(mapEventToAccessLog).sort(sortLogsByNewest)
+      const mapped = payload.results
+        .map((event) => mapEventToAccessLog(event, tr, localeTag))
+        .sort(sortLogsByNewest)
       latestLogIdRef.current = getLatestLogId(mapped)
       setAccessLogs(mapped)
     } catch {
@@ -232,7 +240,7 @@ export default function AccessLogsPage() {
     } finally {
       if (showLoader) setLoading(false)
     }
-  }, [personFilter, tenantCode])
+  }, [personFilter, tenantCode, tr, localeTag])
 
   const loadLatestLogs = useCallback(async () => {
     const sinceId = latestLogIdRef.current
@@ -251,7 +259,7 @@ export default function AccessLogsPage() {
       })
       if (payload.results.length === 0) return
 
-      const mapped = payload.results.map(mapEventToAccessLog)
+      const mapped = payload.results.map((event) => mapEventToAccessLog(event, tr, localeTag))
       setAccessLogs((existing) => {
         const merged = mergeAccessLogs(existing, mapped)
         latestLogIdRef.current = getLatestLogId(merged)
@@ -260,7 +268,7 @@ export default function AccessLogsPage() {
     } catch {
       // Ignore transient live refresh errors and keep the last successful state.
     }
-  }, [loadLogs, personFilter, tenantCode])
+  }, [loadLogs, personFilter, tenantCode, tr, localeTag])
 
   const loadPeople = useCallback(async () => {
     setPeopleError(null)
@@ -268,10 +276,10 @@ export default function AccessLogsPage() {
       const list = await fetchEmployees(tenantCode)
       setEmployees(list)
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossible de charger les personnes."
+      const message = err instanceof Error ? err.message : tr.loadPeopleError
       setPeopleError(message)
     }
-  }, [tenantCode])
+  }, [tenantCode, tr])
 
   useEffect(() => {
     void loadLogs(true)
@@ -306,15 +314,15 @@ export default function AccessLogsPage() {
     try {
       await triggerHikEventsCatchup(500)
       await loadLogs(true)
-      toast.success("Rattrapage des événements terminé")
+      toast.success(tr.catchupDone)
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Le rattrapage des evenements a echoue."
+      const message = err instanceof Error ? err.message : tr.catchupFailedMessage
       setError(message)
-      toast.error("Le rattrapage des événements a échoué")
+      toast.error(tr.catchupFailedToast)
     } finally {
       setCatchupLoading(false)
     }
-  }, [loadLogs])
+  }, [loadLogs, tr])
 
   useEffect(() => {
     if (loading || catchupLoading || hasAutoCatchupAttempted) return
@@ -394,16 +402,16 @@ export default function AccessLogsPage() {
   const sortedLogs = useMemo(() => {
     const sorted = [...filteredLogs]
     sorted.sort((a, b) => {
-      if (sortBy === "employee") return a.employeeName.localeCompare(b.employeeName, "fr")
-      if (sortBy === "device") return a.deviceName.localeCompare(b.deviceName, "fr")
-      if (sortBy === "status") return a.status.localeCompare(b.status, "fr")
+      if (sortBy === "employee") return a.employeeName.localeCompare(b.employeeName, localeTag)
+      if (sortBy === "device") return a.deviceName.localeCompare(b.deviceName, localeTag)
+      if (sortBy === "status") return a.status.localeCompare(b.status, localeTag)
       return toNumericLogId(a.id) - toNumericLogId(b.id)
     })
     if (sortOrder === "desc") {
       sorted.reverse()
     }
     return sorted
-  }, [filteredLogs, sortBy, sortOrder])
+  }, [filteredLogs, sortBy, sortOrder, localeTag])
 
   const totalPages = Math.max(1, Math.ceil(sortedLogs.length / PAGE_SIZE))
   const paginatedLogs = useMemo(() => {
@@ -435,7 +443,7 @@ export default function AccessLogsPage() {
 
   const handleExportCsv = () => {
     const rows = [
-      ["Heure", "Employe", "Matricule", "Departement", "Appareil", "Localisation", "Statut", "Details"].join(","),
+      tr.csvHeaders.join(","),
       ...filteredLogs.map((log) =>
         [
           log.timestamp,
@@ -444,7 +452,7 @@ export default function AccessLogsPage() {
           `"${log.department.replaceAll('"', '""')}"`,
           `"${log.deviceName.replaceAll('"', '""')}"`,
           `"${log.deviceLocation.replaceAll('"', '""')}"`,
-          log.status === "granted" ? "Autorise" : log.status === "denied" ? "Refuse" : "Inconnu",
+          log.status === "granted" ? tr.statusGranted : log.status === "denied" ? tr.statusDenied : tr.statusUnknown,
           `"${(log.reason ?? "").replaceAll('"', '""')}"`,
         ].join(","),
       ),
@@ -456,7 +464,7 @@ export default function AccessLogsPage() {
     link.download = `access-logs-${todayKey}.csv`
     link.click()
     URL.revokeObjectURL(url)
-    toast.success(`${filteredLogs.length} événements exportés en CSV`)
+    toast.success(tr.exportedToast(filteredLogs.length))
   }
 
   return (
@@ -469,13 +477,13 @@ export default function AccessLogsPage() {
         <main className="app-page">
           <div className="animate-fade-up">
           <PageContextBar
-            title="Journal d'acces"
-            description="Historique temps reel des acces autorises et refuses, avec capacites de rattrapage et d'export."
+            title={tr.pageTitle}
+            description={tr.pageDescription}
             stats={[
-              { value: totalAccess, label: "Evenements du jour" },
-              { value: deniedAccess, label: "Refus", tone: deniedAccess > 0 ? "critical" : "success" },
-              { value: devices.length, label: "Appareils concernes" },
-              { value: tenantCode, label: "Tenant", tone: "neutral" },
+              { value: totalAccess, label: tr.statEventsToday },
+              { value: deniedAccess, label: tr.statDenied, tone: deniedAccess > 0 ? "critical" : "success" },
+              { value: devices.length, label: tr.statDevices },
+              { value: tenantCode, label: tr.statTenant, tone: "neutral" },
             ]}
             actions={
               <>
@@ -490,19 +498,19 @@ export default function AccessLogsPage() {
                 }
               >
                 {isLive && <span className="mr-2 h-2 w-2 animate-pulse rounded-full bg-emerald-400" />}
-                Live
+                {tr.live}
               </Button>
               <Button variant="outline" size="sm" onClick={() => void loadLogs(true)} disabled={loading}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
-                Actualiser
+                {tr.refresh}
               </Button>
               <Button variant="outline" size="sm" onClick={() => void runCatchupAndReload()} disabled={catchupLoading}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
-                {catchupLoading ? "Rattrapage..." : "Rattraper les acces"}
+                {catchupLoading ? tr.catchupLoading : tr.catchupAction}
               </Button>
               <Button variant="outline" size="sm" onClick={handleExportCsv}>
                 <Download className="mr-2 h-4 w-4" />
-                Exporter CSV
+                {tr.exportCsv}
               </Button>
               <Button
                 variant="outline"
@@ -518,11 +526,11 @@ export default function AccessLogsPage() {
                   setDateFilter("today")
                   setSortBy("datetime")
                   setSortOrder("desc")
-                  toast.success("Filtres reinitialises")
+                  toast.success(tr.filtersReset)
                 }}
               >
                 <X className="mr-2 h-4 w-4" />
-                Reset filtres
+                {tr.resetFilters}
               </Button>
               </>
             }
@@ -542,7 +550,7 @@ export default function AccessLogsPage() {
                   <DoorOpen className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Total Aujourd&apos;hui</p>
+                  <p className="text-sm text-muted-foreground">{tr.totalToday}</p>
                   <p className="text-2xl font-semibold text-foreground">{totalAccess}</p>
                 </div>
               </CardContent>
@@ -554,7 +562,7 @@ export default function AccessLogsPage() {
                   <CheckCircle2 className="h-6 w-6 text-green-500" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Acces Autorises</p>
+                  <p className="text-sm text-muted-foreground">{tr.grantedAccess}</p>
                   <p className="text-2xl font-semibold text-foreground">{grantedAccess}</p>
                 </div>
               </CardContent>
@@ -566,7 +574,7 @@ export default function AccessLogsPage() {
                   <XCircle className="h-6 w-6 text-red-500" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Acces Refuses</p>
+                  <p className="text-sm text-muted-foreground">{tr.deniedAccess}</p>
                   <p className="text-2xl font-semibold text-foreground">{deniedAccess}</p>
                 </div>
               </CardContent>
@@ -577,7 +585,7 @@ export default function AccessLogsPage() {
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Filter className="h-4 w-4" />
-                Filtres
+                {tr.filters}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -585,7 +593,7 @@ export default function AccessLogsPage() {
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Rechercher par nom, matricule ou appareil..."
+                    placeholder={tr.searchPlaceholder}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
@@ -595,35 +603,35 @@ export default function AccessLogsPage() {
                 <Select value={dateFilter} onValueChange={setDateFilter}>
                   <SelectTrigger className="w-full lg:w-45">
                     <Calendar className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Periode" />
+                    <SelectValue placeholder={tr.periodPlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="today">Aujourd&apos;hui</SelectItem>
-                    <SelectItem value="yesterday">Hier</SelectItem>
-                    <SelectItem value="last7">7 derniers jours</SelectItem>
-                    <SelectItem value="all">Tout</SelectItem>
+                    <SelectItem value="today">{tr.today}</SelectItem>
+                    <SelectItem value="yesterday">{tr.yesterday}</SelectItem>
+                    <SelectItem value="last7">{tr.last7Days}</SelectItem>
+                    <SelectItem value="all">{tr.all}</SelectItem>
                   </SelectContent>
                 </Select>
 
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="w-full lg:w-45">
-                    <SelectValue placeholder="Statut" />
+                    <SelectValue placeholder={tr.statusPlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les statuts</SelectItem>
-                    <SelectItem value="granted">Autorise</SelectItem>
-                    <SelectItem value="denied">Refuse</SelectItem>
-                    <SelectItem value="unknown">Inconnu</SelectItem>
+                    <SelectItem value="all">{tr.allStatuses}</SelectItem>
+                    <SelectItem value="granted">{tr.statusGranted}</SelectItem>
+                    <SelectItem value="denied">{tr.statusDenied}</SelectItem>
+                    <SelectItem value="unknown">{tr.statusUnknown}</SelectItem>
                   </SelectContent>
                 </Select>
 
                 <Select value={personFilter} onValueChange={setPersonFilter}>
                   <SelectTrigger className="w-full lg:w-65">
                     <User className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Toutes les personnes" />
+                    <SelectValue placeholder={tr.allPeoplePlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Toutes les personnes ({employees.length})</SelectItem>
+                    <SelectItem value="all">{tr.allPeople(employees.length)}</SelectItem>
                     {employees.map((employee) => (
                       <SelectItem key={String(employee.id)} value={employee.employee_no}>
                         {employee.name || employee.employee_no} ({employee.employee_no})
@@ -634,10 +642,10 @@ export default function AccessLogsPage() {
 
                 <Select value={deviceFilter} onValueChange={setDeviceFilter}>
                   <SelectTrigger className="w-full lg:w-55">
-                    <SelectValue placeholder="Appareil" />
+                    <SelectValue placeholder={tr.devicePlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les appareils</SelectItem>
+                    <SelectItem value="all">{tr.allDevices}</SelectItem>
                     {devices.map((device) => (
                       <SelectItem key={device} value={device}>
                         {device}
@@ -648,10 +656,10 @@ export default function AccessLogsPage() {
 
                 <Select value={siteFilter} onValueChange={setSiteFilter}>
                   <SelectTrigger className="w-full lg:w-45">
-                    <SelectValue placeholder="Site" />
+                    <SelectValue placeholder={tr.sitePlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les sites</SelectItem>
+                    <SelectItem value="all">{tr.allSites}</SelectItem>
                     {sites.map((site) => (
                       <SelectItem key={site} value={site}>
                         {site}
@@ -662,10 +670,10 @@ export default function AccessLogsPage() {
 
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
                   <SelectTrigger className="w-full lg:w-55">
-                    <SelectValue placeholder="Type d'acces" />
+                    <SelectValue placeholder={tr.typePlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les types</SelectItem>
+                    <SelectItem value="all">{tr.allTypes}</SelectItem>
                     {accessTypes.map((accessType) => (
                       <SelectItem key={accessType} value={accessType}>
                         {accessType}
@@ -677,17 +685,17 @@ export default function AccessLogsPage() {
                 <Select value={sortBy} onValueChange={(value) => setSortBy(value as "datetime" | "employee" | "device" | "status")}>
                   <SelectTrigger className="w-full lg:w-55">
                     <ArrowUpDown className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Tri" />
+                    <SelectValue placeholder={tr.sortPlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="datetime">Tri: Horodatage</SelectItem>
-                    <SelectItem value="employee">Tri: Employe</SelectItem>
-                    <SelectItem value="device">Tri: Appareil</SelectItem>
-                    <SelectItem value="status">Tri: Statut</SelectItem>
+                    <SelectItem value="datetime">{tr.sortDatetime}</SelectItem>
+                    <SelectItem value="employee">{tr.sortEmployee}</SelectItem>
+                    <SelectItem value="device">{tr.sortDevice}</SelectItem>
+                    <SelectItem value="status">{tr.sortStatus}</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button variant="outline" size="sm" onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}>
-                  {sortOrder === "asc" ? "Ordre asc." : "Ordre desc."}
+                  {sortOrder === "asc" ? tr.orderAsc : tr.orderDesc}
                 </Button>
               </div>
             </CardContent>
@@ -696,11 +704,11 @@ export default function AccessLogsPage() {
           <Card className="border-border/70 bg-card/90 animate-fade-up" style={{ animationDelay: "240ms" }}>
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Evenements ({sortedLogs.length})</CardTitle>
+                <CardTitle className="text-base">{tr.events(sortedLogs.length)}</CardTitle>
                 {isLive && (
                   <Badge variant="outline" className="border-emerald-500/50 text-emerald-400">
                     <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                    Temps reel
+                    {tr.realtime}
                   </Badge>
                 )}
               </div>
@@ -714,14 +722,14 @@ export default function AccessLogsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="w-45">Heure</TableHead>
-                    <TableHead>Employe</TableHead>
-                    <TableHead>Departement</TableHead>
-                    <TableHead>Appareil</TableHead>
-                    <TableHead>Localisation</TableHead>
-                    <TableHead className="text-center">Statut</TableHead>
-                    <TableHead>Details</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
+                    <TableHead className="w-45">{tr.thTime}</TableHead>
+                    <TableHead>{tr.thEmployee}</TableHead>
+                    <TableHead>{tr.thDepartment}</TableHead>
+                    <TableHead>{tr.thDevice}</TableHead>
+                    <TableHead>{tr.thLocation}</TableHead>
+                    <TableHead className="text-center">{tr.thStatus}</TableHead>
+                    <TableHead>{tr.thDetails}</TableHead>
+                    <TableHead className="text-right">{tr.thAction}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -730,7 +738,7 @@ export default function AccessLogsPage() {
                       <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-5 w-5 animate-spin" />
-                          Chargement des événements…
+                          {tr.loadingEvents}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -740,8 +748,8 @@ export default function AccessLogsPage() {
                       <TableCell colSpan={8} className="py-8">
                         <EmptyState
                           icon={Inbox}
-                          title="Aucun évènement pour la période actuelle"
-                          description="Les évènements d'accès apparaîtront ici en temps réel dès que vos appareils en émettront."
+                          title={tr.emptyTitle}
+                          description={tr.emptyDescription}
                           variant="bare"
                         />
                       </TableCell>
@@ -752,8 +760,8 @@ export default function AccessLogsPage() {
                       <TableCell colSpan={8} className="py-8">
                         <EmptyState
                           icon={Filter}
-                          title="Aucun résultat pour ces filtres"
-                          description="Essayez d'élargir la recherche ou de réinitialiser les filtres."
+                          title={tr.emptyFilteredTitle}
+                          description={tr.emptyFilteredDescription}
                           variant="bare"
                         />
                       </TableCell>
@@ -801,17 +809,17 @@ export default function AccessLogsPage() {
                         {log.status === "granted" ? (
                           <Badge className="bg-green-500/10 text-green-500 hover:bg-green-500/20">
                             <CheckCircle2 className="mr-1 h-3 w-3" />
-                            Autorise
+                            {tr.statusGranted}
                           </Badge>
                         ) : log.status === "denied" ? (
                           <Badge className="bg-red-500/10 text-red-500 hover:bg-red-500/20">
                             <XCircle className="mr-1 h-3 w-3" />
-                            Refuse
+                            {tr.statusDenied}
                           </Badge>
                         ) : (
                           <Badge className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20">
                             <AlertTriangle className="mr-1 h-3 w-3" />
-                            Inconnu
+                            {tr.statusUnknown}
                           </Badge>
                         )}
                       </TableCell>
@@ -834,7 +842,7 @@ export default function AccessLogsPage() {
                           }}
                         >
                           <Eye className="mr-1.5 h-4 w-4" />
-                          Inspecter
+                          {tr.inspect}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -844,19 +852,23 @@ export default function AccessLogsPage() {
               <div className="flex items-center justify-between border-t border-border/70 px-4 py-3">
                 <p className="text-xs text-muted-foreground">
                   {sortedLogs.length === 0
-                    ? "0 resultat"
-                    : `Affichage ${Math.min((currentPage - 1) * PAGE_SIZE + 1, sortedLogs.length)}-${Math.min(currentPage * PAGE_SIZE, sortedLogs.length)} sur ${sortedLogs.length}`}
+                    ? tr.noResults
+                    : tr.showingRange(
+                        Math.min((currentPage - 1) * PAGE_SIZE + 1, sortedLogs.length),
+                        Math.min(currentPage * PAGE_SIZE, sortedLogs.length),
+                        sortedLogs.length,
+                      )}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}>
                     <ChevronLeft className="mr-1 h-4 w-4" />
-                    Precedent
+                    {tr.previous}
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    Page {currentPage}/{totalPages}
+                    {tr.pageOf(currentPage, totalPages)}
                   </span>
                   <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}>
-                    Suivant
+                    {tr.next}
                     <ChevronRight className="ml-1 h-4 w-4" />
                   </Button>
                 </div>
@@ -867,9 +879,9 @@ export default function AccessLogsPage() {
           <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
             <DialogContent className="sm:max-w-lg border-border/70 bg-card/95">
               <DialogHeader>
-                <DialogTitle className="text-base">Detail de l'evenement #{selectedLog?.id ?? "-"}</DialogTitle>
+                <DialogTitle className="text-base">{tr.dialogTitle(selectedLog?.id ?? "-")}</DialogTitle>
                 <DialogDescription>
-                  Inspection complete d'un log d'acces pour supervision et diagnostic.
+                  {tr.dialogDescription}
                 </DialogDescription>
               </DialogHeader>
 
@@ -877,46 +889,46 @@ export default function AccessLogsPage() {
                 <div className="space-y-3 rounded-xl border border-border/70 bg-background/35 p-4 text-sm">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <p className="text-xs text-muted-foreground">Employe</p>
+                      <p className="text-xs text-muted-foreground">{tr.fieldEmployee}</p>
                       <p className="font-medium text-foreground">{selectedLog.employeeName}</p>
                       <p className="text-xs text-muted-foreground">{selectedLog.employeeId}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Horodatage</p>
+                      <p className="text-xs text-muted-foreground">{tr.fieldTimestamp}</p>
                       <p className="font-medium text-foreground">{selectedLog.dateLabel} {selectedLog.timestamp}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Appareil</p>
+                      <p className="text-xs text-muted-foreground">{tr.fieldDevice}</p>
                       <p className="font-medium text-foreground">{selectedLog.deviceName}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Localisation</p>
+                      <p className="text-xs text-muted-foreground">{tr.fieldLocation}</p>
                       <p className="font-medium text-foreground">{selectedLog.deviceLocation}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Departement</p>
+                      <p className="text-xs text-muted-foreground">{tr.fieldDepartment}</p>
                       <p className="font-medium text-foreground">{selectedLog.department}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Type d'acces</p>
+                      <p className="text-xs text-muted-foreground">{tr.fieldAccessType}</p>
                       <p className="font-medium text-foreground">{selectedLog.accessType}</p>
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Statut</p>
+                    <p className="text-xs text-muted-foreground">{tr.fieldStatus}</p>
                     <div className="mt-1">
                       {selectedLog.status === "granted" ? (
-                        <Badge className="bg-green-500/10 text-green-500">Autorise</Badge>
+                        <Badge className="bg-green-500/10 text-green-500">{tr.statusGranted}</Badge>
                       ) : selectedLog.status === "denied" ? (
-                        <Badge className="bg-red-500/10 text-red-500">Refuse</Badge>
+                        <Badge className="bg-red-500/10 text-red-500">{tr.statusDenied}</Badge>
                       ) : (
-                        <Badge className="bg-amber-500/10 text-amber-500">Inconnu</Badge>
+                        <Badge className="bg-amber-500/10 text-amber-500">{tr.statusUnknown}</Badge>
                       )}
                     </div>
                   </div>
                   {selectedLog.reason ? (
                     <div>
-                      <p className="text-xs text-muted-foreground">Anomalie / detail</p>
+                      <p className="text-xs text-muted-foreground">{tr.fieldAnomaly}</p>
                       <p className="font-medium text-amber-400">{selectedLog.reason}</p>
                     </div>
                   ) : null}
@@ -931,11 +943,11 @@ export default function AccessLogsPage() {
                       if (!selectedLog) return
                       setPersonFilter(selectedLog.employeeId)
                       setDetailsOpen(false)
-                      toast.success("Filtre employe applique")
+                      toast.success(tr.employeeFilterApplied)
                     }}
                     disabled={!selectedLog}
                   >
-                    Filtrer cet employe
+                    {tr.filterThisEmployee}
                   </Button>
                   <Button
                     variant="outline"
@@ -943,11 +955,11 @@ export default function AccessLogsPage() {
                       if (!selectedLog) return
                       setDeviceFilter(selectedLog.deviceName)
                       setDetailsOpen(false)
-                      toast.success("Filtre appareil applique")
+                      toast.success(tr.deviceFilterApplied)
                     }}
                     disabled={!selectedLog}
                   >
-                    Filtrer cet appareil
+                    {tr.filterThisDevice}
                   </Button>
                 </div>
                 <Button
@@ -956,15 +968,15 @@ export default function AccessLogsPage() {
                     if (!selectedLog) return
                     try {
                       await navigator.clipboard.writeText(JSON.stringify(selectedLog, null, 2))
-                      toast.success("Detail du log copie")
+                      toast.success(tr.logCopied)
                     } catch {
-                      toast.error("Copie impossible depuis ce navigateur")
+                      toast.error(tr.copyFailed)
                     }
                   }}
                   disabled={!selectedLog}
                 >
                   <Copy className="mr-2 h-4 w-4" />
-                  Copier
+                  {tr.copy}
                 </Button>
               </DialogFooter>
             </DialogContent>

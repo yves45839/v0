@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { formatDistanceToNow } from "date-fns"
-import { fr } from "date-fns/locale"
+import { enUS, fr as frLocale } from "date-fns/locale"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,7 @@ import {
   XCircle,
 } from "lucide-react"
 import {
+  BetaInfoError,
   fetchBetaInfo,
   fetchGatewayHealth,
   fetchLastIngestedEvent,
@@ -31,6 +32,9 @@ import {
   type LastIngestedEvent,
   type SyncedDevice,
 } from "@/lib/api/integrations"
+import { useI18n } from "@/lib/i18n/context"
+import type { Locale } from "@/lib/i18n/config"
+import { integrationsDict, type IntegrationsDict } from "@/lib/i18n/pages/integrations"
 
 // ── Async state helpers ───────────────────────────────────────────────────────
 type AsyncState<T> =
@@ -38,25 +42,18 @@ type AsyncState<T> =
   | { status: "error"; message: string }
   | { status: "ready"; data: T }
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown, tr: IntegrationsDict): string {
+  if (error instanceof BetaInfoError) return tr.platformInfoError(error.status)
   if (error instanceof Error && error.message.trim()) return error.message.trim()
-  return "Une erreur inattendue est survenue."
+  return tr.unexpectedError
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
-function formatDateTime(iso: string): string {
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(iso))
-}
+const DATE_FNS_LOCALES = { fr: frLocale, en: enUS } as const
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, locale: Locale): string {
   try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: fr })
+    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: DATE_FNS_LOCALES[locale] })
   } catch {
     return ""
   }
@@ -90,10 +87,12 @@ function HealthCard({
 }
 
 function CardLoading() {
+  const { locale } = useI18n()
+  const tr = integrationsDict[locale]
   return (
     <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
       <Loader2 className="h-4 w-4 animate-spin" />
-      Chargement…
+      {tr.loading}
     </div>
   )
 }
@@ -109,8 +108,10 @@ function CardError({ message }: { message: string }) {
 
 // ── Gateway card ──────────────────────────────────────────────────────────────
 function GatewayCard({ state }: { state: AsyncState<GatewayHealth> }) {
+  const { locale } = useI18n()
+  const tr = integrationsDict[locale]
   return (
-    <HealthCard title="Passerelle Hik Device Gateway" icon={Server} iconClass="text-cyan-400" iconBg="bg-cyan-500/10">
+    <HealthCard title={tr.gatewayCardTitle} icon={Server} iconClass="text-cyan-400" iconBg="bg-cyan-500/10">
       {state.status === "loading" && <CardLoading />}
       {state.status === "error" && <CardError message={state.message} />}
       {state.status === "ready" && (
@@ -118,19 +119,17 @@ function GatewayCard({ state }: { state: AsyncState<GatewayHealth> }) {
           <div className="flex items-center gap-2">
             {state.data.reachable ? (
               <Badge className="gap-1.5 bg-green-500/10 text-green-400">
-                <CheckCircle className="h-3 w-3" /> Connectée
+                <CheckCircle className="h-3 w-3" /> {tr.gatewayConnected}
               </Badge>
             ) : (
               <Badge className="gap-1.5 bg-red-500/10 text-red-400">
-                <XCircle className="h-3 w-3" /> Injoignable
+                <XCircle className="h-3 w-3" /> {tr.gatewayUnreachable}
               </Badge>
             )}
           </div>
           <div>
             <p className="text-2xl font-bold tracking-tight text-foreground">{state.data.deviceCount}</p>
-            <p className="text-xs text-muted-foreground">
-              {state.data.deviceCount > 1 ? "appareils vus par la passerelle" : "appareil vu par la passerelle"}
-            </p>
+            <p className="text-xs text-muted-foreground">{tr.gatewayDeviceCount(state.data.deviceCount)}</p>
           </div>
           {state.data.errors.length > 0 && (
             <div className="space-y-1.5">
@@ -152,17 +151,27 @@ function GatewayCard({ state }: { state: AsyncState<GatewayHealth> }) {
 
 // ── Events card ───────────────────────────────────────────────────────────────
 function EventsCard({ state }: { state: AsyncState<LastIngestedEvent> }) {
+  const { locale, formatDateTime } = useI18n()
+  const tr = integrationsDict[locale]
   return (
-    <HealthCard title="Réception des événements" icon={Activity} iconClass="text-blue-400" iconBg="bg-blue-500/10">
+    <HealthCard title={tr.eventsCardTitle} icon={Activity} iconClass="text-blue-400" iconBg="bg-blue-500/10">
       {state.status === "loading" && <CardLoading />}
       {state.status === "error" && <CardError message={state.message} />}
       {state.status === "ready" && (
         <div className="space-y-3">
           {state.data.lastEventAt ? (
             <div>
-              <p className="text-xs text-muted-foreground">Dernier événement reçu</p>
-              <p className="mt-0.5 text-sm font-semibold text-foreground">{formatDateTime(state.data.lastEventAt)}</p>
-              <p className="text-xs text-muted-foreground">{formatRelative(state.data.lastEventAt)}</p>
+              <p className="text-xs text-muted-foreground">{tr.lastEventReceived}</p>
+              <p className="mt-0.5 text-sm font-semibold text-foreground">
+                {formatDateTime(state.data.lastEventAt, {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+              <p className="text-xs text-muted-foreground">{formatRelative(state.data.lastEventAt, locale)}</p>
               {state.data.source && (
                 <Badge
                   variant="outline"
@@ -172,21 +181,20 @@ function EventsCard({ state }: { state: AsyncState<LastIngestedEvent> }) {
                   )}
                 >
                   {state.data.source === "realtime"
-                    ? "Temps réel (webhook)"
+                    ? tr.sourceRealtime
                     : state.data.source === "catchup"
-                      ? "Rattrapage (catchup)"
+                      ? tr.sourceCatchup
                       : state.data.source}
                 </Badge>
               )}
             </div>
           ) : (
-            <p className="py-2 text-sm text-muted-foreground">Aucun événement reçu pour le moment.</p>
+            <p className="py-2 text-sm text-muted-foreground">{tr.noEventsYet}</p>
           )}
           <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              Les événements arrivent via webhook de la passerelle vers{" "}
-              <code className="font-mono text-foreground/80">/api/hik/events</code>.
+              {tr.webhookInfo} <code className="font-mono text-foreground/80">/api/hik/events</code>.
             </span>
           </div>
         </div>
@@ -196,47 +204,47 @@ function EventsCard({ state }: { state: AsyncState<LastIngestedEvent> }) {
 }
 
 // ── Devices card ──────────────────────────────────────────────────────────────
-function deviceStatusChip(status: string) {
+function deviceStatusChip(status: string, tr: IntegrationsDict) {
   const normalized = status.toLowerCase()
   if (normalized === "online") {
-    return <Badge className="shrink-0 bg-green-500/10 text-[10px] text-green-400">En ligne</Badge>
+    return <Badge className="shrink-0 bg-green-500/10 text-[10px] text-green-400">{tr.statusOnline}</Badge>
   }
   if (normalized === "offline") {
-    return <Badge className="shrink-0 bg-red-500/10 text-[10px] text-red-400">Hors ligne</Badge>
+    return <Badge className="shrink-0 bg-red-500/10 text-[10px] text-red-400">{tr.statusOffline}</Badge>
   }
   return (
-    <Badge className="shrink-0 bg-slate-500/10 text-[10px] text-slate-400">{status || "Inconnu"}</Badge>
+    <Badge className="shrink-0 bg-slate-500/10 text-[10px] text-slate-400">{status || tr.statusUnknown}</Badge>
   )
 }
 
 function DevicesCard({ state }: { state: AsyncState<SyncedDevice[]> }) {
+  const { locale } = useI18n()
+  const tr = integrationsDict[locale]
   return (
-    <HealthCard title="Appareils synchronisés" icon={HardDrive} iconClass="text-purple-400" iconBg="bg-purple-500/10">
+    <HealthCard title={tr.devicesCardTitle} icon={HardDrive} iconClass="text-purple-400" iconBg="bg-purple-500/10">
       {state.status === "loading" && <CardLoading />}
       {state.status === "error" && <CardError message={state.message} />}
       {state.status === "ready" && (
         <div className="space-y-3">
           <div>
             <p className="text-2xl font-bold tracking-tight text-foreground">{state.data.length}</p>
-            <p className="text-xs text-muted-foreground">
-              {state.data.length > 1 ? "appareils en base locale" : "appareil en base locale"}
-            </p>
+            <p className="text-xs text-muted-foreground">{tr.localDeviceCount(state.data.length)}</p>
           </div>
           {state.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucun appareil synchronisé pour ce tenant.</p>
+            <p className="text-sm text-muted-foreground">{tr.noSyncedDevices}</p>
           ) : (
             <ul className="divide-y divide-border/40 rounded-lg border border-border/60">
               {state.data.map((device) => (
                 <li key={device.id} className="flex items-center gap-3 px-3 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-medium text-foreground">
-                      {device.name || device.dev_index || `Appareil #${device.id}`}
+                      {device.name || device.dev_index || tr.deviceFallbackName(device.id)}
                     </p>
                     {device.serial_number && (
                       <p className="truncate font-mono text-[10px] text-muted-foreground">SN {device.serial_number}</p>
                     )}
                   </div>
-                  {deviceStatusChip(device.status)}
+                  {deviceStatusChip(device.status, tr)}
                 </li>
               ))}
             </ul>
@@ -249,36 +257,38 @@ function DevicesCard({ state }: { state: AsyncState<SyncedDevice[]> }) {
 
 // ── Billing card ──────────────────────────────────────────────────────────────
 function BillingCard({ state }: { state: AsyncState<BetaInfo> }) {
+  const { locale } = useI18n()
+  const tr = integrationsDict[locale]
   return (
-    <HealthCard title="Facturation Stripe" icon={CreditCard} iconClass="text-amber-400" iconBg="bg-amber-500/10">
+    <HealthCard title={tr.billingCardTitle} icon={CreditCard} iconClass="text-amber-400" iconBg="bg-amber-500/10">
       {state.status === "loading" && <CardLoading />}
       {state.status === "error" && <CardError message={state.message} />}
       {state.status === "ready" && (
         <div className="space-y-2.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">Stripe</span>
+            <span className="text-xs text-muted-foreground">{tr.stripeLabel}</span>
             {state.data.stripe_configured ? (
               <Badge className="gap-1.5 bg-green-500/10 text-green-400">
-                <CheckCircle className="h-3 w-3" /> Configuré
+                <CheckCircle className="h-3 w-3" /> {tr.stripeConfigured}
               </Badge>
             ) : (
               <Badge className="gap-1.5 bg-slate-500/10 text-slate-400">
-                <XCircle className="h-3 w-3" /> Non configuré
+                <XCircle className="h-3 w-3" /> {tr.stripeNotConfigured}
               </Badge>
             )}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">Facturation</span>
+            <span className="text-xs text-muted-foreground">{tr.billingLabel}</span>
             {state.data.billing_enabled ? (
               <Badge className="gap-1.5 bg-green-500/10 text-green-400">
-                <CheckCircle className="h-3 w-3" /> Activée
+                <CheckCircle className="h-3 w-3" /> {tr.billingEnabled}
               </Badge>
             ) : (
-              <Badge className="gap-1.5 bg-slate-500/10 text-slate-400">Désactivée</Badge>
+              <Badge className="gap-1.5 bg-slate-500/10 text-slate-400">{tr.billingDisabled}</Badge>
             )}
           </div>
           {state.data.beta_mode && (
-            <p className="pt-1 text-[11px] text-muted-foreground">Plateforme en mode bêta.</p>
+            <p className="pt-1 text-[11px] text-muted-foreground">{tr.betaMode}</p>
           )}
         </div>
       )}
@@ -288,6 +298,8 @@ function BillingCard({ state }: { state: AsyncState<BetaInfo> }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function IntegrationsPage() {
+  const { locale } = useI18n()
+  const tr = integrationsDict[locale]
   const [gateway, setGateway] = useState<AsyncState<GatewayHealth>>({ status: "loading" })
   const [lastEvent, setLastEvent] = useState<AsyncState<LastIngestedEvent>>({ status: "loading" })
   const [devices, setDevices] = useState<AsyncState<SyncedDevice[]>>({ status: "loading" })
@@ -304,19 +316,19 @@ export default function IntegrationsPage() {
     await Promise.all([
       fetchGatewayHealth()
         .then((data) => setGateway({ status: "ready", data }))
-        .catch((error) => setGateway({ status: "error", message: errorMessage(error) })),
+        .catch((error) => setGateway({ status: "error", message: errorMessage(error, tr) })),
       fetchLastIngestedEvent()
         .then((data) => setLastEvent({ status: "ready", data }))
-        .catch((error) => setLastEvent({ status: "error", message: errorMessage(error) })),
+        .catch((error) => setLastEvent({ status: "error", message: errorMessage(error, tr) })),
       fetchSyncedDevices()
         .then((data) => setDevices({ status: "ready", data }))
-        .catch((error) => setDevices({ status: "error", message: errorMessage(error) })),
+        .catch((error) => setDevices({ status: "error", message: errorMessage(error, tr) })),
       fetchBetaInfo()
         .then((data) => setBetaInfo({ status: "ready", data }))
-        .catch((error) => setBetaInfo({ status: "error", message: errorMessage(error) })),
+        .catch((error) => setBetaInfo({ status: "error", message: errorMessage(error, tr) })),
     ])
     setRefreshing(false)
-  }, [])
+  }, [tr])
 
   useEffect(() => {
     void loadAll()
@@ -335,17 +347,13 @@ export default function IntegrationsPage() {
                 <Webhook className="h-5 w-5 text-cyan-500" />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground">
-                  Passerelle Hikvision &amp; synchronisation
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  État en lecture seule de la passerelle, de la réception des événements et de la facturation.
-                </p>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">{tr.title}</h1>
+                <p className="text-sm text-muted-foreground">{tr.subtitle}</p>
               </div>
             </div>
             <Button size="sm" variant="outline" onClick={() => void loadAll()} disabled={refreshing}>
               <RefreshCw className={cn("mr-2 h-3.5 w-3.5", refreshing && "animate-spin")} />
-              Actualiser
+              {tr.refresh}
             </Button>
           </div>
 

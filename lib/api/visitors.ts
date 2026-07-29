@@ -90,7 +90,9 @@ export type VisitorMutationResult = {
   visitor: VisitorItem
   /** Renseigné quand le backend répond 207 (push passerelle partiel). */
   gatewayPush: GatewayPushResult | null
-  /** Message français prêt à afficher si la synchro lecteurs est partielle. */
+  /** true si la synchro lecteurs est partielle (la page affiche alors un toast traduit). */
+  gatewayPartial: boolean
+  /** Détail brut renvoyé par la passerelle (peut être null même si partiel). */
   gatewayWarning: string | null
 }
 
@@ -130,6 +132,12 @@ export function mapVisitorRow(row: VisitorEmployeeRow): VisitorItem {
 
 type TenantRow = { id: number; code?: string }
 
+/**
+ * Message sentinelle levé quand le tenant actif est introuvable.
+ * Les pages le mappent vers un libellé traduit (voir lib/i18n/pages/visitors.ts).
+ */
+export const TENANT_UNRESOLVED_ERROR = "TENANT_UNRESOLVED"
+
 let cachedTenantId: { code: string; id: number } | null = null
 
 async function resolveTenantId(): Promise<number> {
@@ -143,7 +151,7 @@ async function resolveTenantId(): Promise<number> {
   const fallback = rows[0]
   const tenant = match ?? fallback
   if (!tenant || typeof tenant.id !== "number") {
-    throw new Error("Impossible de déterminer le tenant actif.")
+    throw new Error(TENANT_UNRESOLVED_ERROR)
   }
   cachedTenantId = { code, id: tenant.id }
   return tenant.id
@@ -156,15 +164,25 @@ export async function fetchVisitors(): Promise<VisitorItem[]> {
   return unwrapList<VisitorEmployeeRow>(payload).map(mapVisitorRow)
 }
 
-export function buildGatewayWarning(payload: unknown): { gatewayPush: GatewayPushResult | null; warning: string | null } {
+/**
+ * Analyse la réponse passerelle (207) et renvoie des données structurées :
+ * `partial` indique une synchro lecteurs incomplète, `detail` est le détail
+ * brut renvoyé par le backend (null si absent — la page affiche alors son
+ * propre libellé traduit).
+ */
+export function buildGatewayWarning(payload: unknown): {
+  gatewayPush: GatewayPushResult | null
+  partial: boolean
+  detail: string | null
+} {
   const gatewayPush = readGatewayPush(payload)
-  if (!gatewayPush) return { gatewayPush: null, warning: null }
+  if (!gatewayPush) return { gatewayPush: null, partial: false, detail: null }
   const errors = Array.isArray(gatewayPush.errors) ? gatewayPush.errors : []
   const isPartial =
     errors.length > 0 ||
     gatewayPush.pushed === false ||
     (typeof gatewayPush.status === "string" && gatewayPush.status.toLowerCase() !== "ok")
-  if (!isPartial) return { gatewayPush, warning: null }
+  if (!isPartial) return { gatewayPush, partial: false, detail: null }
   const detailParts = errors
     .map((entry) => {
       if (entry && typeof entry === "object") {
@@ -180,18 +198,17 @@ export function buildGatewayWarning(payload: unknown): { gatewayPush: GatewayPus
     })
     .filter((entry): entry is string => Boolean(entry))
   const detail =
-    detailParts.length > 0
-      ? detailParts.join(" ; ")
-      : String(gatewayPush.detail ?? "").trim() || "certains lecteurs n'ont pas été mis à jour."
-  return { gatewayPush, warning: detail }
+    detailParts.length > 0 ? detailParts.join(" ; ") : String(gatewayPush.detail ?? "").trim() || null
+  return { gatewayPush, partial: true, detail }
 }
 
 function toMutationResult(payload: VisitorEmployeeRow): VisitorMutationResult {
-  const { gatewayPush, warning } = buildGatewayWarning(payload)
+  const { gatewayPush, partial, detail } = buildGatewayWarning(payload)
   return {
     visitor: mapVisitorRow(payload),
     gatewayPush,
-    gatewayWarning: warning,
+    gatewayPartial: partial,
+    gatewayWarning: detail,
   }
 }
 
