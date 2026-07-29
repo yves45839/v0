@@ -163,7 +163,7 @@ export default function SettingsPage() {
   const [timezone, setTimezone] = useState("Europe/Paris")
   // Extended preferences
   const [sessionTimeout, setSessionTimeout] = useState("30")
-  const [language, setLanguage] = useState<string>(() => locale)
+  const [language, setLanguage] = useState<"fr" | "en">(() => locale)
   const [themePreference, setThemePreference] = useState<"system" | "dark" | "light">("dark")
   const [alertOnAccessDenied, setAlertOnAccessDenied] = useState(true)
   const [alertOnIntrusion, setAlertOnIntrusion] = useState(true)
@@ -768,7 +768,7 @@ export default function SettingsPage() {
       savePreferenceSnapshot(next)
       setCompanyName(trimmedName)
       setTimezone(trimmedTimezone)
-      setLocale(language as "fr" | "en")
+      setLocale(language)
       setTheme(themePreference === "system" ? "dark" : themePreference)
       toast.success("Préférences générales enregistrées sur ce navigateur")
     } finally {
@@ -2206,7 +2206,7 @@ export default function SettingsPage() {
                     <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-3">
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-muted-foreground">Langue de l&apos;interface</Label>
-                        <Select value={language} onValueChange={(v) => setLanguage(v)}>
+                        <Select value={language} onValueChange={(v) => setLanguage(v === "en" ? "en" : "fr")}>
                           <SelectTrigger className="h-10 rounded-xl border-border/60 bg-background/60">
                             <SelectValue />
                           </SelectTrigger>

@@ -229,7 +229,7 @@ export function CardEnrollDialog({
                 {scanState === "idle" || scanState === "error" ? (
                   <Button
                     className="w-full gap-2"
-                    disabled={!selectedReader || scanState === "scanning"}
+                    disabled={!selectedReader}
                     onClick={handleScan}
                   >
                     <Zap className="h-4 w-4" />

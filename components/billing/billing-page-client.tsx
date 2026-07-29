@@ -44,11 +44,11 @@ export function BillingPageClient() {
       case "payment-methods":
         return <BillingPaymentMethods />
       case "invoices":
-        return <BillingInvoices onTabChange={setActiveTab} />
+        return <BillingInvoices />
       case "usage":
         return <BillingUsage onTabChange={setActiveTab} />
       case "support":
-        return <BillingSupport />
+        return <BillingSupport onTabChange={setActiveTab} />
       case "custom":
         return <BillingCustomOffer />
       default:

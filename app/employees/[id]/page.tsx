@@ -49,7 +49,6 @@ import {
   fetchDevices,
   fetchEmployeeById,
   fetchWorkShifts,
-  isEmployeeApiEnabled,
   setEmployeeActive,
   type AccessGroupApiItem,
   type DepartmentApiItem,
@@ -113,16 +112,8 @@ export default function EmployeeDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
-  const apiEnabled = isEmployeeApiEnabled()
-
   const loadEmployee = useCallback(async () => {
     if (!employeeId) return
-    if (!apiEnabled) {
-      setError("API employés désactivée. Active NEXT_PUBLIC_EMPLOYEE_API_ENABLED pour utiliser cette page.")
-      setIsLoading(false)
-      return
-    }
-
     setIsLoading(true)
     setError(null)
     try {
@@ -146,7 +137,7 @@ export default function EmployeeDetailPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [employeeId, apiEnabled])
+  }, [employeeId])
 
   useEffect(() => {
     void loadEmployee()
@@ -154,11 +145,6 @@ export default function EmployeeDetailPage() {
 
   const loadRecentEvents = useCallback(async () => {
     if (!employee) return
-    if (!apiEnabled) {
-      setEventsState("disabled")
-      return
-    }
-
     setEventsState("loading")
     try {
       const response = await fetchHikEvents({
@@ -171,7 +157,7 @@ export default function EmployeeDetailPage() {
     } catch {
       setEventsState("error")
     }
-  }, [employee, apiEnabled])
+  }, [employee])
 
   useEffect(() => {
     void loadRecentEvents()
@@ -180,13 +166,13 @@ export default function EmployeeDetailPage() {
   const departmentName = useMemo(() => {
     if (!employee?.department) return "Non assigné"
     return departments.find((department) => department.id === employee.department)?.name ?? "Département inconnu"
-  }, [employee?.department, departments])
+  }, [employee, departments])
 
   const workShiftName = useMemo(() => {
     if (employee?.effective_work_shift?.name) return employee.effective_work_shift.name
     if (!employee?.work_shift) return "Non assigné"
     return workShifts.find((shift) => shift.id === employee.work_shift)?.name ?? "Quart inconnu"
-  }, [employee?.effective_work_shift, employee?.work_shift, workShifts])
+  }, [employee, workShifts])
 
   const planningName = employee?.effective_planning?.name ?? "Non assigné"
 

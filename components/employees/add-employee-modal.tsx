@@ -146,6 +146,10 @@ type FingerprintDraft = {
   template: string
 }
 
+function createLocalEmployeeId(): string {
+  return `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 export function AddEmployeeModal({
   open,
   onOpenChange,
@@ -696,7 +700,7 @@ export function AddEmployeeModal({
       .filter((name): name is string => Boolean(name))
 
     const payload: Employee = {
-      id: employeeToEdit?.id ?? `new-${Date.now()}`,
+      id: employeeToEdit?.id ?? createLocalEmployeeId(),
       apiId: savedEmployeeApiId,
       tenantId: selectedDepartment?.tenant ?? employeeToEdit?.tenantId ?? null,
       employeeId: formData.employeeNo.trim(),

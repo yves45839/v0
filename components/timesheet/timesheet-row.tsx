@@ -1,6 +1,6 @@
 "use client"
 
-import { Check, Pencil, X } from "lucide-react"
+import { Check, Pencil } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -66,8 +66,9 @@ interface TimesheetRowProps {
   selected: boolean
   onToggleSelect: () => void
   onApprove: () => void
-  onReject: () => void
   onEdit: () => void
+  approveDisabled?: boolean
+  busy?: boolean
 }
 
 export function TimesheetRow({
@@ -75,8 +76,9 @@ export function TimesheetRow({
   selected,
   onToggleSelect,
   onApprove,
-  onReject,
   onEdit,
+  approveDisabled = false,
+  busy = false,
 }: TimesheetRowProps) {
   const { locale } = useI18n()
   const expS = toPct(item.expectStart) ?? 0
@@ -190,24 +192,27 @@ export function TimesheetRow({
         <div className="flex items-center gap-1.5">
           <Button
             variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onReject}
-            aria-label={locale === "en" ? "Reject" : "Rejeter"}
-            title={locale === "en" ? "Reject" : "Rejeter"}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="outline"
             size="sm"
             className="h-8"
             onClick={onEdit}
+            disabled={busy}
           >
             <Pencil className="mr-1 h-3.5 w-3.5" />
-            {locale === "en" ? "Edit" : "Modifier"}
+            {locale === "en" ? "Correct" : "Corriger"}
           </Button>
-          <Button size="sm" className="h-8" onClick={onApprove}>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={onApprove}
+            disabled={approveDisabled || busy}
+            title={
+              approveDisabled
+                ? locale === "en"
+                  ? "Missing clock-in/out — use Correct to enter times"
+                  : "Pointage incomplet — utilisez Corriger pour saisir les heures"
+                : undefined
+            }
+          >
             <Check className="mr-1 h-3.5 w-3.5" />
             {locale === "en" ? "Approve" : "Valider"}
           </Button>

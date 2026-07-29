@@ -1,7 +1,11 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Badge } from "@/components/ui/badge"
+/**
+ * Factures — données réelles : GET /api/billing/invoices/ (Stripe, sync
+ * webhooks côté Django). PDF et page de paiement hébergés par Stripe
+ * (`invoice_pdf` / `hosted_invoice_url`).
+ */
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -12,214 +16,156 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import {
-  Calendar,
+  AlertTriangle,
   Check,
-  ChevronRight,
+  Clock,
   Download,
   ExternalLink,
   FileText,
   Filter,
-  MessageCircle,
-  Printer,
+  Loader2,
   RefreshCw,
   Search,
   X,
-  AlertTriangle,
-  TrendingDown,
-  TrendingUp,
-  Clock,
-  Banknote,
 } from "lucide-react"
-import { invoices as initialInvoices, type Invoice, type InvoiceStatus } from "@/lib/mock-data/demo-billing"
-import type { BillingTab } from "./billing-tabs"
+import { fetchInvoices, type Invoice } from "@/lib/api/billing"
 import { cn } from "@/lib/utils"
 
-function formatAmount(amount: number) {
-  return new Intl.NumberFormat("fr-FR").format(amount) + " FCFA"
-}
+type InvoiceStatus = Invoice["status"]
 
-function formatDate(d: string) {
-  return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" }).format(new Date(d))
-}
-
-const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string; dot: string; icon: React.ElementType }> = {
-  paid: { label: "Payé", color: "bg-success/15 text-success border-success/25", dot: "bg-success", icon: Check },
-  pending: { label: "En attente", color: "bg-amber-500/15 text-amber-600 border-amber-500/25 dark:text-amber-400", dot: "bg-amber-500", icon: Clock },
-  failed: { label: "Échoué", color: "bg-destructive/15 text-destructive border-destructive/25", dot: "bg-destructive", icon: X },
-  refunded: { label: "Remboursé", color: "bg-violet-500/15 text-violet-600 border-violet-500/25 dark:text-violet-400", dot: "bg-violet-500", icon: RefreshCw },
-  cancelled: { label: "Annulé", color: "bg-slate-500/15 text-slate-500 border-slate-500/25", dot: "bg-slate-500", icon: X },
-}
-
-interface InvoiceDetailModalProps {
-  invoice: Invoice | null
-  onClose: () => void
-  onRetry: (id: string) => void
-  onSupport: () => void
-}
-
-function InvoiceDetailModal({ invoice, onClose, onRetry, onSupport }: InvoiceDetailModalProps) {
-  const [retrying, setRetrying] = useState(false)
-  const [retried, setRetried] = useState(false)
-
-  if (!invoice) return null
-  const sCfg = STATUS_CONFIG[invoice.status]
-  const SIcon = sCfg.icon
-
-  function handleRetry() {
-    setRetrying(true)
-    setTimeout(() => {
-      setRetrying(false)
-      setRetried(true)
-      onRetry(invoice.id)
-    }, 1600)
+function formatMoney(amount: string, currency: string): string {
+  const value = parseFloat(amount)
+  if (!Number.isFinite(value)) return `${amount} ${currency.toUpperCase()}`
+  try {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+      maximumFractionDigits: currency.toLowerCase() === "xof" ? 0 : 2,
+    }).format(value)
+  } catch {
+    return `${value.toFixed(2)} ${currency.toUpperCase()}`
   }
-
-  return (
-    <Dialog open={!!invoice} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-primary" />
-            Facture {invoice.number}
-          </DialogTitle>
-          <DialogDescription>
-            Détails complets de la facture — {invoice.period}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-1">
-          {/* Status badge large */}
-          <div className={cn("flex items-center gap-2.5 rounded-xl border p-3.5", sCfg.color)}>
-            <SIcon className="h-4 w-4" />
-            <div>
-              <p className="font-semibold text-sm">{sCfg.label}</p>
-              {invoice.status === "failed" && <p className="text-xs opacity-80">Ce paiement a échoué. Utilisez "Réessayer" pour relancer.</p>}
-              {invoice.status === "paid" && invoice.paidAt && <p className="text-xs opacity-80">Réglé le {formatDate(invoice.paidAt)}</p>}
-              {invoice.status === "pending" && <p className="text-xs opacity-80">À régler avant le {formatDate(invoice.dueAt)}</p>}
-            </div>
-          </div>
-
-          {/* Détails */}
-          <div className="rounded-xl border bg-muted/20 divide-y divide-border/60">
-            {[
-              { label: "Numéro", value: invoice.number },
-              { label: "Période", value: invoice.period },
-              { label: "Plan", value: invoice.planName },
-              { label: "Montant", value: formatAmount(invoice.amount), bold: true },
-              { label: "Mode de paiement", value: invoice.paymentMethod },
-              { label: "Date d'émission", value: formatDate(invoice.issuedAt) },
-              { label: "Date d'échéance", value: formatDate(invoice.dueAt) },
-              ...(invoice.paidAt ? [{ label: "Date de règlement", value: formatDate(invoice.paidAt) }] : []),
-            ].map((row) => (
-              <div key={row.label} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                <span className="text-muted-foreground">{row.label}</span>
-                <span className={cn("font-medium tabular-nums", row.bold && "text-lg font-bold")}>{row.value}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" asChild>
-              <a href={invoice.downloadUrl} download>
-                <Download className="h-3.5 w-3.5" />
-                Télécharger
-              </a>
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <Printer className="h-3.5 w-3.5" />
-              Imprimer
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1.5" asChild>
-              <a href={invoice.downloadUrl} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-3.5 w-3.5" />
-                Aperçu
-              </a>
-            </Button>
-            {invoice.status === "failed" && !retried && (
-              <Button size="sm" className="gap-1.5 ml-auto" disabled={retrying} onClick={handleRetry}>
-                {retrying ? (
-                  <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />Traitement…</>
-                ) : (
-                  <><RefreshCw className="h-3.5 w-3.5" />Réessayer le paiement</>
-                )}
-              </Button>
-            )}
-            {retried && (
-              <div className="ml-auto flex items-center gap-1.5 text-success text-sm">
-                <Check className="h-3.5 w-3.5" /> Tentative lancée
-              </div>
-            )}
-          </div>
-
-          <Button variant="ghost" size="sm" className="w-full gap-1.5 border border-dashed text-muted-foreground hover:text-foreground" onClick={() => { onSupport(); onClose() }}>
-            <MessageCircle className="h-3.5 w-3.5" />
-            Contacter le support pour cette facture
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
 }
 
-// ── Composant principal ────────────────────────────────────
-interface BillingInvoicesProps {
-  onTabChange: (tab: BillingTab) => void
+function formatDate(d: string | null): string {
+  if (!d) return "—"
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return "—"
+  return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" }).format(date)
 }
 
-export function BillingInvoices({ onTabChange }: BillingInvoicesProps) {
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices)
+const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string; dot: string }> = {
+  paid: { label: "Payée", color: "bg-success/15 text-success border-success/25", dot: "bg-success" },
+  open: { label: "À régler", color: "bg-amber-500/15 text-amber-600 border-amber-500/25 dark:text-amber-400", dot: "bg-amber-500" },
+  draft: { label: "Brouillon", color: "bg-slate-500/15 text-slate-500 border-slate-500/25", dot: "bg-slate-500" },
+  uncollectible: { label: "Irrécouvrable", color: "bg-destructive/15 text-destructive border-destructive/25", dot: "bg-destructive" },
+  void: { label: "Annulée", color: "bg-slate-500/15 text-slate-500 border-slate-500/25", dot: "bg-slate-500" },
+}
+
+export function BillingInvoices() {
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null)
+  const [error, setError] = useState<string>("")
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "all">("all")
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+
+  const load = useCallback(() => {
+    setInvoices(null)
+    setError("")
+    fetchInvoices()
+      .then(setInvoices)
+      .catch((err: Error) => setError(err.message))
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
 
   const filtered = useMemo(() => {
-    return invoices.filter((inv) => {
+    return (invoices ?? []).filter((inv) => {
       const matchSearch =
         search === "" ||
         inv.number.toLowerCase().includes(search.toLowerCase()) ||
-        inv.period.toLowerCase().includes(search.toLowerCase()) ||
-        inv.planName.toLowerCase().includes(search.toLowerCase())
+        inv.stripe_invoice_id.toLowerCase().includes(search.toLowerCase())
       const matchStatus = statusFilter === "all" || inv.status === statusFilter
       return matchSearch && matchStatus
     })
   }, [invoices, search, statusFilter])
 
-  function handleRetry(id: string) {
-    setInvoices((prev) =>
-      prev.map((inv) => (inv.id === id ? { ...inv, status: "pending" as InvoiceStatus } : inv))
+  // ── Erreur ──
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-bold">Factures & Historique</h2>
+          <p className="text-sm text-muted-foreground">Consultez et téléchargez vos factures.</p>
+        </div>
+        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-destructive/30 bg-destructive/5 py-16 text-center">
+          <AlertTriangle className="h-10 w-10 text-destructive" />
+          <div className="space-y-1">
+            <p className="font-semibold">Impossible de charger les factures</p>
+            <p className="max-w-md text-sm text-muted-foreground">{error}</p>
+          </div>
+          <Button variant="outline" onClick={load} className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Réessayer
+          </Button>
+        </div>
+      </div>
     )
   }
 
-  // KPI summary
-  const totalPaid = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0)
-  const totalPending = invoices.filter((i) => i.status === "pending").reduce((s, i) => s + i.amount, 0)
-  const totalFailed = invoices.filter((i) => i.status === "failed").length
-  const nextDue = invoices.find((i) => i.status === "pending")
+  // ── Chargement ──
+  if (invoices === null) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-2xl border bg-card p-16 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Chargement des factures…
+      </div>
+    )
+  }
+
+  // ── Aucune facture ──
+  if (invoices.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-bold">Factures & Historique</h2>
+          <p className="text-sm text-muted-foreground">Consultez et téléchargez vos factures.</p>
+        </div>
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 py-16 text-center">
+          <FileText className="mb-3 h-10 w-10 text-muted-foreground/30" />
+          <p className="font-semibold text-muted-foreground">Aucune facture pour le moment</p>
+          <p className="mt-1 text-sm text-muted-foreground/70">
+            Vos factures apparaîtront ici dès votre première souscription.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const openCount = invoices.filter((i) => i.status === "open").length
+  const paidCount = invoices.filter((i) => i.status === "paid").length
 
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
-      <div>
-        <h2 className="text-xl font-bold">Factures & Historique</h2>
-        <p className="text-sm text-muted-foreground">Consultez, téléchargez et gérez vos factures.</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold">Factures & Historique</h2>
+          <p className="text-sm text-muted-foreground">Consultez et téléchargez vos factures.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={load} className="gap-1.5 self-start sm:self-auto">
+          <RefreshCw className="h-3.5 w-3.5" />
+          Actualiser
+        </Button>
       </div>
 
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* ── KPI mini ── */}
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Total payé", value: formatAmount(totalPaid), icon: TrendingUp, color: "text-success", bg: "bg-success/10" },
-          { label: "En attente", value: totalPending === 0 ? "Aucun" : formatAmount(totalPending), icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
-          { label: "Paiements échoués", value: `${totalFailed} facture${totalFailed > 1 ? "s" : ""}`, icon: TrendingDown, color: "text-destructive", bg: "bg-destructive/10" },
-          { label: "Prochaine échéance", value: nextDue ? formatDate(nextDue.dueAt) : "—", icon: Calendar, color: "text-primary", bg: "bg-primary/10" },
+          { label: "Total", value: invoices.length, icon: FileText, color: "text-primary", bg: "bg-primary/10" },
+          { label: "Payées", value: paidCount, icon: Check, color: "text-success", bg: "bg-success/10" },
+          { label: "À régler", value: openCount, icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
         ].map((kpi) => {
           const K = kpi.icon
           return (
@@ -227,7 +173,7 @@ export function BillingInvoices({ onTabChange }: BillingInvoicesProps) {
               <div className={cn("mb-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", kpi.bg)}>
                 <K className={cn("h-4 w-4", kpi.color)} />
               </div>
-              <p className="truncate text-base font-bold tabular-nums">{kpi.value}</p>
+              <p className="text-base font-bold tabular-nums">{kpi.value}</p>
               <p className="truncate text-xs text-muted-foreground">{kpi.label}</p>
             </div>
           )
@@ -239,19 +185,22 @@ export function BillingInvoices({ onTabChange }: BillingInvoicesProps) {
         <div className="relative min-w-50 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Rechercher par numéro, période…"
+            placeholder="Rechercher par numéro…"
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as InvoiceStatus | "all")}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-44">
             <Filter className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
             <SelectValue placeholder="Statut" />
           </SelectTrigger>
@@ -264,85 +213,89 @@ export function BillingInvoices({ onTabChange }: BillingInvoicesProps) {
         </Select>
       </div>
 
-      {/* ── Timeline factures ── */}
+      {/* ── Table ── */}
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 py-16 text-center">
           <FileText className="mb-3 h-10 w-10 text-muted-foreground/30" />
           <p className="font-semibold text-muted-foreground">Aucune facture trouvée</p>
           <p className="mt-1 text-sm text-muted-foreground/70">Modifiez vos filtres ou votre recherche.</p>
-          <Button variant="ghost" size="sm" className="mt-3 gap-2" onClick={() => { setSearch(""); setStatusFilter("all") }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-3 gap-2"
+            onClick={() => {
+              setSearch("")
+              setStatusFilter("all")
+            }}
+          >
             <X className="h-3.5 w-3.5" />
             Réinitialiser les filtres
           </Button>
         </div>
       ) : (
-        <div className="relative space-y-0 rounded-2xl border bg-card overflow-hidden">
-          {/* Table header */}
-          <div className="hidden grid-cols-[1fr_100px_120px_110px_110px_40px] items-center gap-4 border-b bg-muted/30 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:grid">
+        <div className="relative rounded-2xl border bg-card overflow-hidden">
+          <div className="hidden grid-cols-[1fr_120px_120px_110px_150px] items-center gap-4 border-b bg-muted/30 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:grid">
             <span>Facture</span>
+            <span>Date</span>
             <span>Montant</span>
             <span>Statut</span>
-            <span>Émise</span>
-            <span>Plan</span>
-            <span />
+            <span className="text-right">Documents</span>
           </div>
-          {filtered.map((inv, i) => {
+          {filtered.map((inv) => {
             const sCfg = STATUS_CONFIG[inv.status]
-            const SIcon = sCfg.icon
             return (
               <div
                 key={inv.id}
                 className={cn(
-                  "group grid cursor-pointer items-center gap-4 border-b border-border/50 px-5 py-4 text-sm transition-colors last:border-0 hover:bg-muted/30",
-                  "grid-cols-1 sm:grid-cols-[1fr_100px_120px_110px_110px_40px]"
+                  "grid items-center gap-4 border-b border-border/50 px-5 py-4 text-sm transition-colors last:border-0 hover:bg-muted/30",
+                  "grid-cols-1 sm:grid-cols-[1fr_120px_120px_110px_150px]"
                 )}
-                onClick={() => setSelectedInvoice(inv)}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40">
                     <FileText className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="min-w-0">
-                    <p className="font-semibold truncate">{inv.number}</p>
-                    <p className="text-xs text-muted-foreground">{inv.period}</p>
+                    <p className="font-semibold truncate">{inv.number || inv.stripe_invoice_id}</p>
+                    {inv.period_start && inv.period_end && (
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(inv.period_start)} → {formatDate(inv.period_end)}
+                      </p>
+                    )}
                   </div>
                 </div>
-                <span className="font-bold tabular-nums">{formatAmount(inv.amount)}</span>
+                <span className="text-muted-foreground text-xs">{formatDate(inv.created_at)}</span>
+                <span className="font-bold tabular-nums">{formatMoney(inv.amount_due, inv.currency)}</span>
                 <span className={cn("inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium", sCfg.color)}>
                   <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
                   {sCfg.label}
                 </span>
-                <span className="text-muted-foreground text-xs">{formatDate(inv.issuedAt)}</span>
-                <Badge variant="secondary" className="w-fit text-[11px]">{inv.planName}</Badge>
-                <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
+                <div className="flex items-center gap-1.5 sm:justify-end">
+                  {inv.invoice_pdf ? (
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" asChild>
+                      <a href={inv.invoice_pdf} target="_blank" rel="noopener noreferrer">
+                        <Download className="h-3.5 w-3.5" />
+                        PDF
+                      </a>
+                    </Button>
+                  ) : null}
+                  {inv.hosted_invoice_url ? (
+                    <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" asChild>
+                      <a href={inv.hosted_invoice_url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        {inv.status === "open" ? "Payer" : "Voir"}
+                      </a>
+                    </Button>
+                  ) : null}
+                  {!inv.invoice_pdf && !inv.hosted_invoice_url && (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </div>
               </div>
             )
           })}
         </div>
       )}
-
-      {/* ── Alerte paiements échoués ── */}
-      {invoices.some((i) => i.status === "failed") && (
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/8 p-4">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-destructive">Paiement(s) en échec</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Régularisez rapidement pour éviter la suspension de votre compte.
-            </p>
-          </div>
-          <Button size="sm" variant="destructive" onClick={() => setSelectedInvoice(invoices.find((i) => i.status === "failed") ?? null)}>
-            Voir
-          </Button>
-        </div>
-      )}
-
-      <InvoiceDetailModal
-        invoice={selectedInvoice}
-        onClose={() => setSelectedInvoice(null)}
-        onRetry={handleRetry}
-        onSupport={() => onTabChange("support")}
-      />
     </div>
   )
 }

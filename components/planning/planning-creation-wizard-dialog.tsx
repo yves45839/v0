@@ -134,7 +134,7 @@ function formatGmtOffset(minutes: number | null): string {
 }
 
 function buildTimezoneOptions(): TimezoneOption[] {
-  const supportedValuesOf = (Intl as Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
+  const supportedValuesOf = (Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
   const zones =
     typeof supportedValuesOf === "function" ? supportedValuesOf("timeZone") : FALLBACK_TIMEZONES
 

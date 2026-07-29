@@ -1,292 +1,482 @@
 "use client"
 
-import { useState, useMemo, useEffect, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { EmptyState } from "@/components/ui/empty-state"
 import { cn } from "@/lib/utils"
+import {
+  fetchCoreDevices,
+  fetchGatewayDevices,
+  fetchHikEvents,
+  formatGatewayErrorEntry,
+  isDeviceOnline,
+  type HikEvent,
+  type SurveillanceCoreDevice,
+  type SurveillanceGatewayDevice,
+} from "@/lib/api/surveillance"
 import {
   Activity,
   AlertTriangle,
-  Camera,
+  ArrowDownLeft,
+  ArrowUpRight,
   CheckCircle2,
-  ChevronRight,
   Clock,
-  DoorClosed,
-  DoorOpen,
-  Layers,
-  Lock,
-  Maximize2,
-  Mic,
-  MicOff,
-  Monitor,
-  MoreHorizontal,
-  Radio,
+  Cpu,
+  Inbox,
+  Loader2,
+  MonitorCheck,
+  Plug,
+  PlugZap,
   RefreshCw,
-  Shield,
-  ShieldAlert,
-  Unlock,
-  Users,
-  Volume2,
-  VolumeX,
+  ServerCrash,
   Wifi,
   WifiOff,
-  Zap,
-  Eye,
-  Video,
+  XCircle,
 } from "lucide-react"
-import {
-  CAMERAS,
-  DOORS,
-  FLOORS,
-  LIVE_EVENTS,
-  ZONE_OVERVIEW,
-  SURVEILLANCE_STATS,
-  type Camera as CameraType,
-  type Door as DoorType,
-  type FloorId,
-  type LiveEvent,
-} from "@/lib/mock-data/demo-surveillance"
+
+// ── Constantes ────────────────────────────────────────────────────────────────
+const EVENTS_POLL_INTERVAL_MS = 15_000
+const DEVICES_REFRESH_INTERVAL_MS = 60_000
+const INITIAL_EVENTS_LIMIT = 100
+const POLL_EVENTS_LIMIT = 100
+const MAX_FEED_EVENTS = 200
+const NEW_EVENT_PULSE_MS = 5_000
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function formatTime(iso: string) {
-  return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(iso))
+function formatTime(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return "—"
+  return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date)
 }
-function formatRelative(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const min = Math.floor(diff / 60000)
+
+function formatRelative(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return "—"
+  const diff = Date.now() - date.getTime()
+  if (diff < 0) return "à l'instant"
+  const min = Math.floor(diff / 60_000)
   if (min < 1) return "à l'instant"
-  if (min < 60) return `il y a ${min}min`
+  if (min < 60) return `il y a ${min} min`
   const h = Math.floor(min / 60)
-  if (h < 24) return `il y a ${h}h`
-  return `il y a ${Math.floor(h / 24)}j`
+  if (h < 24) return `il y a ${h} h`
+  return `il y a ${Math.floor(h / 24)} j`
 }
 
-const CAMERA_STATUS_CONFIG: Record<string, { label: string; color: string; dot: string; icon: React.ElementType }> = {
-  online:      { label: "En ligne",    color: "text-green-400",  dot: "bg-green-500",  icon: Wifi },
-  recording:   { label: "Enregistrement", color: "text-red-400", dot: "bg-red-500",    icon: Video },
-  offline:     { label: "Hors ligne",  color: "text-slate-400",  dot: "bg-slate-500",  icon: WifiOff },
-  alarm:       { label: "Alarme",      color: "text-red-500",    dot: "bg-red-500",    icon: ShieldAlert },
-  maintenance: { label: "Maintenance", color: "text-yellow-400", dot: "bg-yellow-500", icon: RefreshCw },
-}
-
-const DOOR_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: React.ElementType }> = {
-  locked:   { label: "Verrouillée", color: "text-green-400",  bg: "bg-green-500/10",  icon: Lock },
-  unlocked: { label: "Déverrouillée",color: "text-blue-400",  bg: "bg-blue-500/10",   icon: Unlock },
-  open:     { label: "Ouverte",     color: "text-yellow-400", bg: "bg-yellow-500/10", icon: DoorOpen },
-  forced:   { label: "Forcée",      color: "text-red-500",    bg: "bg-red-500/10",    icon: AlertTriangle },
-  alarm:    { label: "ALARME",      color: "text-red-500",    bg: "bg-red-500/15",    icon: ShieldAlert },
-  offline:  { label: "Hors ligne",  color: "text-slate-400",  bg: "bg-slate-500/10",  icon: WifiOff },
-}
-
-const EVENT_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  access_granted:  { label: "Accès accordé",  color: "text-green-400",  bg: "bg-green-500/10" },
-  access_denied:   { label: "Accès refusé",   color: "text-red-400",    bg: "bg-red-500/10" },
-  door_open:       { label: "Porte ouverte",  color: "text-blue-400",   bg: "bg-blue-500/10" },
-  door_forced:     { label: "Porte forcée",   color: "text-red-600",    bg: "bg-red-600/15" },
-  motion:          { label: "Mouvement",      color: "text-yellow-400", bg: "bg-yellow-500/10" },
-  camera_offline:  { label: "Caméra hors ligne",color:"text-slate-400", bg: "bg-slate-500/10" },
-  alarm:           { label: "ALARME",         color: "text-red-500",    bg: "bg-red-500/15" },
-}
-
-// ── Camera Tile ───────────────────────────────────────────────────────────────
-function CameraFeed({ camera, large = false }: { camera: CameraType; large?: boolean }) {
-  const cfg = CAMERA_STATUS_CONFIG[camera.status]
-  const CfgIcon = cfg.icon
-  const isAlarm = camera.status === "alarm"
-  const isOffline = camera.status === "offline"
-
+function isToday(iso: string): boolean {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return false
+  const now = new Date()
   return (
-    <div className={cn(
-      "group relative overflow-hidden rounded-xl border transition-all",
-      isAlarm ? "border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]" : "border-border/60 hover:border-border hover:shadow-md",
-      large ? "aspect-video" : "aspect-video"
-    )}>
-      {/* Simulated feed */}
-      <div
-        className={cn("absolute inset-0 transition-opacity", isOffline ? "opacity-30" : "opacity-100")}
-        style={{ background: isOffline ? "#111" : `radial-gradient(ellipse at 30% 40%, ${camera.thumbnailColor}88 0%, ${camera.thumbnailColor}22 60%, #111 100%)` }}
-      >
-        {isAlarm && (
-          <div className="absolute inset-0 animate-pulse border-2 border-red-500/50" />
-        )}
-        {camera.status === "recording" && (
-          <div className="absolute inset-0 flex items-start justify-end p-2">
-            <div className="flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-red-400">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
-              REC
-            </div>
-          </div>
-        )}
-        {!isOffline && (
-          <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/80 to-transparent p-2">
-            <p className="text-[10px] font-medium text-white">{camera.name}</p>
-            <p className="text-[9px] text-white/60">{camera.location}</p>
-          </div>
-        )}
-        {isOffline && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <WifiOff className="h-6 w-6 text-slate-500" />
-            <p className="text-[10px] text-slate-500">Signal perdu</p>
-          </div>
-        )}
-      </div>
-
-      {/* Status dot */}
-      <div className="absolute left-2 top-2 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5">
-        <span className={cn("h-1.5 w-1.5 rounded-full", isAlarm ? "animate-pulse" : "", cfg.dot)} />
-        <span className={cn("text-[9px] font-medium", cfg.color)}>{cfg.label}</span>
-      </div>
-
-      {/* Hover actions */}
-      <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-        <Button size="sm" variant="secondary" className="h-7 gap-1 text-xs backdrop-blur-sm">
-          <Maximize2 className="h-3 w-3" /> Plein écran
-        </Button>
-      </div>
-    </div>
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
   )
 }
 
-// ── Door Status Card ──────────────────────────────────────────────────────────
-function DoorCard({ door }: { door: DoorType }) {
-  const cfg = DOOR_STATUS_CONFIG[door.status]
-  const DoorIcon = cfg.icon
-  const isAlarm = door.status === "alarm" || door.status === "forced"
-
-  return (
-    <div className={cn(
-      "rounded-xl border p-3.5 transition-all",
-      isAlarm ? "border-red-500/40 bg-red-500/5 shadow-[0_0_12px_rgba(239,68,68,0.15)] animate-pulse" : "border-border/60 bg-card hover:border-border",
-    )}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", cfg.bg)}>
-            <DoorIcon className={cn("h-4 w-4", cfg.color)} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-foreground">{door.name}</p>
-            <p className="text-[10px] text-muted-foreground">{door.location}</p>
-          </div>
-        </div>
-        <Badge className={cn("text-[10px] shrink-0", cfg.bg, cfg.color)}>{cfg.label}</Badge>
-      </div>
-
-      {door.isEmergency && (
-        <Badge variant="outline" className="mt-2 text-[9px] border-orange-500/30 text-orange-400">Issue de secours</Badge>
-      )}
-
-      <div className="mt-2 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <Clock className="h-3 w-3" />
-          {door.lastEventUser ? `${door.lastEventType.replace("_", " ")} — ${door.lastEventUser}` : door.lastEventType.replace("_", " ")}
-          {" · "}{formatRelative(door.lastEventAt)}
-        </span>
-      </div>
-    </div>
-  )
+function eventTimestamp(event: HikEvent): string {
+  return event.timestamp || event.raw_event?.event_datetime || ""
 }
 
-// ── Zone Floor Plan ───────────────────────────────────────────────────────────
-function FloorPlan({ floorId }: { floorId: FloorId }) {
-  const zones = ZONE_OVERVIEW.filter(z => z.floor === floorId)
-  const cameras = CAMERAS.filter(c => c.floor === floorId)
-  const doors = DOORS.filter(d => d.floor === floorId)
+type EventTone = { label: string; color: string; bg: string; dot: string }
 
-  if (zones.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 py-16 text-center">
-        <Layers className="mb-3 h-10 w-10 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">Aucune zone sur ce niveau</p>
-      </div>
-    )
+const EVENT_TONES: Record<string, EventTone> = {
+  CHECK_IN: { label: "Entrée", color: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" },
+  CHECK_OUT: { label: "Sortie", color: "text-blue-400", bg: "bg-blue-500/10", dot: "bg-blue-500" },
+  BREAK_OUT: { label: "Départ pause", color: "text-amber-400", bg: "bg-amber-500/10", dot: "bg-amber-500" },
+  BREAK_IN: { label: "Retour pause", color: "text-amber-400", bg: "bg-amber-500/10", dot: "bg-amber-500" },
+  OVERTIME_IN: { label: "Heures supp. — entrée", color: "text-purple-400", bg: "bg-purple-500/10", dot: "bg-purple-500" },
+  OVERTIME_OUT: { label: "Heures supp. — sortie", color: "text-purple-400", bg: "bg-purple-500/10", dot: "bg-purple-500" },
+  ACCESS_DENIED: { label: "Accès refusé", color: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" },
+}
+
+function eventTone(event: HikEvent): EventTone {
+  const action = (event.normalized_action ?? "").trim().toUpperCase()
+  if (EVENT_TONES[action]) return EVENT_TONES[action]
+  const status = (event.access_status ?? "").trim().toLowerCase()
+  if (status === "granted") {
+    return { label: "Accès accordé", color: "text-green-400", bg: "bg-green-500/10", dot: "bg-green-500" }
+  }
+  if (status === "denied") {
+    return { label: "Accès refusé", color: "text-red-400", bg: "bg-red-500/10", dot: "bg-red-500" }
+  }
+  return { label: "Événement", color: "text-muted-foreground", bg: "bg-muted/40", dot: "bg-slate-500" }
+}
+
+function toEventId(event: HikEvent): number {
+  const parsed = Number(event.id)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function mergeEvents(existing: HikEvent[], incoming: HikEvent[]): HikEvent[] {
+  const byId = new Map<number, HikEvent>()
+  for (const event of existing) byId.set(toEventId(event), event)
+  for (const event of incoming) byId.set(toEventId(event), event)
+  return Array.from(byId.values())
+    .sort((a, b) => toEventId(b) - toEventId(a))
+    .slice(0, MAX_FEED_EVENTS)
+}
+
+function maxEventId(events: HikEvent[]): number | null {
+  if (events.length === 0) return null
+  return events.reduce((max, event) => Math.max(max, toEventId(event)), 0)
+}
+
+// ── Fusion coeur + passerelle ─────────────────────────────────────────────────
+type MergedDevice = {
+  key: string
+  coreId: number | null
+  name: string
+  serialNumber: string
+  devIndex: string
+  model: string
+  ipAddress: string
+  online: boolean
+  /** true = statut confirmé en direct par la passerelle, false = inventaire local. */
+  liveStatus: boolean
+  registered: boolean
+  lastEvent: HikEvent | null
+}
+
+function readString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return ""
+}
+
+function matchesDevice(event: HikEvent, device: { coreId: number | null; serialNumber: string; devIndex: string }): boolean {
+  const eventDevice = event.device
+  if (!eventDevice) return false
+  if (device.coreId != null && eventDevice.id === device.coreId) return true
+  if (device.serialNumber && eventDevice.serial_number === device.serialNumber) return true
+  if (device.devIndex && eventDevice.dev_index === device.devIndex) return true
+  return false
+}
+
+function mergeDevices(
+  core: SurveillanceCoreDevice[],
+  gateway: SurveillanceGatewayDevice[],
+  gatewayReachable: boolean,
+  events: HikEvent[],
+): MergedDevice[] {
+  const findGatewayMatch = (device: SurveillanceCoreDevice): SurveillanceGatewayDevice | undefined =>
+    gateway.find((entry) => {
+      const serial = readString(entry, ["serial_number", "serialNumber", "sn"])
+      const devIndex = readString(entry, ["dev_index", "devIndex"])
+      return (
+        (serial && device.serial_number && serial === device.serial_number) ||
+        (devIndex && device.dev_index && devIndex === device.dev_index)
+      )
+    })
+
+  const merged: MergedDevice[] = core.map((device) => {
+    const gwMatch = gatewayReachable ? findGatewayMatch(device) : undefined
+    const gwStatus = gwMatch ? readString(gwMatch, ["status", "device_status", "online_status"]) : ""
+    const status = gwStatus || String(device.status ?? "")
+    const base = {
+      coreId: device.id,
+      serialNumber: String(device.serial_number ?? ""),
+      devIndex: String(device.dev_index ?? ""),
+    }
+    return {
+      key: `core-${device.id}`,
+      ...base,
+      name:
+        String(device.name ?? "").trim() ||
+        (gwMatch ? readString(gwMatch, ["name", "device_name", "dev_name"]) : "") ||
+        base.serialNumber ||
+        `Appareil #${device.id}`,
+      model: String(device.model ?? "").trim() || (gwMatch ? readString(gwMatch, ["model", "device_type", "dev_type"]) : ""),
+      ipAddress: String(device.ip_address ?? "").trim() || (gwMatch ? readString(gwMatch, ["ip_address", "ip"]) : ""),
+      online: isDeviceOnline(status),
+      liveStatus: Boolean(gwMatch && gwStatus),
+      registered: true,
+      lastEvent: events.find((event) => matchesDevice(event, base)) ?? null,
+    }
+  })
+
+  // Appareils vus par la passerelle mais absents de l'inventaire local.
+  if (gatewayReachable) {
+    for (const entry of gateway) {
+      const serial = readString(entry, ["serial_number", "serialNumber", "sn"])
+      const devIndex = readString(entry, ["dev_index", "devIndex"])
+      const alreadyMerged = merged.some(
+        (device) =>
+          (serial && device.serialNumber === serial) || (devIndex && device.devIndex === devIndex),
+      )
+      if (alreadyMerged) continue
+      const base = { coreId: null, serialNumber: serial, devIndex }
+      merged.push({
+        key: `gw-${devIndex || serial || merged.length}`,
+        ...base,
+        name: readString(entry, ["name", "device_name", "dev_name"]) || serial || devIndex || "Appareil passerelle",
+        model: readString(entry, ["model", "device_type", "dev_type"]),
+        ipAddress: readString(entry, ["ip_address", "ip"]),
+        online: isDeviceOnline(readString(entry, ["status", "device_status", "online_status"])),
+        liveStatus: true,
+        registered: false,
+        lastEvent: events.find((event) => matchesDevice(event, base)) ?? null,
+      })
+    }
   }
 
+  // En ligne d'abord, puis par nom.
+  return merged.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1
+    return a.name.localeCompare(b.name, "fr")
+  })
+}
+
+// ── Carte appareil ────────────────────────────────────────────────────────────
+function DeviceCard({ device }: { device: MergedDevice }) {
+  const StatusIcon = device.online ? Wifi : WifiOff
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {zones.map(zone => {
-          const zCameras = cameras.filter(c => c.zoneId === zone.id)
-          const zDoors = doors.filter(d => d.zoneId === zone.id)
-          const alarmCams = zCameras.filter(c => c.status === "alarm").length
-          const alarmDoors = zDoors.filter(d => d.status === "alarm" || d.status === "forced").length
-          const hasAlarm = alarmCams > 0 || alarmDoors > 0 || zone.activeAlarms > 0
-          const occupancyPct = Math.round((zone.occupancy / zone.capacity) * 100)
+    <div
+      className={cn(
+        "rounded-xl border p-4 transition-all",
+        device.online ? "border-border/60 bg-card hover:border-border" : "border-red-500/25 bg-red-500/[0.03]",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <div
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+              device.online ? "bg-green-500/10" : "bg-red-500/10",
+            )}
+          >
+            <Cpu className={cn("h-4 w-4", device.online ? "text-green-400" : "text-red-400")} />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{device.name}</p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {device.serialNumber || device.devIndex || "—"}
+              {device.model ? ` · ${device.model}` : ""}
+            </p>
+          </div>
+        </div>
+        <Badge
+          className={cn(
+            "shrink-0 gap-1 text-[10px]",
+            device.online ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400",
+          )}
+        >
+          <StatusIcon className="h-3 w-3" />
+          {device.online ? "En ligne" : "Hors ligne"}
+        </Badge>
+      </div>
 
-          return (
-            <div key={zone.id} className={cn(
-              "rounded-xl border p-4 transition-all",
-              hasAlarm ? "border-red-500/40 bg-red-500/5" : "border-border/60 bg-card hover:border-border"
-            )}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: zone.color }} />
-                  <span className="text-sm font-semibold text-foreground">{zone.name}</span>
-                </div>
-                <Badge variant="outline" className="shrink-0 text-[10px]">Niveau {zone.securityLevel}</Badge>
-              </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {device.ipAddress && <span className="font-mono">{device.ipAddress}</span>}
+        <span
+          className={cn(
+            "rounded px-1.5 py-0.5 text-[10px]",
+            device.liveStatus ? "bg-green-500/10 text-green-400" : "bg-muted/50 text-muted-foreground",
+          )}
+        >
+          {device.liveStatus ? "Statut temps réel" : "Inventaire local"}
+        </span>
+        {!device.registered && (
+          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">Hors inventaire</span>
+        )}
+      </div>
 
-              {hasAlarm && (
-                <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-red-500/10 px-2.5 py-1.5 text-xs text-red-400">
-                  <ShieldAlert className="h-3.5 w-3.5" /> Alerte active
-                </div>
-              )}
-
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="rounded-lg bg-muted/40 p-1.5">
-                  <p className="font-bold text-foreground">{zone.occupancy}</p>
-                  <p className="text-[10px] text-muted-foreground">Personnes</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-1.5">
-                  <p className="font-bold text-foreground">{zCameras.length}</p>
-                  <p className="text-[10px] text-muted-foreground">Caméras</p>
-                </div>
-                <div className="rounded-lg bg-muted/40 p-1.5">
-                  <p className="font-bold text-foreground">{zDoors.length}</p>
-                  <p className="text-[10px] text-muted-foreground">Portes</p>
-                </div>
-              </div>
-
-              <div className="mt-3">
-                <div className="mb-1 flex justify-between text-[10px] text-muted-foreground">
-                  <span>Occupation</span>
-                  <span>{occupancyPct}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
-                  <div className={cn("h-full rounded-full transition-all", occupancyPct > 80 ? "bg-red-500" : occupancyPct > 60 ? "bg-yellow-500" : "bg-green-500")}
-                    style={{ width: `${occupancyPct}%` }} />
-                </div>
-              </div>
-            </div>
-          )
-        })}
+      <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Clock className="h-3 w-3 shrink-0" />
+        {device.lastEvent ? (
+          <span className="truncate">
+            {eventTone(device.lastEvent).label}
+            {device.lastEvent.employee_name ? ` — ${device.lastEvent.employee_name}` : ""}
+            {" · "}
+            {formatRelative(eventTimestamp(device.lastEvent))}
+          </span>
+        ) : (
+          <span>Aucune activité récente</span>
+        )}
       </div>
     </div>
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
-type SurveillanceTab = "site" | "cameras" | "doors" | "live"
+// ── Ligne du flux ─────────────────────────────────────────────────────────────
+function FeedRow({ event, isNew }: { event: HikEvent; isNew: boolean }) {
+  const tone = eventTone(event)
+  const direction = (event.direction ?? "").trim().toLowerCase()
+  const DirectionIcon = direction === "out" || direction === "sortie" ? ArrowUpRight : ArrowDownLeft
+  const showDirection = direction === "in" || direction === "out" || direction === "entrée" || direction === "sortie"
+  const deviceName = event.device?.device_name || event.device?.dev_index || event.device?.serial_number || "Appareil inconnu"
 
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 text-sm transition-colors",
+        isNew ? "bg-green-500/[0.06]" : "hover:bg-muted/20",
+      )}
+    >
+      <span className={cn("h-2 w-2 shrink-0 rounded-full", tone.dot, isNew && "animate-pulse")} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge className={cn("text-[10px]", tone.bg, tone.color)}>{tone.label}</Badge>
+          <span className="truncate text-xs text-foreground">
+            {event.employee_name || (event.person_id ? `ID ${event.person_id}` : "Personne inconnue")}
+          </span>
+          {showDirection && <DirectionIcon className="h-3 w-3 shrink-0 text-muted-foreground" />}
+        </div>
+        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="truncate">{deviceName}</span>
+          {event.department_name && <span className="truncate rounded bg-muted/50 px-1 text-[9px]">{event.department_name}</span>}
+        </div>
+      </div>
+      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTime(eventTimestamp(event))}</span>
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function SurveillancePage() {
-  const [tab, setTab] = useState<SurveillanceTab>("cameras")
-  const [selectedFloor, setSelectedFloor] = useState<FloorId>("rdc")
-  const [liveEvents, setLiveEvents] = useState(LIVE_EVENTS)
-  const [tick, setTick] = useState(0)
+  const [coreDevices, setCoreDevices] = useState<SurveillanceCoreDevice[]>([])
+  const [gatewayDevices, setGatewayDevices] = useState<SurveillanceGatewayDevice[]>([])
+  const [gatewayErrors, setGatewayErrors] = useState<unknown[]>([])
+  const [gatewayChecked, setGatewayChecked] = useState(false)
+  const [events, setEvents] = useState<HikEvent[]>([])
+  const [newEventIds, setNewEventIds] = useState<Set<number>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const [coreError, setCoreError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null)
 
-  // Simulate live feed progression
-  useEffect(() => {
-    const interval = setInterval(() => setTick(t => t + 1), 15000)
-    return () => clearInterval(interval)
+  const sinceIdRef = useRef<number | null>(null)
+  const pulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const gatewayReachable = gatewayChecked && gatewayErrors.length === 0
+
+  // ── Chargement appareils (coeur + passerelle en parallèle) ──
+  const loadDevices = useCallback(async () => {
+    const [coreResult, gatewayResult] = await Promise.allSettled([fetchCoreDevices(), fetchGatewayDevices()])
+
+    if (coreResult.status === "fulfilled") {
+      setCoreDevices(coreResult.value)
+      setCoreError(null)
+    } else {
+      // On garde les données précédentes si un rafraîchissement échoue :
+      // l'erreur devient bloquante uniquement si aucun appareil n'est connu.
+      setCoreError(
+        coreResult.reason instanceof Error ? coreResult.reason.message : "Impossible de charger les appareils.",
+      )
+    }
+
+    if (gatewayResult.status === "fulfilled") {
+      setGatewayDevices(gatewayResult.value.results)
+      setGatewayErrors(gatewayResult.value.errors)
+    } else {
+      // Passerelle injoignable = état de premier ordre, pas un crash.
+      setGatewayDevices([])
+      setGatewayErrors([
+        gatewayResult.reason instanceof Error ? gatewayResult.reason.message : "Passerelle injoignable.",
+      ])
+    }
+    setGatewayChecked(true)
+    setLastUpdatedAt(new Date().toISOString())
   }, [])
 
-  const filteredCameras = CAMERAS.filter(c => selectedFloor === "rdc" || c.floor === selectedFloor)
-  const filteredDoors   = DOORS.filter(d => selectedFloor === "rdc" || d.floor === selectedFloor)
+  // ── Flux d'événements : chargement initial puis curseur since_id ──
+  const loadInitialEvents = useCallback(async () => {
+    try {
+      const payload = await fetchHikEvents({ limit: INITIAL_EVENTS_LIMIT, autoCatchup: true })
+      const sorted = [...payload.results].sort((a, b) => toEventId(b) - toEventId(a))
+      sinceIdRef.current = maxEventId(sorted)
+      setEvents(sorted)
+    } catch {
+      // Le flux réessaie au prochain tick de polling ; les appareils restent affichés.
+    }
+  }, [])
 
-  const alarmCount = CAMERAS.filter(c => c.status === "alarm").length + DOORS.filter(d => d.status === "alarm").length
+  const pollEvents = useCallback(async () => {
+    const sinceId = sinceIdRef.current
+    if (sinceId == null) {
+      await loadInitialEvents()
+      return
+    }
+    try {
+      const payload = await fetchHikEvents({ sinceId, limit: POLL_EVENTS_LIMIT, autoCatchup: true })
+      if (payload.results.length === 0) return
+
+      const incomingIds = payload.results.map(toEventId)
+      setEvents((existing) => {
+        const merged = mergeEvents(existing, payload.results)
+        sinceIdRef.current = maxEventId(merged)
+        return merged
+      })
+      // Pulsation visuelle sur les nouvelles lignes.
+      setNewEventIds(new Set(incomingIds))
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+      pulseTimeoutRef.current = setTimeout(() => setNewEventIds(new Set()), NEW_EVENT_PULSE_MS)
+    } catch {
+      // Erreur transitoire : on conserve le dernier état connu.
+    }
+  }, [loadInitialEvents])
+
+  // Chargement initial.
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([loadDevices(), loadInitialEvents()]).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [loadDevices, loadInitialEvents])
+
+  // Polling temps réel : flux toutes les 15 s, appareils toutes les 60 s.
+  useEffect(() => {
+    const eventsInterval = setInterval(() => void pollEvents(), EVENTS_POLL_INTERVAL_MS)
+    const devicesInterval = setInterval(() => void loadDevices(), DEVICES_REFRESH_INTERVAL_MS)
+    return () => {
+      clearInterval(eventsInterval)
+      clearInterval(devicesInterval)
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+    }
+  }, [pollEvents, loadDevices])
+
+  const handleManualRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await Promise.all([loadDevices(), pollEvents()])
+    } finally {
+      setRefreshing(false)
+    }
+  }, [loadDevices, pollEvents])
+
+  // ── Dérivés ──
+  const mergedDevices = useMemo(
+    () => mergeDevices(coreDevices, gatewayDevices, gatewayReachable, events),
+    [coreDevices, gatewayDevices, gatewayReachable, events],
+  )
+  const onlineCount = mergedDevices.filter((device) => device.online).length
+  const offlineCount = mergedDevices.length - onlineCount
+  const eventsToday = useMemo(() => events.filter((event) => isToday(eventTimestamp(event))).length, [events])
+  const gatewayErrorDetail = gatewayErrors.length > 0 ? formatGatewayErrorEntry(gatewayErrors[0]) : ""
+
+  const kpis = [
+    { label: "Appareils", value: String(mergedDevices.length), color: "text-foreground", bg: "bg-blue-500/10", iconColor: "text-blue-400", icon: Cpu },
+    { label: "En ligne", value: String(onlineCount), color: "text-green-400", bg: "bg-green-500/10", iconColor: "text-green-400", icon: Wifi },
+    { label: "Hors ligne", value: String(offlineCount), color: offlineCount > 0 ? "text-red-400" : "text-foreground", bg: "bg-red-500/10", iconColor: "text-red-400", icon: WifiOff },
+    { label: "Événements aujourd'hui", value: String(eventsToday), color: "text-foreground", bg: "bg-purple-500/10", iconColor: "text-purple-400", icon: Activity },
+    {
+      label: "Passerelle Hikvision",
+      value: !gatewayChecked ? "…" : gatewayReachable ? "OK" : "Injoignable",
+      color: !gatewayChecked ? "text-muted-foreground" : gatewayReachable ? "text-green-400" : "text-red-400",
+      bg: gatewayReachable ? "bg-green-500/10" : "bg-red-500/10",
+      iconColor: gatewayReachable ? "text-green-400" : "text-red-400",
+      icon: gatewayReachable ? PlugZap : Plug,
+    },
+  ]
+
+  const showFatalError = !loading && coreError !== null && coreDevices.length === 0
 
   return (
     <div className="app-shell">
@@ -294,190 +484,164 @@ export default function SurveillancePage() {
       <div className="app-shell-content">
         <Header />
         <main className="app-page">
-
-          {/* Header */}
+          {/* En-tête */}
           <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/15">
-                <Monitor className="h-5 w-5 text-blue-500" />
-                {alarmCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">{alarmCount}</span>
-                )}
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/15">
+                <MonitorCheck className="h-5 w-5 text-blue-500" />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground">Surveillance Live</h1>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">Supervision temps réel</h1>
                 <p className="text-sm text-muted-foreground">
-                  {SURVEILLANCE_STATS.camerasOnline + SURVEILLANCE_STATS.camerasAlarm} caméras actives · {SURVEILLANCE_STATS.totalOccupancy} personnes sur site
+                  État des appareils d&apos;accès et flux d&apos;événements en direct
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex h-7 items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/10 px-2.5 text-xs text-green-400">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                Flux actif
+                Actualisation toutes les 15 s
               </div>
-              <Button variant="outline" size="sm">
-                <RefreshCw className="mr-2 h-3.5 w-3.5" /> Synchroniser
+              <Button variant="outline" size="sm" onClick={() => void handleManualRefresh()} disabled={refreshing || loading}>
+                <RefreshCw className={cn("mr-2 h-3.5 w-3.5", refreshing && "animate-spin")} /> Actualiser
               </Button>
             </div>
           </div>
 
-          {/* Alarm banner */}
-          {alarmCount > 0 && (
-            <div className="mb-5 flex items-center gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3">
-              <ShieldAlert className="h-5 w-5 shrink-0 text-red-500 animate-pulse" />
-              <p className="text-sm font-semibold text-red-400">
-                ALERTE — {alarmCount} équipement{alarmCount > 1 ? "s" : ""} en état d'alarme — intervention requise
-              </p>
+          {/* État de chargement initial */}
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border/60 bg-card py-24">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Chargement de la supervision…</p>
             </div>
-          )}
-
-          {/* KPI strip */}
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
-            {[
-              { label: "Caméras actives",  value: SURVEILLANCE_STATS.camerasOnline + SURVEILLANCE_STATS.camerasAlarm, color: "text-green-400",  bg: "bg-green-500/10",  icon: Camera },
-              { label: "Hors ligne",       value: SURVEILLANCE_STATS.camerasOffline,  color: "text-slate-400",  bg: "bg-slate-500/10",  icon: WifiOff },
-              { label: "En alarme",        value: SURVEILLANCE_STATS.camerasAlarm,    color: "text-red-500",    bg: "bg-red-500/10",    icon: ShieldAlert },
-              { label: "Portes verrouillées",value: SURVEILLANCE_STATS.doorsLocked,  color: "text-green-400",  bg: "bg-green-500/10",  icon: Lock },
-              { label: "Portes ouvertes",  value: SURVEILLANCE_STATS.doorsOpen,       color: "text-blue-400",   bg: "bg-blue-500/10",   icon: DoorOpen },
-              { label: "Alertes portes",   value: SURVEILLANCE_STATS.doorsAlarm,      color: "text-red-500",    bg: "bg-red-500/10",    icon: AlertTriangle },
-              { label: "Personnes sur site",value: SURVEILLANCE_STATS.totalOccupancy, color: "text-purple-400", bg: "bg-purple-500/10", icon: Users },
-            ].map(({ label, value, color, bg, icon: Icon }) => (
-              <div key={label} className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card p-3">
-                <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", bg)}>
-                  <Icon className={cn("h-3.5 w-3.5", color)} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-lg font-bold text-foreground">{value}</p>
-                  <p className="line-clamp-2 text-[10px] leading-tight text-muted-foreground">{label}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Tabs */}
-          <Tabs value={tab} onValueChange={v => setTab(v as SurveillanceTab)}>
-            <div className="mb-5 flex flex-wrap items-center gap-3">
-              <TabsList className="flex-1 grid grid-cols-4 gap-1 bg-muted/30 p-1 min-w-0">
-                <TabsTrigger value="site"    className="gap-1.5 text-xs sm:text-sm"><Layers  className="h-3.5 w-3.5" /><span>Plan du site</span></TabsTrigger>
-                <TabsTrigger value="cameras" className="gap-1.5 text-xs sm:text-sm"><Camera  className="h-3.5 w-3.5" /><span>Caméras</span><Badge className="ml-1 bg-muted text-[9px] px-1 rounded">{CAMERAS.length}</Badge></TabsTrigger>
-                <TabsTrigger value="doors"   className="gap-1.5 text-xs sm:text-sm"><Lock    className="h-3.5 w-3.5" /><span>Portes</span><Badge className="ml-1 bg-muted text-[9px] px-1 rounded">{DOORS.length}</Badge></TabsTrigger>
-                <TabsTrigger value="live"    className="gap-1.5 text-xs sm:text-sm"><Activity className="h-3.5 w-3.5" /><span>Événements</span></TabsTrigger>
-              </TabsList>
-
-              {tab !== "live" && (
-                <Select value={selectedFloor} onValueChange={v => setSelectedFloor(v as FloorId)}>
-                  <SelectTrigger className="w-44 shrink-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="rdc">Tous les niveaux</SelectItem>
-                    {FLOORS.map(f => <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            {/* ── Site plan tab ── */}
-            <TabsContent value="site">
-              <div className="space-y-6">
-                {FLOORS.map(floor => {
-                  const hasZones = ZONE_OVERVIEW.some(z => z.floor === floor.id)
-                  if (!hasZones) return null
-                  return (
-                    <div key={floor.id}>
-                      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <span className="rounded-md bg-primary/15 px-2 py-0.5 text-xs text-primary">{floor.shortLabel}</span>
-                        {floor.label}
-                      </h3>
-                      <FloorPlan floorId={floor.id} />
-                    </div>
-                  )
-                })}
-              </div>
-            </TabsContent>
-
-            {/* ── Cameras tab ── */}
-            <TabsContent value="cameras">
-              {/* Alarm cameras first */}
-              {CAMERAS.filter(c => c.status === "alarm" && (selectedFloor === "rdc" || c.floor === selectedFloor)).length > 0 && (
-                <div className="mb-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-red-400 flex items-center gap-1.5">
-                    <ShieldAlert className="h-3.5 w-3.5" /> Caméras en alarme
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {CAMERAS.filter(c => c.status === "alarm" && (selectedFloor === "rdc" || c.floor === selectedFloor)).map(c => (
-                      <CameraFeed key={c.id} camera={c} large />
-                    ))}
+          ) : showFatalError ? (
+            <EmptyState
+              icon={ServerCrash}
+              title="Impossible de charger la supervision"
+              description={coreError ?? "Une erreur est survenue lors du chargement des appareils."}
+              action={{ label: "Réessayer", icon: RefreshCw, onClick: () => void handleManualRefresh() }}
+            />
+          ) : (
+            <>
+              {/* Bannière passerelle injoignable */}
+              {gatewayChecked && !gatewayReachable && (
+                <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-red-400">Passerelle Hikvision injoignable</p>
+                    <p className="mt-0.5 text-xs text-red-400/80">
+                      Les statuts affichés proviennent de l&apos;inventaire local et peuvent ne pas refléter l&apos;état réel des
+                      appareils.
+                      {gatewayErrorDetail ? ` Détail : ${gatewayErrorDetail}` : ""}
+                    </p>
                   </div>
                 </div>
               )}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {filteredCameras.filter(c => c.status !== "alarm").map(c => (
-                  <CameraFeed key={c.id} camera={c} />
+
+              {/* Erreur de rafraîchissement non bloquante */}
+              {coreError && coreDevices.length > 0 && (
+                <div className="mb-5 flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                  <p className="text-xs text-amber-400">
+                    Le dernier rafraîchissement des appareils a échoué — affichage des dernières données connues.
+                  </p>
+                </div>
+              )}
+
+              {/* KPIs */}
+              <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+                {kpis.map(({ label, value, color, bg, iconColor, icon: Icon }) => (
+                  <div key={label} className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card p-3">
+                    <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", bg)}>
+                      <Icon className={cn("h-3.5 w-3.5", iconColor)} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className={cn("truncate text-lg font-bold", color)}>{value}</p>
+                      <p className="line-clamp-2 text-[10px] leading-tight text-muted-foreground">{label}</p>
+                    </div>
+                  </div>
                 ))}
               </div>
-            </TabsContent>
 
-            {/* ── Doors tab ── */}
-            <TabsContent value="doors">
-              {/* Alarm doors */}
-              {filteredDoors.filter(d => d.status === "alarm" || d.status === "forced").length > 0 && (
-                <div className="mb-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-red-400 flex items-center gap-1.5">
-                    <ShieldAlert className="h-3.5 w-3.5" /> Portes en alerte
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {filteredDoors.filter(d => d.status === "alarm" || d.status === "forced").map(d => <DoorCard key={d.id} door={d} />)}
+              {/* Grille appareils + flux */}
+              <div className="grid gap-5 lg:grid-cols-3">
+                {/* Appareils */}
+                <div className="lg:col-span-2">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <Cpu className="h-4 w-4 text-primary" />
+                      Appareils d&apos;accès
+                      <Badge className="bg-muted px-1.5 text-[10px] text-muted-foreground">{mergedDevices.length}</Badge>
+                    </h2>
+                    {lastUpdatedAt && (
+                      <span className="text-[11px] text-muted-foreground">Mis à jour à {formatTime(lastUpdatedAt)}</span>
+                    )}
                   </div>
-                  <div className="my-4 border-t border-border/40" />
-                </div>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredDoors.filter(d => d.status !== "alarm" && d.status !== "forced").map(d => <DoorCard key={d.id} door={d} />)}
-              </div>
-            </TabsContent>
 
-            {/* ── Live events tab ── */}
-            <TabsContent value="live">
-              <div className="rounded-xl border border-border/60 bg-card">
-                <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <Activity className="h-4 w-4 text-primary" />
-                    Événements en temps réel
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-green-400">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                    Actif
-                  </div>
+                  {mergedDevices.length === 0 ? (
+                    <EmptyState
+                      icon={Cpu}
+                      title="Aucun appareil"
+                      description="Aucun appareil d'accès n'est enregistré sur ce tenant. Ajoutez un lecteur pour démarrer la supervision."
+                      action={{ label: "Gérer les appareils", href: "/devices" }}
+                    />
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {mergedDevices.map((device) => (
+                        <DeviceCard key={device.key} device={device} />
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                <div className="divide-y divide-border/40">
-                  {liveEvents.map(ev => {
-                    const cfg = EVENT_CONFIG[ev.type] ?? EVENT_CONFIG.access_granted
-                    const floor = FLOORS.find(f => f.id === ev.floor)
-                    return (
-                      <div key={ev.id} className={cn("flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/20", ev.severity === "critical" && "bg-red-500/5")}>
-                        <div className={cn("h-2 w-2 shrink-0 rounded-full", ev.severity === "critical" ? "bg-red-500 animate-pulse" : ev.severity === "warning" ? "bg-yellow-500" : "bg-green-500")} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge className={cn("text-[10px]", cfg.bg, cfg.color)}>{cfg.label}</Badge>
-                            <span className="text-xs text-foreground">{ev.entityName}</span>
-                            {ev.person && <span className="text-xs text-muted-foreground">— {ev.person}</span>}
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-3 text-[11px] text-muted-foreground">
-                            <span>{ev.location}</span>
-                            {floor && <span className="rounded bg-muted/50 px-1 text-[9px]">{floor.shortLabel}</span>}
-                          </div>
-                        </div>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">{formatRelative(ev.createdAt)}</span>
+                {/* Flux temps réel */}
+                <div className="lg:col-span-1">
+                  <div className="rounded-xl border border-border/60 bg-card">
+                    <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Activity className="h-4 w-4 text-primary" />
+                        Flux d&apos;événements
                       </div>
-                    )
-                  })}
+                      <div className="flex items-center gap-1.5 text-[11px] text-green-400">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                        En direct
+                      </div>
+                    </div>
+
+                    {events.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
+                        <Inbox className="h-8 w-8 text-muted-foreground/40" />
+                        <p className="text-sm text-muted-foreground">Aucun événement reçu pour le moment</p>
+                        <p className="text-xs text-muted-foreground/70">
+                          Le flux se met à jour automatiquement toutes les 15 secondes.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="max-h-[38rem] divide-y divide-border/40 overflow-y-auto">
+                        {events.map((event) => (
+                          <FeedRow key={event.id} event={event} isNew={newEventIds.has(toEventId(event))} />
+                        ))}
+                      </div>
+                    )}
+
+                    {events.length > 0 && (
+                      <div className="flex items-center justify-between border-t border-border/60 px-4 py-2 text-[11px] text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3 text-green-400" />
+                          {events.filter((event) => eventTone(event).label !== "Accès refusé").length} accordés
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <XCircle className="h-3 w-3 text-red-400" />
+                          {events.filter((event) => eventTone(event).label === "Accès refusé").length} refusés
+                        </span>
+                        <span>{events.length} affichés</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
+            </>
+          )}
         </main>
       </div>
     </div>

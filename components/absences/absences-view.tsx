@@ -71,13 +71,44 @@ function mapLeaveType(type: LeaveRequestType): LeaveTypeCardKind {
   return "paid"
 }
 
-function mapLeaveToCard(row: LeaveRequestApiItem, employeeById: Map<number, EmployeeApiItem>): AbsenceRequest {
-  const employee = employeeById.get(row.employee)
-  const name = employee?.name?.trim() || `#${row.employee}`
+function requestDays(row: Pick<LeaveRequestApiItem, "start_date" | "end_date">): number {
   const startMs = Date.parse(`${row.start_date}T00:00:00`)
   const endMs = Date.parse(`${row.end_date}T00:00:00`)
   const dayDiffMs = endMs - startMs
-  const days = Number.isFinite(dayDiffMs) ? Math.max(1, Math.floor(dayDiffMs / 86_400_000) + 1) : 1
+  return Number.isFinite(dayDiffMs) ? Math.max(1, Math.floor(dayDiffMs / 86_400_000) + 1) : 1
+}
+
+function mapLeaveToCard(
+  row: LeaveRequestApiItem,
+  employeeById: Map<number, EmployeeApiItem>,
+  allRows: LeaveRequestApiItem[]
+): AbsenceRequest {
+  const employee = employeeById.get(row.employee)
+  const name = employee?.name?.trim() || `#${row.employee}`
+  const days = requestDays(row)
+
+  // Conflit réel : chevauchement avec une autre demande active (en attente ou validée).
+  const conflict = allRows.some(
+    (other) =>
+      other.id !== row.id &&
+      (other.status === "pending" || other.status === "approved") &&
+      other.start_date <= row.end_date &&
+      other.end_date >= row.start_date
+  )
+
+  // Solde utilisé : jours de congés payés déjà validés cette année pour cet employé.
+  const currentYear = new Date().getFullYear()
+  const balanceUsed = allRows
+    .filter(
+      (other) =>
+        other.id !== row.id &&
+        other.employee === row.employee &&
+        other.status === "approved" &&
+        other.leave_type === "paid" &&
+        new Date(`${other.start_date}T00:00:00`).getFullYear() === currentYear
+    )
+    .reduce((acc, other) => acc + requestDays(other), 0)
+
   return {
     id: row.id,
     name,
@@ -91,8 +122,8 @@ function mapLeaveToCard(row: LeaveRequestApiItem, employeeById: Map<number, Empl
     requestedEn: relativeTime(row.created_at, "en"),
     reasonFr: row.reason || "",
     reasonEn: row.reason || "",
-    conflict: false,
-    balanceUsed: 0,
+    conflict,
+    balanceUsed,
     balanceTotal: 25,
   }
 }
@@ -121,8 +152,8 @@ export function AbsencesView() {
   }, [rows, tab])
 
   const visibleRequests = useMemo(
-    () => filteredRows.map((row) => mapLeaveToCard(row, employeeById)),
-    [filteredRows, employeeById]
+    () => filteredRows.map((row) => mapLeaveToCard(row, employeeById, rows)),
+    [filteredRows, employeeById, rows]
   )
 
   const counts = useMemo(() => {
@@ -366,7 +397,7 @@ export function AbsencesView() {
             ))
           )}
         </div>
-        <TeamAvailability />
+        <TeamAvailability requests={rows} loading={loading} />
       </div>
     </div>
   )

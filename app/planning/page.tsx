@@ -1297,22 +1297,6 @@ export default function PlanningPage() {
   }, [])
 
   const loadBaseData = useCallback(async () => {
-    // Mode API stricte : si l'API n'est pas configurée → erreur explicite
-    // (les données démo ont été retirées intentionnellement, branchement Django uniquement).
-    if (!isEmployeeApiEnabled()) {
-      raiseError(
-        "API_NOT_CONFIGURED",
-        "L'API Django n'est pas configurée. Vérifiez NEXT_PUBLIC_EMPLOYEE_API_BASE et NEXT_PUBLIC_EMPLOYEE_API_TENANT_CODE."
-      )
-      setEmployees([])
-      setDepartments([])
-      setWorkShifts([])
-      setPlannings([])
-      setTenantId(null)
-      setDepartmentsById(new Map())
-      setLoading(false)
-      return null
-    }
 
     setLoading(true)
     setError(null)
