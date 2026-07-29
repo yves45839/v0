@@ -65,7 +65,12 @@ export default function LoginPage() {
       toast.success(tr.loginSuccess)
       router.replace(nextPath)
     } catch (err) {
-      const detail = err instanceof Error ? err.message : tr.loginError
+      const detail =
+        err instanceof Error && err.message === "EMPLOYEE_ONLY_ACCOUNT"
+          ? tr.employeeOnlyAccount
+          : err instanceof Error
+            ? err.message
+            : tr.loginError
       setError(detail)
       setFailCount((n) => n + 1)
       toast.error(tr.loginFailed)
