@@ -6,6 +6,7 @@ import { useTheme } from "next-themes"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { useI18n } from "@/lib/i18n/context"
+import { getActiveTenantCode } from "@/lib/api/auth"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 // Card components available but replaced with custom premium panels
@@ -120,7 +121,7 @@ type PendingSensitiveAction =
   | { kind: "assignment"; assignment: Assignment; label: string }
 
 export default function SettingsPage() {
-  const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
+  const tenantCode = getActiveTenantCode()
   const searchParams = useSearchParams()
   const { locale, setLocale, t } = useI18n()
   const tt = t.settingsPage

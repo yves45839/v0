@@ -1,4 +1,4 @@
-import { fetchEmployeeApiToken } from "@/lib/api/employees"
+import { apiFetch, apiJson, toApiError } from "@/lib/api/client"
 import { getActiveTenantCode } from "@/lib/api/auth"
 
 export type AttendanceReportPeriod = "daily" | "weekly" | "monthly"
@@ -155,11 +155,8 @@ type UpsertAttendanceCorrectionPayload = {
   notes?: string
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-const HIK_EVENTS_TENANT = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? ""
-
 function buildAttendanceReportSearchParams(params: FetchAttendanceReportParams = {}): URLSearchParams {
-  const defaultTenantCode = getActiveTenantCode(HIK_EVENTS_TENANT)
+  const defaultTenantCode = getActiveTenantCode()
   const search = new URLSearchParams()
   search.set("period", params.period ?? "weekly")
   if (params.date) search.set("date", params.date)
@@ -177,22 +174,6 @@ function buildAttendanceReportSearchParams(params: FetchAttendanceReportParams =
   const tenantCode = params.tenant ?? defaultTenantCode
   if (tenantCode) search.set("tenant", tenantCode)
   return search
-}
-
-async function buildAuthHeaders(extraHeaders: Record<string, string> = {}): Promise<Record<string, string>> {
-  let accessToken: string | null = null
-  try {
-    const tokens = await fetchEmployeeApiToken()
-    accessToken = tokens.access
-  } catch {
-    accessToken = null
-  }
-
-  const headers: Record<string, string> = { ...extraHeaders }
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`
-  }
-  return headers
 }
 
 function extractFilenameFromContentDisposition(headerValue: string | null, fallback: string): string {
@@ -214,20 +195,7 @@ export async function fetchAttendanceReport(
   params: FetchAttendanceReportParams = {}
 ): Promise<AttendanceReportResponse> {
   const search = buildAttendanceReportSearchParams(params)
-  const headers = await buildAuthHeaders()
-
-  const response = await fetch(`${API_BASE_URL}/api/hikgateway/reports/attendance/?${search.toString()}`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Attendance report API error (${response.status}): ${body}`)
-  }
-
-  return response.json()
+  return apiJson<AttendanceReportResponse>(`/api/hikgateway/reports/attendance/?${search.toString()}`)
 }
 
 export async function downloadAttendanceReport(
@@ -237,16 +205,12 @@ export async function downloadAttendanceReport(
   const search = buildAttendanceReportSearchParams(params)
   search.set("export", format)
 
-  const headers = await buildAuthHeaders()
-  const response = await fetch(`${API_BASE_URL}/api/hikgateway/reports/attendance/?${search.toString()}`, {
+  const response = await apiFetch(`/api/hikgateway/reports/attendance/?${search.toString()}`, {
     method: "GET",
-    headers,
-    cache: "no-store",
   })
 
   if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Attendance report export error (${response.status}): ${body}`)
+    throw await toApiError(response)
   }
 
   const blob = await response.blob()
@@ -262,7 +226,7 @@ export async function downloadAttendanceReport(
 export async function fetchAttendanceCorrections(
   params: FetchAttendanceCorrectionsParams
 ): Promise<AttendanceCorrectionItem[]> {
-  const tenantCode = params.tenant ?? getActiveTenantCode(HIK_EVENTS_TENANT)
+  const tenantCode = params.tenant ?? getActiveTenantCode()
   if (!tenantCode) {
     throw new Error("Le tenant est requis pour lire les corrections de pointage.")
   }
@@ -277,19 +241,9 @@ export async function fetchAttendanceCorrections(
     if (params.endDate) search.set("end_date", params.endDate)
   }
 
-  const headers = await buildAuthHeaders()
-
-  const response = await fetch(`${API_BASE_URL}/api/hikgateway/attendance-corrections/?${search.toString()}`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  })
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Attendance corrections API error (${response.status}): ${body}`)
-  }
-
-  const payload = (await response.json()) as { results?: AttendanceCorrectionItem[] } | AttendanceCorrectionItem[]
+  const payload = await apiJson<{ results?: AttendanceCorrectionItem[] } | AttendanceCorrectionItem[]>(
+    `/api/hikgateway/attendance-corrections/?${search.toString()}`
+  )
   if (Array.isArray(payload)) return payload
   return payload.results ?? []
 }
@@ -297,45 +251,38 @@ export async function fetchAttendanceCorrections(
 export async function upsertAttendanceCorrection(
   payload: UpsertAttendanceCorrectionPayload
 ): Promise<AttendanceCorrectionItem> {
-  const tenantCode = payload.tenant ?? getActiveTenantCode(HIK_EVENTS_TENANT)
+  const tenantCode = payload.tenant ?? getActiveTenantCode()
   if (!tenantCode) {
     throw new Error("Le tenant est requis pour enregistrer une correction de pointage.")
   }
 
-  const headers = await buildAuthHeaders({
-    "Content-Type": "application/json",
-  })
+  const resultPayload = await apiJson<{ result?: AttendanceCorrectionItem } | AttendanceCorrectionItem>(
+    "/api/hikgateway/attendance-corrections/",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        tenant: tenantCode,
+        person_id: payload.personId,
+        date: payload.date,
+        ...(payload.arrivalTime !== undefined ? { arrival_time: payload.arrivalTime } : {}),
+        ...(payload.departureTime !== undefined ? { departure_time: payload.departureTime } : {}),
+        ...(payload.breakStartTime !== undefined ? { break_start_time: payload.breakStartTime } : {}),
+        ...(payload.breakEndTime !== undefined ? { break_end_time: payload.breakEndTime } : {}),
+        ...(payload.overtimeHours !== undefined
+          ? {
+              overtime_hours:
+                payload.overtimeHours === null || `${payload.overtimeHours}`.trim() === ""
+                  ? null
+                  : Number(payload.overtimeHours),
+            }
+          : {}),
+        ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
+      }),
+    }
+  )
 
-  const response = await fetch(`${API_BASE_URL}/api/hikgateway/attendance-corrections/`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      tenant: tenantCode,
-      person_id: payload.personId,
-      date: payload.date,
-      ...(payload.arrivalTime !== undefined ? { arrival_time: payload.arrivalTime } : {}),
-      ...(payload.departureTime !== undefined ? { departure_time: payload.departureTime } : {}),
-      ...(payload.breakStartTime !== undefined ? { break_start_time: payload.breakStartTime } : {}),
-      ...(payload.breakEndTime !== undefined ? { break_end_time: payload.breakEndTime } : {}),
-      ...(payload.overtimeHours !== undefined
-        ? {
-            overtime_hours:
-              payload.overtimeHours === null || `${payload.overtimeHours}`.trim() === ""
-                ? null
-                : Number(payload.overtimeHours),
-          }
-        : {}),
-      ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
-    }),
-    cache: "no-store",
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Attendance correction save error (${response.status}): ${body}`)
+  if (resultPayload && typeof resultPayload === "object" && "result" in resultPayload && resultPayload.result) {
+    return resultPayload.result
   }
-
-  const resultPayload = (await response.json()) as { result?: AttendanceCorrectionItem } | AttendanceCorrectionItem
-  if ("result" in resultPayload && resultPayload.result) return resultPayload.result
   return resultPayload as AttendanceCorrectionItem
 }

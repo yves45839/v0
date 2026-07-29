@@ -1,6 +1,5 @@
-import { fetchEmployeeApiToken } from "@/lib/api/employees"
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
+import { apiDelete, apiJson } from "@/lib/api/client"
+import { getActiveTenantCode } from "@/lib/api/auth"
 
 export type TenantItem = {
   id: number
@@ -135,36 +134,15 @@ export type PlanningPayload = {
 }
 
 function withTenantQuery(path: string, tenantCode?: string): string {
-  if (!tenantCode) return path
+  const resolved = tenantCode ?? getActiveTenantCode()
+  if (!resolved) return path
   const search = new URLSearchParams()
-  search.set("tenant", tenantCode)
-  return `${path}?${search.toString()}`
+  search.set("tenant", resolved)
+  return `${path}${path.includes("?") ? "&" : "?"}${search.toString()}`
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const tokens = await fetchEmployeeApiToken()
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${tokens.access}`,
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`API error (${response.status}) on ${path}: ${body}`)
-  }
-  if (response.status === 204) {
-    return null as T
-  }
-  return response.json()
-}
-
-async function apiDelete(path: string): Promise<void> {
-  await apiRequest<null>(path, { method: "DELETE" })
+  return apiJson<T>(path, init)
 }
 
 export async function fetchTenants(): Promise<TenantItem[]> {

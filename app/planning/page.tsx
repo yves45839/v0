@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-// NOTE : import des données démo retiré (API Django stricte). Le fichier
-// `@/lib/mock-data/demo-employees` reste utilisable par d'autres pages.
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import {
@@ -49,6 +47,7 @@ import {
   updatePlanning,
   updateWorkShift,
 } from "@/lib/api/employees"
+import { getActiveTenantCode } from "@/lib/api/auth"
 import {
   CalendarClock,
   CalendarDays,
@@ -67,14 +66,9 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-const EMPLOYEE_TENANT_CODE = (() => {
-  const code = process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE
-  if (!code && process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.warn("[LR Time] NEXT_PUBLIC_EMPLOYEE_TENANT_CODE is not set — configure it in .env.local")
-  }
-  return code ?? ""
-})()
+function getEmployeeTenantCode(): string {
+  return getActiveTenantCode()
+}
 const WEEK_DAYS = [
   { key: 0, label: "Lundi" },
   { key: 1, label: "Mardi" },
@@ -1324,10 +1318,10 @@ export default function PlanningPage() {
     setError(null)
     try {
       const [employeesData, departmentsData, shiftsData, planningsData] = await Promise.all([
-        fetchEmployeesDetailed(EMPLOYEE_TENANT_CODE),
-        fetchDepartments(EMPLOYEE_TENANT_CODE),
-        fetchWorkShifts(EMPLOYEE_TENANT_CODE),
-        fetchPlannings(EMPLOYEE_TENANT_CODE),
+        fetchEmployeesDetailed(getEmployeeTenantCode()),
+        fetchDepartments(getEmployeeTenantCode()),
+        fetchWorkShifts(getEmployeeTenantCode()),
+        fetchPlannings(getEmployeeTenantCode()),
       ])
 
       setEmployees(employeesData)
@@ -2393,7 +2387,7 @@ export default function PlanningPage() {
             <div className="p-3">
               <TeamPlanningView
                 tenantId={tenantId}
-                tenantCode={EMPLOYEE_TENANT_CODE}
+                tenantCode={getEmployeeTenantCode()}
                 apiEnabled={isEmployeeApiEnabled()}
                 employees={employees}
                 departments={departments}

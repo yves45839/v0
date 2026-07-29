@@ -1,13 +1,11 @@
 /**
  * Frontend client for the Django billing API (`/api/billing/...`).
  *
- * All authenticated calls reuse the JWT auth helper from `lib/api/auth.ts`
- * so that token refresh is shared with the rest of the app.
+ * All authenticated calls go through the unified HTTP client
+ * (`lib/api/client.ts`), which handles JWT refresh and the
+ * `X-Tenant-Code` header shared with the rest of the app.
  */
-import { getAccessToken, getActiveTenantCode } from "@/lib/api/auth"
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
+import { API_BASE_URL, apiJson, toApiError, unwrapList } from "@/lib/api/client"
 
 // ---------- Types ----------
 
@@ -125,52 +123,10 @@ export type PaymentIntentResponse = {
 
 type ListResponse<T> = { count?: number; results?: T[] } | T[]
 
-function unwrapList<T>(payload: ListResponse<T>): T[] {
-  if (Array.isArray(payload)) return payload
-  if (payload && Array.isArray(payload.results)) return payload.results
-  return []
-}
-
 // ---------- Internal HTTP helpers ----------
 
-async function parseError(response: Response): Promise<Error> {
-  const text = await response.text().catch(() => "")
-  try {
-    const parsed = JSON.parse(text)
-    if (typeof parsed?.detail === "string") return new Error(parsed.detail)
-    return new Error(text || `HTTP ${response.status}`)
-  } catch {
-    return new Error(text || `HTTP ${response.status}`)
-  }
-}
-
-async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = await getAccessToken()
-  if (!token) {
-    throw new Error("Authentication required.")
-  }
-  const tenantCode = getActiveTenantCode()
-  return fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(tenantCode ? { "X-Tenant-Code": tenantCode } : {}),
-      ...(init.headers ?? {}),
-    },
-  })
-}
-
 async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await authFetch(path, init)
-  if (!response.ok) {
-    throw await parseError(response)
-  }
-  if (response.status === 204) {
-    return null as T
-  }
-  return response.json()
+  return apiJson<T>(path, init)
 }
 
 // ---------- Public catalog (no auth) ----------
@@ -181,7 +137,7 @@ export async function fetchPlans(currency?: string): Promise<Plan[]> {
     cache: "no-store",
   })
   if (!response.ok) {
-    throw await parseError(response)
+    throw await toApiError(response)
   }
   return unwrapList<Plan>(await response.json())
 }
@@ -191,7 +147,7 @@ export async function fetchAvailableCurrencies(): Promise<string[]> {
     cache: "no-store",
   })
   if (!response.ok) {
-    throw await parseError(response)
+    throw await toApiError(response)
   }
   const data = await response.json()
   return Array.isArray(data) ? data.map((c: string) => c.toLowerCase()) : []
@@ -205,17 +161,17 @@ export async function fetchBillingSummary(): Promise<BillingSummary> {
 
 export async function fetchSubscriptions(): Promise<Subscription[]> {
   const payload = await authJson<ListResponse<Subscription>>("/api/billing/subscriptions/")
-  return unwrapList(payload)
+  return unwrapList<Subscription>(payload)
 }
 
 export async function fetchInvoices(): Promise<Invoice[]> {
   const payload = await authJson<ListResponse<Invoice>>("/api/billing/invoices/")
-  return unwrapList(payload)
+  return unwrapList<Invoice>(payload)
 }
 
 export async function fetchPayments(): Promise<Payment[]> {
   const payload = await authJson<ListResponse<Payment>>("/api/billing/payments/")
-  return unwrapList(payload)
+  return unwrapList<Payment>(payload)
 }
 
 // ---------- Actions: subscription lifecycle ----------

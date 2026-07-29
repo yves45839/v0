@@ -1,5 +1,0 @@
-export const DEMO_DEPARTMENTS_DATA = []
-export const DEMO_ORGANIZATIONS_DATA = []
-export const DEMO_WORK_SHIFTS_DATA = []
-export const DEMO_ACCESS_GROUPS_DATA = []
-export const DEMO_EMPLOYEES_RAW = []

@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { PageContextBar } from "@/components/dashboard/page-context-bar"
 import { fetchHikEvents, triggerHikEventsCatchup, type HikEvent } from "@/lib/api/access-logs"
+import { getActiveTenantCode } from "@/lib/api/auth"
 import { fetchEmployees, type EmployeeListItem } from "@/lib/api/employees"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -188,14 +189,7 @@ function mapEventToAccessLog(event: HikEvent): AccessLog {
 
 export default function AccessLogsPage() {
   const searchParams = useSearchParams()
-  const tenantCode = (() => {
-    const code = (process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE ?? "").trim()
-    if (!code && process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
-      console.warn("[LR Time] NEXT_PUBLIC_HIK_EVENTS_TENANT is not set — configure it in .env.local")
-    }
-    return code
-  })()
+  const tenantCode = getActiveTenantCode()
   const latestLogIdRef = useRef<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")

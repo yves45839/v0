@@ -1,13 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import {
-  DEMO_EMPLOYEES_RAW,
-  DEMO_DEPARTMENTS_DATA,
-  DEMO_ORGANIZATIONS_DATA,
-  DEMO_WORK_SHIFTS_DATA,
-  DEMO_ACCESS_GROUPS_DATA,
-} from "@/lib/mock-data/demo-employees"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { OrganizationTree, type EmployeeScope } from "@/components/employees/organization-tree"
@@ -46,7 +39,6 @@ import {
   fetchOnlineReaders,
   fetchOrganizations,
   fetchWorkShifts,
-  isEmployeeApiEnabled,
   readCardFromReader,
   enrollFingerprintFromReader,
   enrollFaceFromReader,
@@ -64,6 +56,7 @@ import {
   type OrganizationApiItem,
   type WorkShiftApiItem,
 } from "@/lib/api/employees"
+import { getActiveTenantCode } from "@/lib/api/auth"
 import { CardEnrollDialog } from "@/components/employees/card-enroll-dialog"
 import { FingerprintEnrollDialog } from "@/components/employees/fingerprint-enroll-dialog"
 import { FaceEnrollDialog } from "@/components/employees/face-enroll-dialog"
@@ -130,14 +123,9 @@ export type Employee = {
   }[]
 }
 
-const EMPLOYEE_TENANT_CODE = (() => {
-  const code = process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE
-  if (!code && process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.warn("[LR Time] NEXT_PUBLIC_EMPLOYEE_TENANT_CODE is not set — configure it in .env.local")
-  }
-  return code ?? ""
-})()
+function getEmployeeTenantCode(): string {
+  return getActiveTenantCode()
+}
 
 function addYearsToDate(dateIso: string, years: number): string {
   const date = new Date(dateIso)
@@ -359,35 +347,24 @@ export default function EmployeesPage() {
   )
 
   const loadEmployeesData = useCallback(async () => {
-    if (!isEmployeeApiEnabled()) {
-      // Mode demonstration : charger les donnees fictives
-      setAccessGroups(DEMO_ACCESS_GROUPS_DATA as AccessGroupApiItem[])
-      setDepartments(DEMO_DEPARTMENTS_DATA as DepartmentApiItem[])
-      setOrganizations(DEMO_ORGANIZATIONS_DATA as OrganizationApiItem[])
-      setWorkShifts(DEMO_WORK_SHIFTS_DATA as WorkShiftApiItem[])
-      setEmployeeList(DEMO_EMPLOYEES_RAW as unknown as Employee[])
-      setAvailableReaders([])
-      return
-    }
-
     setIsLoadingEmployees(true)
     setEmployeesError(null)
 
     try {
       const [employeesData, accessGroupsData, departmentsData, organizationsData, workShiftsData, devicesData] = await Promise.all([
-        fetchEmployeesDetailed(EMPLOYEE_TENANT_CODE),
-        fetchAccessGroups(EMPLOYEE_TENANT_CODE),
-        fetchDepartments(EMPLOYEE_TENANT_CODE),
-        fetchOrganizations(EMPLOYEE_TENANT_CODE),
-        fetchWorkShifts(EMPLOYEE_TENANT_CODE),
-        fetchDevices(EMPLOYEE_TENANT_CODE),
+        fetchEmployeesDetailed(getEmployeeTenantCode()),
+        fetchAccessGroups(getEmployeeTenantCode()),
+        fetchDepartments(getEmployeeTenantCode()),
+        fetchOrganizations(getEmployeeTenantCode()),
+        fetchWorkShifts(getEmployeeTenantCode()),
+        fetchDevices(getEmployeeTenantCode()),
       ])
 
       const localAccessGroupById = new Map(accessGroupsData.map((group) => [group.id, group]))
       const localDepartmentById = new Map(departmentsData.map((department) => [department.id, department]))
       const localWorkShiftById = new Map(workShiftsData.map((workShift) => [workShift.id, workShift]))
 
-      const readersData = await fetchOnlineReaders(EMPLOYEE_TENANT_CODE).catch(() => [] as GatewayReaderItem[])
+      const readersData = await fetchOnlineReaders(getEmployeeTenantCode()).catch(() => [] as GatewayReaderItem[])
 
       setAccessGroups(accessGroupsData)
       setDepartments(departmentsData)
@@ -396,31 +373,18 @@ export default function EmployeesPage() {
       setDevices(devicesData)
       setAvailableReaders(readersData)
       setTenantId(employeesData[0]?.tenant ?? departmentsData[0]?.tenant ?? null)
-      // Si l'API ne renvoie aucun employé, on retombe sur les données de
-      // démonstration (employés + orgs + départements + groupes d'accès +
-      // quarts) afin que la page soit cohérente et utilisable.
-      if (employeesData.length === 0) {
-        setEmployeeList(DEMO_EMPLOYEES_RAW as unknown as Employee[])
-        setAccessGroups(DEMO_ACCESS_GROUPS_DATA as AccessGroupApiItem[])
-        setDepartments(DEMO_DEPARTMENTS_DATA as DepartmentApiItem[])
-        setOrganizations(DEMO_ORGANIZATIONS_DATA as OrganizationApiItem[])
-        setWorkShifts(DEMO_WORK_SHIFTS_DATA as WorkShiftApiItem[])
-      } else {
-        setEmployeeList(
-          employeesData.map((employee) =>
-            mapApiEmployeeToUi(employee, localDepartmentById, localAccessGroupById, localWorkShiftById)
-          )
+      setEmployeeList(
+        employeesData.map((employee) =>
+          mapApiEmployeeToUi(employee, localDepartmentById, localAccessGroupById, localWorkShiftById)
         )
-      }
+      )
     } catch (error) {
       setEmployeesError(error instanceof Error ? error.message : "Erreur de chargement des employes")
-      // En cas d'échec API, on retombe sur les données de démonstration
-      // afin que la liste employés et l'arbre organisations restent visibles.
-      setEmployeeList(DEMO_EMPLOYEES_RAW as unknown as Employee[])
-      setAccessGroups(DEMO_ACCESS_GROUPS_DATA as AccessGroupApiItem[])
-      setDepartments(DEMO_DEPARTMENTS_DATA as DepartmentApiItem[])
-      setOrganizations(DEMO_ORGANIZATIONS_DATA as OrganizationApiItem[])
-      setWorkShifts(DEMO_WORK_SHIFTS_DATA as WorkShiftApiItem[])
+      setEmployeeList([])
+      setAccessGroups([])
+      setDepartments([])
+      setOrganizations([])
+      setWorkShifts([])
     } finally {
       setIsLoadingEmployees(false)
     }
@@ -489,8 +453,6 @@ export default function EmployeesPage() {
       setAddModalOpen(true)
     }
   }, [searchParams, employeeList])
-
-  const demoModeEnabled = !isEmployeeApiEnabled()
 
   const departmentsByParent = useMemo(() => {
     const map = new Map<number | null, DepartmentApiItem[]>()
@@ -664,9 +626,7 @@ export default function EmployeesPage() {
       }
       return [payload, ...prev]
     })
-    if (isEmployeeApiEnabled()) {
-      void loadEmployeesData()
-    }
+    void loadEmployeesData()
     toast.success(isEdit ? "Employé modifié avec succès" : "Employé ajouté avec succès")
   }
 
@@ -1306,7 +1266,7 @@ export default function EmployeesPage() {
                     {hasSearch ? " Recherche active." : ""}
                   </p>
                   <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#4a5568]">
-                    {demoModeEnabled ? "Mode demonstration" : "Donnees HikCentral en direct"}
+                    {"Données en direct"}
                   </p>
                 </div>
 
@@ -1399,7 +1359,7 @@ export default function EmployeesPage() {
             onAddEmployee={handleSaveEmployee}
             employeeToEdit={editingEmployee}
             employees={employeeList}
-            tenantCode={EMPLOYEE_TENANT_CODE}
+            tenantCode={getEmployeeTenantCode()}
             departments={departments.map((department) => ({
               id: department.id,
               tenant: department.tenant,

@@ -20,8 +20,6 @@ import {
 } from "@/lib/api/employees"
 import { fetchAttendanceReport, type AttendanceReportResponse } from "@/lib/api/reports"
 
-const DASHBOARD_TENANT = _requireTenantCode(process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT, "NEXT_PUBLIC_HIK_EVENTS_TENANT")
-
 export type DashboardSystemStatus = "connected" | "disconnected" | "syncing"
 
 export type DashboardDataSourceStatus = "ok" | "warning" | "error"
@@ -353,7 +351,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 const API_TIMEOUT_MS = 5_000
 
 export async function fetchDashboardData(locale: DashboardLocale = "fr"): Promise<DashboardPayload> {
-  const tenantCode = getActiveTenantCode(DASHBOARD_TENANT).trim() || undefined
+  const tenantCode = getActiveTenantCode().trim() || undefined
   const [eventsResult, reportResult, employeesResult, devicesResult, leavesResult] = await Promise.allSettled([
     withTimeout(fetchHikEvents({ tenant: tenantCode, limit: HIK_EVENTS_FETCH_LIMIT }), API_TIMEOUT_MS),
     withTimeout(fetchAttendanceReport({ tenant: tenantCode, period: "daily" }), API_TIMEOUT_MS),

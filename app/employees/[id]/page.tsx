@@ -58,15 +58,11 @@ import {
   type WorkShiftApiItem,
 } from "@/lib/api/employees"
 import { fetchHikEvents, type HikEvent } from "@/lib/api/access-logs"
+import { getActiveTenantCode } from "@/lib/api/auth"
 
-const TENANT_CODE = (() => {
-  const code = process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE
-  if (!code && process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.warn("[LR Time] NEXT_PUBLIC_EMPLOYEE_TENANT_CODE is not set — configure it in .env.local")
-  }
-  return code ?? ""
-})()
+function getTenantCode(): string {
+  return getActiveTenantCode()
+}
 
 function getInitials(name: string) {
   return name
@@ -133,10 +129,10 @@ export default function EmployeeDetailPage() {
       const [employeeData, departmentsData, workShiftsData, devicesData, accessGroupsData] =
         await Promise.all([
           fetchEmployeeById(employeeId),
-          fetchDepartments(TENANT_CODE),
-          fetchWorkShifts(TENANT_CODE),
-          fetchDevices(TENANT_CODE),
-          fetchAccessGroups(TENANT_CODE),
+          fetchDepartments(getTenantCode()),
+          fetchWorkShifts(getTenantCode()),
+          fetchDevices(getTenantCode()),
+          fetchAccessGroups(getTenantCode()),
         ])
       setEmployee(employeeData)
       setDepartments(departmentsData)
@@ -168,7 +164,7 @@ export default function EmployeeDetailPage() {
       const response = await fetchHikEvents({
         personId: employee.employee_no,
         limit: 25,
-        tenant: TENANT_CODE,
+        tenant: getTenantCode(),
       })
       setEvents(response.results ?? [])
       setEventsState("ready")

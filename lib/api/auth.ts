@@ -378,16 +378,19 @@ export async function refreshAccessToken(force = false): Promise<string | null> 
     if (!response.ok) {
       throw await parseApiError(response, "Token refresh failed")
     }
-    const payload = (await response.json()) as { access?: unknown }
+    const payload = (await response.json()) as { access?: unknown; refresh?: unknown }
     const access = String(payload.access ?? "").trim()
     if (!access) {
       throw new Error("Token refresh returned no access token.")
     }
+    // The backend rotates refresh tokens (ROTATE_REFRESH_TOKENS + blacklist):
+    // the old refresh token is dead after this call, so the rotated one must be kept.
+    const rotatedRefresh = String(payload.refresh ?? "").trim() || session.tokens.refresh
     persistSession({
       ...session,
       tokens: {
         access,
-        refresh: session.tokens.refresh,
+        refresh: rotatedRefresh,
       },
     })
     return access

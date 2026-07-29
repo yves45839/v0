@@ -9,6 +9,7 @@ import { useI18n } from "@/lib/i18n/context"
 import { logoutCurrentSession } from "@/lib/api/auth"
 import { toast } from "sonner"
 import { SectionTabs } from "@/components/dashboard/section-tabs"
+import { TenantSwitcher } from "@/components/dashboard/tenant-switcher"
 
 interface HeaderProps {
   systemStatus?: "connected" | "disconnected" | "syncing"
@@ -130,6 +131,7 @@ export function Header({ hideRouteInfo = false }: HeaderProps) {
           </div>
         </div>
         <div className="hidden items-center gap-2 sm:flex">
+          <TenantSwitcher />
           <Button
             variant="outline"
             size="sm"

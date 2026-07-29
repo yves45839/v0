@@ -1,4 +1,5 @@
 import { getAccessToken, getSessionTokens, redirectToLogin } from "@/lib/api/auth"
+import { API_BASE_URL, ApiError, apiDelete, apiFetch, apiJson } from "@/lib/api/client"
 
 export type AuthTokens = {
   access: string
@@ -462,15 +463,6 @@ export type EmployeeScheduleApiResponse = {
   days: EmployeeScheduleDay[]
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-const API_USERNAME = process.env.NEXT_PUBLIC_EMPLOYEE_API_USERNAME ?? ""
-const API_PASSWORD = process.env.NEXT_PUBLIC_EMPLOYEE_API_PASSWORD ?? ""
-const TOKEN_CACHE_TTL_MS = 60_000
-
-let cachedEmployeeTokens: AuthTokens | null = null
-let cachedEmployeeTokensAt = 0
-let employeeTokenRequestInFlight: Promise<AuthTokens> | null = null
-
 function parseListPayload<T>(payload: unknown): T[] {
   if (Array.isArray(payload)) return payload as T[]
   if (
@@ -632,7 +624,6 @@ function isBadJsonGatewayError(detail: string): boolean {
 
 async function readCardFromAcsEventsFallback(
   devIndex: string,
-  accessToken: string,
   options?: { timeoutSeconds?: number; pollIntervalMs?: number }
 ): Promise<ReadCardResponse> {
   const timeoutSeconds = clampNumber(options?.timeoutSeconds ?? 15, 1, 60)
@@ -657,19 +648,14 @@ async function readCardFromAcsEventsFallback(
       condition.endTime = new Date().toISOString()
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/hikgateway/acs-events/`, {
+    const response = await apiFetch("/api/hikgateway/acs-events/", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
       body: JSON.stringify({
         dev_index: devIndex,
         payload: {
           AcsEventCond: condition,
         },
       }),
-      cache: "no-store",
     })
 
     const envelope = (await response.json().catch(() => ({}))) as HikAcsEnvelope & {
@@ -715,152 +701,43 @@ async function readCardFromAcsEventsFallback(
   throw new Error("Aucune carte detectee pendant la fenetre de lecture.")
 }
 
+/**
+ * Retourne les jetons de la session utilisateur courante.
+ * (L'ancien repli sur un compte de service NEXT_PUBLIC_* a été supprimé :
+ * l'authentification passe toujours par la session utilisateur.)
+ */
 export async function fetchEmployeeApiToken(): Promise<AuthTokens> {
-  const now = Date.now()
-  if (cachedEmployeeTokens && now - cachedEmployeeTokensAt < TOKEN_CACHE_TTL_MS) {
-    return cachedEmployeeTokens
-  }
-
   const sessionTokens = getSessionTokens()
-  if (sessionTokens) {
-    const access = (await getAccessToken()) ?? sessionTokens.access
-    const tokens: AuthTokens = {
-      access,
-      refresh: sessionTokens.refresh,
-    }
-    cachedEmployeeTokens = tokens
-    cachedEmployeeTokensAt = Date.now()
-    return tokens
+  if (!sessionTokens) {
+    redirectToLogin()
+    throw new ApiError("Authentification requise.", 401)
   }
-
-  if (employeeTokenRequestInFlight) {
-    return employeeTokenRequestInFlight
-  }
-
-  employeeTokenRequestInFlight = (async () => {
-    if (!API_USERNAME || !API_PASSWORD) {
-      throw new Error("No authenticated user session found and fallback API credentials are not configured.")
-    }
-    const response = await fetch(`${API_BASE_URL}/api/auth/token/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: API_USERNAME,
-        password: API_PASSWORD,
-      }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`Token API error (${response.status})`)
-    }
-
-    const tokens = (await response.json()) as AuthTokens
-    cachedEmployeeTokens = tokens
-    cachedEmployeeTokensAt = Date.now()
-    return tokens
-  })()
-
-  try {
-    return await employeeTokenRequestInFlight
-  } finally {
-    employeeTokenRequestInFlight = null
+  const access = (await getAccessToken()) ?? sessionTokens.access
+  return {
+    access,
+    refresh: sessionTokens.refresh,
   }
 }
 
 async function employeeApiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const tokens = await fetchEmployeeApiToken()
-  let response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${tokens.access}`,
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  })
-
-  if (response.status === 401) {
-    if (getSessionTokens()) {
-      const refreshedAccess = await getAccessToken({ forceRefresh: true }).catch(() => null)
-      if (refreshedAccess) {
-        response = await fetch(`${API_BASE_URL}${path}`, {
-          ...init,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${refreshedAccess}`,
-            ...(init?.headers ?? {}),
-          },
-          cache: "no-store",
-        })
-      }
-    }
-    // If still 401 after refresh attempt (or no session to refresh), redirect to login
-    if (response.status === 401) {
-      redirectToLogin()
-    }
-  }
-
-  if (!response.ok) {
-    const errorBody = await response.text()
-    throw new Error(`Employee API error (${response.status}) on ${path}: ${errorBody}`)
-  }
-
-  if (response.status === 204) {
-    return null as T
-  }
-  return response.json()
+  return apiJson<T>(path, init)
 }
 
 async function employeeApiDelete(path: string): Promise<void> {
-  const tokens = await fetchEmployeeApiToken()
-  let response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${tokens.access}`,
-    },
-    cache: "no-store",
-  })
-
-  if (response.status === 401 && getSessionTokens()) {
-    const refreshedAccess = await getAccessToken({ forceRefresh: true }).catch(() => null)
-    if (refreshedAccess) {
-      response = await fetch(`${API_BASE_URL}${path}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${refreshedAccess}`,
-        },
-        cache: "no-store",
-      })
-    }
-  }
-
-  if (!response.ok) {
-    const errorBody = await response.text()
-    throw new Error(`Employee API delete error (${response.status}) on ${path}: ${errorBody}`)
-  }
+  return apiDelete(path)
 }
 
 export async function createEmployee(
   payload: CreateEmployeePayload,
+  // Conservé pour compatibilité de signature : l'authentification est désormais
+  // gérée par le client unifié (lib/api/client.ts).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   accessToken: string
 ): Promise<CreateEmployeeResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/employees/`, {
+  return apiJson<CreateEmployeeResponse>("/api/employees/", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify(payload),
   })
-
-  if (!response.ok) {
-    const errorBody = await response.text()
-    throw new Error(`Employee API error (${response.status}): ${errorBody}`)
-  }
-
-  return response.json()
 }
 
 export async function updateEmployee(
@@ -1084,24 +961,18 @@ export async function readCardFromReader(
   devIndex: string,
   options?: { tenantCode?: string; timeoutSeconds?: number; pollIntervalMs?: number }
 ): Promise<ReadCardResponse> {
-  const tokens = await fetchEmployeeApiToken()
   const timeoutSeconds = clampNumber(options?.timeoutSeconds ?? 15, 1, 60)
   const pollIntervalMs = clampNumber(options?.pollIntervalMs ?? 1200, 200, 5000)
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/hikgateway/read-card/`, {
+    const response = await apiFetch("/api/hikgateway/read-card/", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${tokens.access}`,
-      },
       body: JSON.stringify({
         dev_index: devIndex,
         tenant: options?.tenantCode || undefined,
         timeout_seconds: timeoutSeconds,
         poll_interval_ms: pollIntervalMs,
       }),
-      cache: "no-store",
     })
 
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
@@ -1131,7 +1002,7 @@ export async function readCardFromReader(
     // Fall through to ACS fallback.
   }
 
-  return readCardFromAcsEventsFallback(devIndex, tokens.access, {
+  return readCardFromAcsEventsFallback(devIndex, {
     timeoutSeconds,
     pollIntervalMs,
   })
@@ -1383,5 +1254,6 @@ export async function pushPendingEmployeesToGateway(
 }
 
 export function isEmployeeApiEnabled() {
-  return process.env.NEXT_PUBLIC_EMPLOYEE_API_ENABLED === "true"
+  // L'API employés est toujours active dès qu'une URL de base est disponible.
+  return Boolean(API_BASE_URL)
 }

@@ -1,4 +1,4 @@
-import { fetchEmployeeApiToken } from "@/lib/api/employees"
+import { apiJson } from "@/lib/api/client"
 import { getActiveTenantCode } from "@/lib/api/auth"
 
 export type HikEvent = {
@@ -53,29 +53,6 @@ export type HikCatchupResponse = {
   max_results: number
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-
-// Dev safeguard: log a visible warning when tenant env vars are not configured
-function _requireTenantCode(value: string | undefined, varName: string): string {
-  if (!value || value.trim() === "") {
-    if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[LR Time] ${varName} is not set. ` +
-        "Add it to your .env.local file. " +
-        "Falling back to empty string — API calls that require a tenant code will fail."
-      )
-    }
-    return ""
-  }
-  return value.trim()
-}
-
-const HIK_EVENTS_TENANT = _requireTenantCode(
-  process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT ?? process.env.NEXT_PUBLIC_EMPLOYEE_TENANT_CODE,
-  "NEXT_PUBLIC_HIK_EVENTS_TENANT"
-)
-
 type FetchHikEventsParams = {
   limit?: number
   source?: string
@@ -88,7 +65,7 @@ type FetchHikEventsParams = {
 }
 
 export async function fetchHikEvents(params: FetchHikEventsParams = {}): Promise<HikEventsResponse> {
-  const resolvedTenantCode = getActiveTenantCode(HIK_EVENTS_TENANT)
+  const resolvedTenantCode = getActiveTenantCode()
   const search = new URLSearchParams()
   search.set("limit", String(params.limit ?? 200))
   if (params.source) search.set("source", params.source)
@@ -99,49 +76,12 @@ export async function fetchHikEvents(params: FetchHikEventsParams = {}): Promise
   if (params.autoCatchup != null) search.set("auto_catchup", params.autoCatchup ? "1" : "0")
   search.set("include_system", params.includeSystem ? "1" : "0")
 
-  let accessToken: string | null = null
-  try {
-    const tokens = await fetchEmployeeApiToken()
-    accessToken = tokens.access
-  } catch {
-    accessToken = null
-  }
-
-  const headers: HeadersInit = {}
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`
-  }
-
-  const response = await fetch(`${API_BASE_URL}/api/hikgateway/events/?${search.toString()}`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Hik events API error (${response.status}): ${body}`)
-  }
-
-  return response.json()
+  return apiJson<HikEventsResponse>(`/api/hikgateway/events/?${search.toString()}`)
 }
 
 export async function triggerHikEventsCatchup(maxResults = 200): Promise<HikCatchupResponse> {
-  const tokens = await fetchEmployeeApiToken()
-  const response = await fetch(`${API_BASE_URL}/api/hikgateway/catchup-acs-events/`, {
+  return apiJson<HikCatchupResponse>("/api/hikgateway/catchup-acs-events/", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${tokens.access}`,
-      "Content-Type": "application/json",
-    },
     body: JSON.stringify({ max_results: maxResults }),
-    cache: "no-store",
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Catchup API error (${response.status}): ${body}`)
-  }
-
-  return response.json()
 }

@@ -66,6 +66,7 @@ import {
   type AttendanceReportResponse,
 } from "@/lib/api/reports"
 import { fetchDepartments, fetchEmployeesDetailed, type DepartmentApiItem } from "@/lib/api/employees"
+import { getActiveTenantCode } from "@/lib/api/auth"
 
 type DirectoryPerson = {
   personId: string
@@ -400,7 +401,7 @@ const STATUS_TONE: Record<string, ReportTone> = {
 
 export default function ReportsPage() {
   const searchParams = useSearchParams()
-  const tenantCode = process.env.NEXT_PUBLIC_HIK_EVENTS_TENANT
+  const tenantCode = getActiveTenantCode()
   const [selectedPeriod, setSelectedPeriod] = useState<AttendanceReportPeriod>("weekly")
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("all")
@@ -682,7 +683,7 @@ export default function ReportsPage() {
       return
     }
     if (!tenantForCorrection) {
-      setCorrectionMessage("Tenant introuvable pour cette personne. Configure NEXT_PUBLIC_HIK_EVENTS_TENANT ou charge un rapport filtre par tenant.")
+      setCorrectionMessage("Tenant introuvable pour cette personne. Sélectionnez une organisation active ou chargez un rapport filtré par tenant.")
       return
     }
 
@@ -936,7 +937,7 @@ export default function ReportsPage() {
       return
     }
     if (!tenantForCorrection) {
-      setCorrectionMessage("Tenant introuvable pour cette personne. Configure NEXT_PUBLIC_HIK_EVENTS_TENANT ou charge un rapport filtre par tenant.")
+      setCorrectionMessage("Tenant introuvable pour cette personne. Sélectionnez une organisation active ou chargez un rapport filtré par tenant.")
       return
     }
 
