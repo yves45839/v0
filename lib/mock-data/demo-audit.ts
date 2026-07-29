@@ -1,9 +1,0 @@
-export type AuditEventType = "access_granted" | "access_denied" | "door_forced" | "door_held_open" | "badge_created" | "badge_revoked" | "badge_suspended" | "user_created" | "user_modified" | "user_deleted" | "zone_modified" | "group_modified" | "schedule_modified" | "rule_created" | "rule_modified" | "rule_disabled" | "system_login" | "system_logout" | "api_access" | "export_performed" | "report_generated" | "config_changed" | "incident_created" | "incident_resolved"
-export type AuditSeverity = "info" | "notice" | "warning" | "critical"
-export type AuditEvent = { id: string; type: AuditEventType; severity: AuditSeverity; actor: string; actorType: "user" | "system" | "api" | "badge"; target: string; targetType: "employee" | "visitor" | "badge" | "door" | "zone" | "group" | "rule" | "system"; description: string; details?: Record<string,string>; ipAddress?: string; location?: string; createdAt: string }
-export type ComplianceCheck = { id: string; name: string; category: string; description: string; status: "pass" | "fail" | "warning" | "na"; score: number; maxScore: number; lastChecked: string; recommendation?: string; evidence?: string }
-export type ReportTemplate = { id: string; name: string; description: string; category: string; periodicity: "on_demand" | "daily" | "weekly" | "monthly"; format: "pdf" | "csv" | "xlsx"; lastGenerated?: string; scheduledAt?: string; recipients: string[] }
-export const AUDIT_EVENTS: AuditEvent[] = []
-export const COMPLIANCE_CHECKS: ComplianceCheck[] = []
-export const REPORT_TEMPLATES: ReportTemplate[] = []
-export const COMPLIANCE_SCORE = { global: 0, authentication: 0, accessControl: 0, infrastructure: 0, dataProtection: 0, incidentManagement: 0, continuity: 0, technicalSecurity: 0 }

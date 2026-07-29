@@ -1,9 +1,0 @@
-export type SecurityZone = { id: string; name: string; level: "public" | "restricted" | "critical"; description?: string }
-export type Reader = { id: string; name: string; zoneId: string; status: "online" | "offline" | "warning" }
-export type AccessGroup = { id: string; name: string; zoneIds: string[] }
-export type AccessSchedule = { id: string; name: string; timezone: string; rules: string[] }
-export const ZONES: SecurityZone[] = []
-export const READERS: Reader[] = []
-export const ACCESS_GROUPS: AccessGroup[] = []
-export const ACCESS_SCHEDULES: AccessSchedule[] = []
-export const ZONES_STATS = { totalZones: 0, restrictedZones: 0, activeReaders: 0, accessGroups: 0 }

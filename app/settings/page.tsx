@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { useI18n } from "@/lib/i18n/context"
 import { getActiveTenantCode } from "@/lib/api/auth"
+import { API_BASE_URL } from "@/lib/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 // Card components available but replaced with custom premium panels
@@ -721,7 +722,7 @@ export default function SettingsPage() {
         dailyDigest,
       }
       savePreferenceSnapshot(next)
-      toast.success("Préférences de notification enregistrées")
+      toast.success("Préférences de notification enregistrées sur ce navigateur")
     } finally {
       setIsSavingPreferences(false)
     }
@@ -737,7 +738,7 @@ export default function SettingsPage() {
         sessionTimeout,
       }
       savePreferenceSnapshot(next)
-      toast.success("Paramètres de sécurité enregistrés")
+      toast.success("Préférences de sécurité enregistrées sur ce navigateur")
     } finally {
       setIsSavingPreferences(false)
     }
@@ -769,7 +770,7 @@ export default function SettingsPage() {
       setTimezone(trimmedTimezone)
       setLocale(language as "fr" | "en")
       setTheme(themePreference === "system" ? "dark" : themePreference)
-      toast.success("Paramètres généraux enregistrés")
+      toast.success("Préférences générales enregistrées sur ce navigateur")
     } finally {
       setIsSavingPreferences(false)
     }
@@ -2024,7 +2025,7 @@ export default function SettingsPage() {
                       {[
                         { label: "Tenant actif", value: activeTenantName || "—", icon: Building, mono: false },
                         { label: "Code tenant", value: tenants.find((t) => t.id === tenantId)?.code || "—", icon: Hash, mono: true },
-                        { label: "API Base URL", value: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000", icon: Network, mono: true },
+                        { label: "API Base URL", value: API_BASE_URL, icon: Network, mono: true },
                       ].map((row) => (
                         <div key={row.label} className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/40 px-4 py-3">
                           <row.icon className="h-4 w-4 shrink-0 text-muted-foreground/60" />
@@ -2036,6 +2037,9 @@ export default function SettingsPage() {
                   </div>
 
                   {/* Save/Reset */}
+                  <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-600 dark:text-amber-300">
+                    Préférences locales à ce navigateur — elles ne sont pas synchronisées avec le serveur ni partagées entre appareils.
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => void saveSecuritySettings()} disabled={!hasSecurityChanges || isSavingPreferences}>
                       {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
@@ -2141,6 +2145,9 @@ export default function SettingsPage() {
                   </div>
 
                   {/* Actions */}
+                  <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-600 dark:text-amber-300">
+                    Préférences locales à ce navigateur — elles ne sont pas synchronisées avec le serveur ni partagées entre appareils.
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => void saveNotificationSettings()} disabled={!hasNotificationChanges || isSavingPreferences}>
                       {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
@@ -2263,7 +2270,7 @@ export default function SettingsPage() {
                     <div className="space-y-2 px-6 pb-6">
                       {[
                         { label: "Version app", value: "v1.0.0", icon: Zap, mono: false },
-                        { label: "API endpoint", value: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api", icon: Network, mono: true },
+                        { label: "API endpoint", value: `${API_BASE_URL}/api`, icon: Network, mono: true },
                         { label: "Tenant actif", value: activeTenantName || "—", icon: Building, mono: false },
                         { label: "Statut serveur", value: pageSystemStatus === "connected" ? "Connecté" : pageSystemStatus === "syncing" ? "Synchronisation" : "Déconnecté", icon: Wifi, mono: false },
                       ].map((row) => (
@@ -2277,6 +2284,9 @@ export default function SettingsPage() {
                   </div>
 
                   {/* Actions */}
+                  <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-600 dark:text-amber-300">
+                    Préférences locales à ce navigateur — elles ne sont pas synchronisées avec le serveur ni partagées entre appareils.
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => void saveGeneralSettings()} disabled={!hasGeneralChanges || isSavingPreferences}>
                       {isSavingPreferences ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}

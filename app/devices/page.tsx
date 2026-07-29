@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { DEMO_DEVICES_DATA } from "@/lib/mock-data/demo-devices"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { Header } from "@/components/dashboard/header"
 import { Button } from "@/components/ui/button"
@@ -54,7 +53,6 @@ import {
   MapPin,
   Activity,
   Zap,
-  ExternalLink,
   Loader2,
   Server,
   ShieldCheck,
@@ -62,7 +60,21 @@ import {
 import { toast } from "sonner"
 import { AddDeviceByIpDialog } from "@/components/devices/add-device-by-ip-dialog"
 import { getActiveTenantCode } from "@/lib/api/auth"
-import { fetchEmployeeApiToken } from "@/lib/api/employees"
+import { ApiError } from "@/lib/api/client"
+import {
+  deleteDevice,
+  fetchDevices,
+  fetchGatewayDevices,
+  fetchTenants,
+  formatGatewayError,
+  onboardDevice,
+  rebootDevice,
+  syncDevices,
+  updateDevice,
+  type CoreDevice,
+  type GatewayDevice,
+  type Tenant,
+} from "@/lib/api/devices"
 
 type Device = {
   id: string
@@ -83,28 +95,7 @@ type Device = {
   tenantCode?: string
 }
 
-type GatewayDevice = Record<string, unknown>
-type TenantOption = { id: number; code: string; name: string }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_EMPLOYEE_API_BASE_URL ?? "http://localhost:8000"
-const DEFAULT_TENANT_CODE = process.env.NEXT_PUBLIC_TENANT_CODE ?? ""
-const RAW_DEVICE_CONFIG_PATH = process.env.NEXT_PUBLIC_DEVICE_CONFIG_PATH ?? "/doc/index.html#/dashboard"
-const DEVICE_CONFIG_PATH = RAW_DEVICE_CONFIG_PATH.startsWith("/")
-  ? RAW_DEVICE_CONFIG_PATH
-  : `/${RAW_DEVICE_CONFIG_PATH}`
-const DEVICE_CONFIG_SCHEME =
-  (process.env.NEXT_PUBLIC_DEVICE_CONFIG_SCHEME ?? "https").toLowerCase() === "https" ? "https" : "http"
-
-const getConfigHostCandidate = (rawIpAddress: string): string | null => {
-  const value = String(rawIpAddress ?? "").trim()
-  if (!value || value === "-" || value.toLowerCase() === "n/a") {
-    return null
-  }
-  if (value.includes(":") || value.includes("/")) {
-    return null
-  }
-  return value
-}
+type TenantOption = Tenant
 
 const normalizeStatus = (value: unknown): Device["status"] => {
   const status = String(value ?? "").toLowerCase()
@@ -286,7 +277,8 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<Device[]>([])
   const [isLoadingDevices, setIsLoadingDevices] = useState(false)
   const [devicesError, setDevicesError] = useState<string | null>(null)
-  const [tenantCode, setTenantCode] = useState(() => getActiveTenantCode(DEFAULT_TENANT_CODE))
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [tenantCode, setTenantCode] = useState(() => getActiveTenantCode())
   const [tenants, setTenants] = useState<TenantOption[]>([])
   const [isLoadingTenants, setIsLoadingTenants] = useState(false)
   const [serialNumber, setSerialNumber] = useState("SN-POSTMAN-0001")
@@ -302,7 +294,6 @@ export default function DevicesPage() {
   const [editName, setEditName] = useState("")
   const [isUpdatingDevice, setIsUpdatingDevice] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
-  const [configuringDeviceId, setConfiguringDeviceId] = useState<string | null>(null)
   const [syncingDeviceId, setSyncingDeviceId] = useState<string | null>(null)
   const [diagnosingDeviceId, setDiagnosingDeviceId] = useState<string | null>(null)
   const [verifyingDeviceId, setVerifyingDeviceId] = useState<string | null>(null)
@@ -310,139 +301,101 @@ export default function DevicesPage() {
   const [pendingRestartDevice, setPendingRestartDevice] = useState<Device | null>(null)
   const [addByIpOpen, setAddByIpOpen] = useState(false)
 
-  const getAccessToken = async (_normalizedBaseUrl: string) => {
-    const tokenData = await fetchEmployeeApiToken()
-    if (!tokenData?.access) {
-      throw new Error("Session invalide. Merci de vous reconnecter.")
-    }
-    return String(tokenData.access)
-  }
-
   const refreshDevices = async (targetTenantCode = tenantCode): Promise<Device[]> => {
     setIsLoadingDevices(true)
-    setDevicesError(null)
+    setLoadError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-
-      await fetch(`${normalizedBaseUrl}/api/hikgateway/sync-devices/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ dispatch_core_devices: true }),
-      }).catch(() => null)
-
       const normalizedTenantCode = targetTenantCode.trim()
-      const query = normalizedTenantCode
-        ? `?tenant=${encodeURIComponent(normalizedTenantCode)}&normalized=1&max_result=200`
-        : "?normalized=1&max_result=200"
-
-      const response = await fetch(`${normalizedBaseUrl}/api/hikgateway/devices/${query}`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+      const gateway = await fetchGatewayDevices({
+        tenant: normalizedTenantCode || undefined,
+        normalized: true,
+        maxResult: 200,
       })
 
-      if (!response.ok) {
-        throw new Error(`Echec lecture devices (${response.status})`)
+      if (gateway.errors.length > 0 && gateway.results.length === 0) {
+        throw new Error(
+          gateway.errors.map(formatGatewayError).join(" ") || "Passerelle Hikvision injoignable.",
+        )
       }
 
-      const data = await response.json()
-      const results = Array.isArray(data?.results) ? data.results : []
-      const mappedDevices = results.map((item: GatewayDevice, index: number) => mapGatewayDevice(item, index))
+      const mappedDevices = gateway.results.map((item: GatewayDevice, index: number) =>
+        mapGatewayDevice(item, index),
+      )
 
-      const coreDevicesResponse = await fetch(`${normalizedBaseUrl}/api/devices/`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
+      // L'inventaire local sert uniquement a lier les appareils passerelle au
+      // coeur (id local + nom). Son echec ne doit pas bloquer l'affichage.
+      let coreRows: CoreDevice[] = []
+      try {
+        coreRows = await fetchDevices(normalizedTenantCode || undefined)
+      } catch {
+        coreRows = []
+      }
 
       const coreByDevIndex = new Map<string, { id: number; name: string; serialNumber: string }>()
       const coreBySerial = new Map<string, { id: number; name: string; serialNumber: string }>()
-      if (coreDevicesResponse.ok) {
-        const corePayload = await coreDevicesResponse.json()
-        const coreRows = Array.isArray(corePayload)
-          ? corePayload
-          : Array.isArray(corePayload?.results)
-            ? corePayload.results
-            : []
-
-        for (const row of coreRows as Array<Record<string, unknown>>) {
-          const rowId = Number(row.id)
-          const rowDevIndex = String(row.dev_index ?? "").trim()
-          const rowName = String(row.name ?? "").trim()
-          const rowSerialNumber = String(row.serial_number ?? "").trim()
-          if (!Number.isFinite(rowId)) {
-            continue
-          }
-          const normalized = {
-            id: rowId,
-            name: rowName,
-            serialNumber: rowSerialNumber,
-          }
-          if (rowDevIndex) {
-            coreByDevIndex.set(rowDevIndex, normalized)
-          }
-          if (rowSerialNumber) {
-            coreBySerial.set(rowSerialNumber, normalized)
-          }
+      for (const row of coreRows) {
+        const rowId = Number(row.id)
+        const rowDevIndex = String(row.dev_index ?? "").trim()
+        const rowName = String(row.name ?? "").trim()
+        const rowSerialNumber = String(row.serial_number ?? "").trim()
+        if (!Number.isFinite(rowId)) {
+          continue
+        }
+        const normalized = {
+          id: rowId,
+          name: rowName,
+          serialNumber: rowSerialNumber,
+        }
+        if (rowDevIndex) {
+          coreByDevIndex.set(rowDevIndex, normalized)
+        }
+        if (rowSerialNumber) {
+          coreBySerial.set(rowSerialNumber, normalized)
         }
       }
 
       const normalizedDevices = mappedDevices.map((device: Device) => ({
-          ...device,
-          coreDeviceId:
-            coreByDevIndex.get(device.devIndex)?.id ?? coreBySerial.get(device.serialNumber)?.id,
-          name:
-            coreByDevIndex.get(device.devIndex)?.name ||
-            coreBySerial.get(device.serialNumber)?.name ||
-            device.name,
-        }))
+        ...device,
+        coreDeviceId:
+          coreByDevIndex.get(device.devIndex)?.id ?? coreBySerial.get(device.serialNumber)?.id,
+        name:
+          coreByDevIndex.get(device.devIndex)?.name ||
+          coreBySerial.get(device.serialNumber)?.name ||
+          device.name,
+      }))
 
       setDevices(normalizedDevices)
       return normalizedDevices
     } catch (error) {
-      setDevicesError(error instanceof Error ? error.message : "Impossible de charger les appareils.")
-      // Mode demonstration : charger les appareils fictifs
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const demoDevices = DEMO_DEVICES_DATA as any[]
-      setDevices(demoDevices)
-      return demoDevices
+      setLoadError(error instanceof Error ? error.message : "Erreur inattendue.")
+      setDevices([])
+      return []
     } finally {
       setIsLoadingDevices(false)
     }
   }
 
+  const handleSyncAll = async () => {
+    try {
+      // Admin plateforme uniquement : 403 attendu pour un utilisateur normal.
+      await syncDevices({ dispatchCoreDevices: true })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        toast.info("Réservé aux administrateurs de la plateforme")
+      } else {
+        toast.error(error instanceof Error ? error.message : "Echec de la synchronisation passerelle")
+      }
+    }
+    await refreshDevices()
+  }
+
   const loadTenants = async (): Promise<string> => {
     setIsLoadingTenants(true)
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/tenants/`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`Echec lecture tenants (${response.status})`)
-      }
-
-      const data = await response.json()
-      const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
-      const parsed = rows
-        .map((item: Record<string, unknown>) => ({
-          id: Number(item.id),
-          code: String(item.code ?? "").trim(),
-          name: String(item.name ?? "").trim(),
-        }))
-        .filter((item: TenantOption) => Number.isFinite(item.id) && item.code)
-
+      const parsed = await fetchTenants()
       setTenants(parsed)
-      const preferredTenantCode = getActiveTenantCode(DEFAULT_TENANT_CODE)
+      const preferredTenantCode = getActiveTenantCode()
       const selectedTenantCode =
         parsed.find((tenant: TenantOption) => tenant.code.toLowerCase() === preferredTenantCode.toLowerCase())?.code ??
         parsed[0]?.code ??
@@ -590,38 +543,20 @@ export default function DevicesPage() {
         throw new Error("Le champ device_password est obligatoire.")
       }
 
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-
-      const createResponse = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          tenant_code: tenantCode.trim(),
-          sn: serialNumber.trim(),
-          ehome_key: ehomeKey.trim(),
-          dev_name: `Device ${serialNumber.trim()}`,
-          dev_type: "AccessControl",
-          device_username: "admin",
-          device_password: devicePassword.trim(),
-        }),
+      const result = await onboardDevice({
+        tenant_code: tenantCode.trim(),
+        sn: serialNumber.trim(),
+        ehome_key: ehomeKey.trim(),
+        dev_name: `Device ${serialNumber.trim()}`,
+        dev_type: "AccessControl",
+        device_username: "admin",
+        device_password: devicePassword.trim(),
       })
 
-      const responseData = await createResponse.json().catch(() => ({}))
-
-      if (![200, 201, 409].includes(createResponse.status)) {
-        throw new Error(
-          responseData?.detail || responseData?.message || `Echec onboarding device (${createResponse.status})`,
-        )
-      }
-
-      if (createResponse.status === 201) {
+      if (result.created) {
         setSubmitMessage("Appareil ajoute avec succes via /api/devices/onboard/ (201).")
         toast.success("Appareil ajouté avec succès")
-      } else if (createResponse.status === 200) {
+      } else if (result.alreadyOnboarded) {
         setSubmitMessage("Appareil deja onboarde sur ce tenant (200).")
         toast.info("Appareil déjà enregistré sur ce tenant")
       } else {
@@ -640,35 +575,7 @@ export default function DevicesPage() {
     setPendingDeleteDevice(device)
   }
 
-  const handleDiscoverDevice = async (
-    ip: string,
-    port: number,
-    protocol: string,
-    password: string,
-  ) => {
-    const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-    const accessToken = await getAccessToken(normalizedBaseUrl)
-    const response = await fetch(`${normalizedBaseUrl}/api/hikgateway/discover-device/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ ip_address: ip, port, protocol, device_password: password }),
-    })
-    if (!response.ok) {
-      throw new Error(`Découverte échouée (${response.status})`)
-    }
-    const data = await response.json()
-    return {
-      model: String(data.model ?? data.devType ?? "Appareil Hikvision"),
-      serialNumber: String(data.serial_number ?? data.sn ?? ""),
-      firmwareVersion: String(data.firmware ?? data.version ?? "N/A"),
-      deviceType: String(data.device_type ?? "door_controller"),
-      macAddress: String(data.mac_address ?? "-"),
-    }
-  }
-
-  const handleRegisterDeviceByIp = async (payload: {
-    ipAddress: string
-    port: number
+  const handleRegisterDeviceManually = async (payload: {
     serialNumber: string
     name: string
     deviceType: string
@@ -676,26 +583,17 @@ export default function DevicesPage() {
     ehomeKey: string
     devicePassword: string
   }) => {
-    const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-    const accessToken = await getAccessToken(normalizedBaseUrl)
-    const response = await fetch(`${normalizedBaseUrl}/api/devices/onboard/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({
-        tenant_code: payload.tenantCode,
-        sn: payload.serialNumber,
-        ehome_key: payload.ehomeKey,
-        dev_name: payload.name,
-        dev_type: payload.deviceType,
-        device_username: "admin",
-        device_password: payload.devicePassword,
-        ip_address: payload.ipAddress,
-        port: payload.port,
-      }),
+    const result = await onboardDevice({
+      tenant_code: payload.tenantCode,
+      sn: payload.serialNumber,
+      ehome_key: payload.ehomeKey,
+      dev_name: payload.name,
+      dev_type: payload.deviceType,
+      device_username: "admin",
+      device_password: payload.devicePassword,
     })
-    if (![200, 201, 409].includes(response.status)) {
-      const err = await response.json().catch(() => ({}))
-      throw new Error(err?.detail ?? err?.message ?? `Erreur enregistrement (${response.status})`)
+    if (result.conflict) {
+      throw new Error("Conflit: ce numero de serie est deja affecte a un autre tenant.")
     }
     await refreshDevices()
   }
@@ -714,25 +612,7 @@ export default function DevicesPage() {
     setDevicesError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/?gateway=1`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}))
-        throw new Error(
-          String(
-            errorPayload?.detail ??
-              errorPayload?.message ??
-              `Echec suppression device (${response.status})`,
-          ),
-        )
-      }
+      await deleteDevice(device.coreDeviceId, { gateway: true })
 
       setDevices((previous) => previous.filter((item) => item.id !== device.id))
       if (selectedDevice?.id === device.id) {
@@ -767,21 +647,7 @@ export default function DevicesPage() {
     setDevicesError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/reboot/`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.detail ?? payload?.message ?? `Echec redemarrage device (${response.status})`),
-        )
-      }
+      await rebootDevice(device.coreDeviceId)
       setPendingRestartDevice(null)
       toast.success(`Redémarrage de "${device.name}" lancé`)
     } catch (error) {
@@ -870,25 +736,7 @@ export default function DevicesPage() {
     setUpdateError(null)
 
     try {
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const response = await fetch(`${normalizedBaseUrl}/api/devices/${editingDevice.coreDeviceId}/`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          name: editName.trim(),
-        }),
-      })
-
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.detail ?? payload?.message ?? `Echec modification device (${response.status})`),
-        )
-      }
+      const payload = await updateDevice(editingDevice.coreDeviceId, { name: editName.trim() })
 
       setDevices((previous) =>
         previous.map((item) =>
@@ -913,70 +761,6 @@ export default function DevicesPage() {
       toast.error("Erreur lors de la modification de l'appareil")
     } finally {
       setIsUpdatingDevice(false)
-    }
-  }
-
-  const handleOpenDeviceConfiguration = async (device: Device) => {
-    if (!device.coreDeviceId) {
-      setDevicesError("Impossible d'ouvrir la configuration: id local introuvable. Lance une synchronisation puis reessaie.")
-      return
-    }
-
-    setConfiguringDeviceId(device.id)
-    setDevicesError(null)
-
-    let popup: Window | null = null
-    try {
-      popup = window.open("", "_blank", "noopener,noreferrer")
-
-      const normalizedBaseUrl = API_BASE_URL.replace(/\/$/, "")
-      const accessToken = await getAccessToken(normalizedBaseUrl)
-      const query = new URLSearchParams({
-        scheme: DEVICE_CONFIG_SCHEME,
-        path: DEVICE_CONFIG_PATH,
-      })
-      let hostCandidate = getConfigHostCandidate(device.ipAddress)
-      if (hostCandidate) {
-        query.set("host", hostCandidate)
-      } else {
-        query.set("allow_gateway_fallback", "1")
-        toast.info("IP du terminal non disponible, tentative via Gateway ISAPI.")
-      }
-
-      const response = await fetch(
-        `${normalizedBaseUrl}/api/devices/${device.coreDeviceId}/config-page/?${query.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      )
-
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.detail ?? payload?.message ?? `Echec ouverture config device (${response.status})`),
-        )
-      }
-
-      const configurationUrl = String(payload?.configuration_url ?? "").trim()
-      if (!configurationUrl) {
-        throw new Error("URL de configuration introuvable pour cet appareil.")
-      }
-
-      if (popup && !popup.closed) {
-        popup.location.replace(configurationUrl)
-        popup.focus()
-      } else {
-        window.open(configurationUrl, "_blank", "noopener,noreferrer")
-      }
-    } catch (error) {
-      if (popup && !popup.closed) {
-        popup.close()
-      }
-      setDevicesError(error instanceof Error ? error.message : "Erreur ouverture configuration appareil")
-    } finally {
-      setConfiguringDeviceId(null)
     }
   }
 
@@ -1011,7 +795,7 @@ export default function DevicesPage() {
                   variant="outline"
                   size="sm"
                   className="h-8 rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#60a5fa]/60 hover:bg-[#1a1f2e] hover:text-[#60a5fa]"
-                  onClick={() => void refreshDevices()}
+                  onClick={() => void handleSyncAll()}
                   disabled={isLoadingDevices}
                 >
                   {isLoadingDevices ? (
@@ -1028,7 +812,7 @@ export default function DevicesPage() {
                   onClick={() => setAddByIpOpen(true)}
                 >
                   <Wifi className="mr-2 h-4 w-4" />
-                  Ajouter par IP
+                  Onboarding manuel
                 </Button>
                 <Button
                   size="sm"
@@ -1214,6 +998,20 @@ export default function DevicesPage() {
             </div>
           )}
 
+          {/* ── Load error ── */}
+          {!isLoadingDevices && loadError && (
+            <EmptyState
+              icon={WifiOff}
+              title="Impossible de charger les appareils"
+              description={loadError}
+              action={{
+                label: "Réessayer",
+                icon: RefreshCcw,
+                onClick: () => void refreshDevices(),
+              }}
+            />
+          )}
+
           {/* ── Devices grid ── */}
           {filteredDevices.length > 0 && (
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -1368,7 +1166,7 @@ export default function DevicesPage() {
             </div>
           )}
 
-          {!isLoadingDevices && filteredDevices.length === 0 && (
+          {!isLoadingDevices && !loadError && filteredDevices.length === 0 && (
             <div className="flex flex-col items-center border border-dashed border-[#1c2133] bg-[#111318] px-4 py-12 text-center">
               <div className="mb-3 flex size-12 items-center justify-center bg-[#1a1f2e] text-[#7a8599]">
                 <Cpu className="size-6" />
@@ -1649,20 +1447,6 @@ export default function DevicesPage() {
                       )
                     })()}
 
-                    <Button
-                      variant="outline"
-                      className="h-9 w-full rounded-none border-[#1c2133] bg-[#1a1f2e] font-mono text-[10px] uppercase tracking-[0.12em] text-[#7a8599] hover:border-[#60a5fa]/60 hover:text-[#60a5fa]"
-                      disabled={configuringDeviceId === selectedDevice.id}
-                      onClick={() => void handleOpenDeviceConfiguration(selectedDevice)}
-                    >
-                      {configuringDeviceId === selectedDevice.id ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <ExternalLink className="mr-2 h-4 w-4" />
-                      )}
-                      {configuringDeviceId === selectedDevice.id ? "Ouverture..." : "Interface de configuration"}
-                    </Button>
-
                     <div className="grid gap-2 sm:grid-cols-2">
                       <Button
                         variant="outline"
@@ -1870,14 +1654,13 @@ export default function DevicesPage() {
             </DialogContent>
           </Dialog>
 
-          {/* ── Add device by IP ── */}
+          {/* ── Manual onboarding dialog ── */}
           <AddDeviceByIpDialog
             open={addByIpOpen}
             onOpenChange={setAddByIpOpen}
             tenants={tenants}
             defaultTenantCode={tenantCode}
-            onDiscover={handleDiscoverDevice}
-            onRegister={handleRegisterDeviceByIp}
+            onRegister={handleRegisterDeviceManually}
           />
         </main>
       </div>

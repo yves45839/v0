@@ -14,25 +14,25 @@ import {
   WifiOff,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Skeleton } from "@/components/ui/skeleton"
 import type {
   AccessEvent,
-  DashboardKPIData,
+  AsyncSection,
   DashboardSystemStatus,
+  DashboardWidgetsData,
   Device,
   PresenceWeekData,
   PriorityAction,
-  UpcomingLeaveItem,
 } from "@/components/dashboard/types"
+import type { HomeSummaryCounts } from "@/lib/api/home"
 
 interface DashboardOverviewProps {
   systemStatus: DashboardSystemStatus
-  kpiData: DashboardKPIData
-  accessEvents: AccessEvent[]
-  devices: Device[]
-  priorityActions: PriorityAction[]
-  presenceWeek: PresenceWeekData
-  upcomingLeaves: UpcomingLeaveItem[]
+  summary: AsyncSection<HomeSummaryCounts>
+  widgets: AsyncSection<DashboardWidgetsData>
   managerName: string | null
+  onRetrySummary: () => void
+  onRetryWidgets: () => void
 }
 
 type IndustrialTone = "green" | "red" | "amber" | "blue"
@@ -136,7 +136,7 @@ function IndustrialHeader({
       ? "LIVE"
       : systemStatus === "syncing"
         ? "SYNC"
-        : "DEMO"
+        : "OFFLINE"
 
   // Raccourci ⌘K / Ctrl+K → focus de l'input de recherche
   useEffect(() => {
@@ -254,19 +254,12 @@ function KpiBlock({
   )
 }
 
-function PresenceChart({
-  data,
-  systemStatus,
-}: {
-  data: PresenceWeekData
-  systemStatus: DashboardSystemStatus
-}) {
+function PresenceChart({ data }: { data: PresenceWeekData }) {
   const [range, setRange] = useState<RangeKey>("7j")
 
-  const hasPresenceData = data.days.some(
+  const hasLiveValues = data.days.some(
     (day) => day.covered && !day.isFuture && day.count > 0 && day.value > 0,
   )
-  const hasLiveValues = systemStatus === "connected" && hasPresenceData
   const liveSeven = data.days.map((day) => day.value)
 
   // Construit une série complète selon la plage demandée, puis l'agrège pour
@@ -365,7 +358,7 @@ function PresenceChart({
                 Aucune donnee de presence sur la periode
               </p>
               <p className="font-mono text-[9px] tracking-[0.08em] text-[#4a5568]">
-                Connectez HikCentral pour afficher les pointages reels
+                Les pointages apparaitront ici des reception des premiers evenements
               </p>
             </div>
           )}
@@ -547,62 +540,144 @@ function RecentActivity({ events }: { events: AccessEvent[] }) {
   )
 }
 
+function ErrorPanel({
+  title,
+  message,
+  onRetry,
+}: {
+  title: string
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <section role="alert" className="border border-[#ef4444]/40 bg-[#111318] p-5">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center bg-[#2a0e0e] text-[#ef4444]">
+          <ShieldAlert className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-[13px] font-semibold uppercase tracking-[0.06em] text-[#ef4444]">
+            {title}
+          </p>
+          <p className="mt-1 break-words text-xs text-[#e2e8f0]">{message}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-8 shrink-0 items-center bg-[#f97316] px-4 font-display text-[12px] font-bold uppercase tracking-[0.12em] text-[#0b0d13] transition hover:bg-[#fb923c]"
+        >
+          Réessayer
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function KpiSection({
+  summary,
+  onRetry,
+}: {
+  summary: AsyncSection<HomeSummaryCounts>
+  onRetry: () => void
+}) {
+  if (summary.status === "loading") {
+    return (
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Chargement des indicateurs">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Skeleton key={index} className="min-h-38 rounded-none" />
+        ))}
+      </section>
+    )
+  }
+
+  if (summary.status === "error") {
+    return (
+      <ErrorPanel
+        title="Indicateurs indisponibles"
+        message={summary.message}
+        onRetry={onRetry}
+      />
+    )
+  }
+
+  const counts = summary.data
+  return (
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <KpiBlock
+        label="Pointages aujourd'hui"
+        value={counts.attendance_logs_today}
+        note={counts.attendance_logs_today > 0 ? "Entrees et sorties du jour" : "Aucun pointage recu"}
+        tone="green"
+      />
+      <KpiBlock
+        label="Acces refuses"
+        value={counts.denied_today}
+        note={counts.denied_today > 0 ? `${counts.denied_today} a verifier` : "Aucun refus aujourd'hui"}
+        tone="red"
+      />
+      <KpiBlock
+        label="Employes actifs"
+        value={counts.employees_active}
+        note={counts.employees_total > 0 ? `${counts.employees_active}/${counts.employees_total} inscrits` : "Aucun employe inscrit"}
+        tone="blue"
+      />
+      <KpiBlock
+        label="Appareils en ligne"
+        value={counts.devices_online}
+        note={counts.devices_total > 0 ? `${counts.devices_online}/${counts.devices_total} en ligne` : "Aucun appareil"}
+        tone="amber"
+      />
+    </section>
+  )
+}
+
+function WidgetsSkeleton() {
+  return (
+    <div className="space-y-5" aria-busy="true" aria-label="Chargement des donnees temps reel">
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_12rem] 2xl:grid-cols-[minmax(0,1fr)_16rem]">
+        <Skeleton className="h-80 rounded-none" />
+        <Skeleton className="h-80 rounded-none" />
+      </section>
+      <Skeleton className="h-42 rounded-none" />
+    </div>
+  )
+}
+
 export function DashboardOverview({
   systemStatus,
-  kpiData,
-  accessEvents,
-  devices,
-  priorityActions,
-  presenceWeek,
+  summary,
+  widgets,
   managerName,
+  onRetrySummary,
+  onRetryWidgets,
 }: DashboardOverviewProps) {
-  const present = kpiData.presentToday.count
-  const expected = kpiData.presentToday.total
-  const absent = kpiData.totalAbsences
-  const late = kpiData.lateArrivals
-  const activeDevices = kpiData.activeDevices.count
-  const totalDevices = kpiData.activeDevices.total
-
   return (
     <main className="min-h-screen bg-[#0b0d13] text-[#e2e8f0]">
       <IndustrialHeader systemStatus={systemStatus} managerName={managerName} />
 
       <div className="space-y-5 px-4 py-5 md:px-6">
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiBlock
-            label="Presents"
-            value={present}
-            note={expected > 0 ? `${present}/${expected} attendus` : "Source en attente"}
-            tone="green"
-          />
-          <KpiBlock
-            label="Absents"
-            value={absent}
-            note={absent > 0 ? `${absent} a traiter` : "0 incident"}
-            tone="red"
-          />
-          <KpiBlock
-            label="En retard"
-            value={late}
-            note={late > 0 ? `${late} detectes` : "0 vs hier"}
-            tone="amber"
-          />
-          <KpiBlock
-            label="Appareils actifs"
-            value={activeDevices}
-            note={totalDevices > 0 ? `${activeDevices}/${totalDevices} en ligne` : "Aucun appareil"}
-            tone="blue"
-          />
-        </section>
+        <KpiSection summary={summary} onRetry={onRetrySummary} />
 
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_12rem] 2xl:grid-cols-[minmax(0,1fr)_16rem]">
-          <PresenceChart data={presenceWeek} systemStatus={systemStatus} />
-          <DevicePanel devices={devices} />
-        </section>
+        {widgets.status === "loading" ? (
+          <WidgetsSkeleton />
+        ) : widgets.status === "error" ? (
+          <ErrorPanel
+            title="Donnees temps reel indisponibles"
+            message={widgets.message}
+            onRetry={onRetryWidgets}
+          />
+        ) : (
+          <>
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_12rem] 2xl:grid-cols-[minmax(0,1fr)_16rem]">
+              <PresenceChart data={widgets.data.presenceWeek} />
+              <DevicePanel devices={widgets.data.devices} />
+            </section>
 
-        <PriorityStrip actions={priorityActions} />
+            <PriorityStrip actions={widgets.data.priorityActions} />
 
-        <RecentActivity events={accessEvents} />
+            <RecentActivity events={widgets.data.accessEvents} />
+          </>
+        )}
       </div>
     </main>
   )
